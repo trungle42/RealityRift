@@ -63,6 +63,10 @@ ARTIFACT_PROMPT = (
     "Pick artifactType, element, ability and rarity ONLY from the allowed enum values. "
     "Make the artifact's look and power clearly reflect the object's shape, material and purpose. "
     "Name it in 2-4 evocative words. Keep description to one sentence. "
+    "Keep element and ability coherent: fire->nova/meteor, water->wave, lightning->bolt/chain, ice->pierce/meteor, "
+    "nature->pierce/chain, shadow->chain/nova, light->bolt/nova. Choose the element from the object's "
+    "material, color or function (liquids/containers of water->water, electronics->lightning, hot drinks->fire, "
+    "wood/pencils/plants->nature, metal blades->ice or light). Damage 40-95; rarer for unusual objects. "
     "If no clear object is visible, invent an artifact from whatever is visible and set object to 'unknown object'."
 )
 
