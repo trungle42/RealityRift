@@ -9,7 +9,9 @@ load_dotenv()
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from . import gemini, store  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+
+from . import gemini, provider, store  # noqa: E402
 from .schemas import (  # noqa: E402
     ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
     GameEvent, ScoreSubmission, StoryEventResponse, StoryState,
@@ -83,3 +85,27 @@ def leaderboard():
 @app.get("/api/stats")
 def stats():
     return store.stats()
+
+
+# ---- Dev 1 engine's StoryProvider (frontend/src/contracts.ts) ----------------
+# 503 = Gemini unavailable; the frontend then uses ScriptedStory for that beat.
+def _provider(fn, *args):
+    try:
+        return fn(*args)
+    except provider.Unavailable:
+        raise HTTPException(status_code=503, detail="storyteller unavailable")
+
+
+@app.post("/api/provider/begin")
+def provider_begin(req: provider.BeginRequest):
+    return _provider(provider.begin, req.party)
+
+
+@app.post("/api/provider/next")
+def provider_next(req: provider.NextRequest):
+    return _provider(provider.next_beat, req)
+
+
+@app.post("/api/provider/storybook")
+def provider_storybook(req: provider.StorybookRequest):
+    return _provider(provider.storybook, req)
