@@ -34,18 +34,20 @@ export class NarrationPanel extends Container {
 
   constructor(private readonly input: InputSource, private readonly narrator: Narrator) {
     super();
-    this.addChild(drawParchment(new Graphics(), X, Y, W, H));
+    this.addChild(new Graphics().roundRect(X, Y, W, H, 3).fill({ color: 0x081b15, alpha: 0.94 })
+      .stroke({ width: 1, color: palette.gold, alpha: 0.65 })
+      .moveTo(X + 20, Y + 8).lineTo(X + W - 20, Y + 8).stroke({ width: 1, color: palette.gold, alpha: 0.14 }));
 
-    this.body = makeText('', { fontSize: 25, fill: palette.ink, wordWrap: true, wordWrapWidth: W - 70, lineHeight: 32 }, 0);
+    this.body = makeText('', { fontSize: 23, fill: palette.parchment, wordWrap: true, wordWrapWidth: W - 170, lineHeight: 29 }, 0);
     this.body.position.set(X + 34, Y + 22);
     this.addChild(this.body);
 
     this.speakerText = makeText('', { fontFamily: fonts.heading, fontWeight: '700', fontSize: 17, fill: palette.parchment });
     this.speakerTag.addChild(new Graphics(), this.speakerText);
-    this.speakerTag.position.set(X + 110, Y - 8);
+    this.speakerTag.position.set(X + W / 2, Y - 8);
     this.addChild(this.speakerTag);
 
-    this.continueHint = makeText('Space ▸', { fontFamily: fonts.heading, fontWeight: '700', fontSize: 16, fill: palette.goldDeep }, 1);
+    this.continueHint = makeText('Space  ›', { fontFamily: fonts.heading, fontWeight: '500', fontSize: 13, fill: palette.gold }, 1);
     this.continueHint.anchor.set(1, 1);
     this.continueHint.position.set(X + W - 22, Y + H - 14);
     this.addChild(this.continueHint);
@@ -69,7 +71,7 @@ export class NarrationPanel extends Container {
     if (paragraphs.length === 0) return;
     this.setSpeaker(speaker);
     await this.open();
-    for (const p of paragraphs) {
+    for (const p of paragraphs.flatMap((paragraph) => this.paginate(paragraph))) {
       this.full = p;
       this.shown = 0;
       this.typing = true;
@@ -107,13 +109,30 @@ export class NarrationPanel extends Container {
     await tween(this, { alpha: 0 }, 0.25);
     this.visible = false;
     this.body.text = '';
+    this.typing = false;
+    this.narrator.stop();
   }
 
   private setSpeaker(name: string): void {
     this.speakerText.text = name;
     const w = this.speakerText.width + 34;
     const bg = this.speakerTag.children[0] as Graphics;
-    bg.clear().roundRect(-w / 2, -16, w, 32, 16).fill(0x7a2316).stroke({ width: 2, color: palette.gold });
+    bg.clear().roundRect(-w / 2, -13, w, 26, 2).fill(0x183b2c).stroke({ width: 1, color: palette.gold, alpha: 0.7 });
+  }
+
+  /** Keep long provider narration inside the panel without clipping. */
+  private paginate(paragraph: string): string[] {
+    const pages: string[] = [];
+    let page = '';
+    for (const word of paragraph.split(/\s+/)) {
+      const next = page ? `${page} ${word}` : word;
+      this.body.text = next;
+      if (this.body.height > 86 && page) { pages.push(page); page = word; }
+      else page = next;
+    }
+    if (page) pages.push(page);
+    this.body.text = '';
+    return pages;
   }
 
   private waitConfirm(): Promise<void> {

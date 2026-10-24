@@ -56,6 +56,8 @@ export class KeyboardInput implements InputSource {
   }
 
   private readonly onDown = (e: KeyboardEvent) => {
+    if (e.target instanceof Element && e.target.closest('dialog')) return;
+    if (e.target instanceof Element && e.target.closest('button') && (e.code === 'Space' || e.code === 'Enter')) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
     this.held.add(e.code);

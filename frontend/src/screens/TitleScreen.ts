@@ -1,53 +1,37 @@
-import { Container, Graphics, Sprite } from 'pixi.js';
+import type { Container } from 'pixi.js';
 import type { InputSource } from '../contracts';
-import { onFrame, now, tween, ease } from '../core/clock';
-import { textures } from '../fx/textures';
-import { fonts, goldText, makeText, palette, VIEW } from '../theme';
 
-/** Title card over the forest backdrop. Resolves on Space / Enter / click. */
-export async function showTitle(parent: Container, input: InputSource): Promise<void> {
-  const screen = new Container();
-  const veil = new Graphics().rect(0, 0, VIEW.width, VIEW.height).fill({ color: 0x05040c, alpha: 0.45 });
-  const glow = new Sprite(textures.glow);
-  glow.anchor.set(0.5);
-  glow.position.set(VIEW.width / 2, 250);
-  glow.scale.set(9, 4);
-  glow.tint = palette.gold;
-  glow.alpha = 0.25;
-  glow.blendMode = 'add';
-
-  const title = goldText('RealityRift', 110);
-  title.position.set(VIEW.width / 2, 240);
-  const subtitle = makeText('An AI-Powered Interactive Fairy Tale', { fontFamily: fonts.heading, fontSize: 28, fill: palette.parchment, letterSpacing: 3, stroke: { color: 0x120818, width: 5 } });
-  subtitle.position.set(VIEW.width / 2, 330);
-  const tagline = makeText('“Don’t just read the fairy tale. Become part of it.”', { fontStyle: 'italic', fontSize: 26, fill: palette.parchmentDark, stroke: { color: 0x120818, width: 4 } });
-  tagline.position.set(VIEW.width / 2, 390);
-  const start = makeText('Press Space to begin', { fontFamily: fonts.heading, fontWeight: '700', fontSize: 26, fill: palette.gold, stroke: { color: 0x120818, width: 5 } });
-  start.position.set(VIEW.width / 2, 520);
-
-  screen.addChild(veil, glow, title, subtitle, tagline, start);
-  screen.alpha = 0;
-  parent.addChild(screen);
-  title.scale.set(0.8);
-  void tween(title.scale, { x: 1, y: 1 }, 1.2, ease.outBack);
-  void tween(screen, { alpha: 1 }, 0.8);
-
-  const off = onFrame(() => {
-    start.alpha = 0.55 + 0.45 * Math.sin(now() * 3);
-    glow.alpha = 0.22 + 0.06 * Math.sin(now() * 1.3);
-  });
-
+/** Native, keyboard-accessible menu over the animated forest. */
+export async function showTitle(_parent: Container, input: InputSource): Promise<void> {
+  const screen = document.createElement('section');
+  screen.className = 'title-screen';
+  screen.setAttribute('aria-label', 'RealityRift main menu');
+  screen.innerHTML = `
+    <div class="title-wordmark"><span class="small-diamond">✧</span> REALITYRIFT <span class="wordmark-line"></span></div>
+    <div class="title-content">
+      <div class="eyebrow">A tale waiting to be told</div>
+      <h1>Reality<span>Rift</span></h1>
+      <div class="title-rule"><span></span>◇<span></span></div>
+      <p class="title-tagline">The world is enchanted.<br>The story is yours.</p>
+      <p class="title-description">Explore enchanted lands. Discover forgotten treasures.<br>Two heroes. One adventure of your own.</p>
+      <button class="primary-button begin-button" type="button"><span>Begin your adventure</span><span aria-hidden="true">↗</span></button>
+      <div class="title-keyhint"><kbd>Space</kbd> or <kbd>Enter</kbd> to begin</div>
+    </div>
+    <div class="title-footer"><span>AN INTERACTIVE FAIRY TALE</span><span>02 HEROES <i>·</i> 01 SHARED DESTINY</span></div>
+    <div class="location-tag"><span class="location-dot"></span> THE EVERGREEN SANCTUARY</div>`;
+  document.body.appendChild(screen);
   await new Promise<void>((resolve) => {
-    const done = () => {
-      unsub();
-      window.removeEventListener('pointerdown', done);
-      resolve();
+    const button = screen.querySelector<HTMLButtonElement>('.begin-button')!;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      off();
+      button.removeEventListener('click', finish);
+      screen.classList.add('leaving');
+      window.setTimeout(() => { screen.remove(); resolve(); }, 400);
     };
-    const unsub = input.subscribe((e) => e.kind === 'confirm' && done());
-    window.addEventListener('pointerdown', done);
+    const off = input.subscribe((e) => { if (e.kind === 'confirm') finish(); });
+    button.addEventListener('click', finish);
   });
-
-  await tween(screen, { alpha: 0 }, 0.5);
-  off();
-  screen.destroy({ children: true });
 }

@@ -11,6 +11,8 @@ import { showTitle } from '../screens/TitleScreen';
 import { HERO_X } from '../theme';
 import { GameState } from './GameState';
 import type { Stage } from './Stage';
+import { didWin } from './rules';
+import { Campaign } from '../campaign/Campaign';
 
 /**
  * Game progression: title → party → story beats (narration, rewards,
@@ -39,9 +41,11 @@ export class Game {
     await this.heroesEnter();
 
     let beat = await stage.think(this.story.begin(party));
+    const campaign = new Campaign(stage);
     let bossOutcome: BeatOutcome | undefined;
     for (;;) {
       stage.hud.setChapter(beat.chapter);
+      if (!beat.isEnding && !await campaign.explore(beat)) break;
       await stage.setEnvironment(beat.environment);
       await stage.narration.say(beat.narration, beat.speaker);
       if (beat.isEnding) break;
@@ -59,7 +63,7 @@ export class Game {
     }
 
     await stage.narration.close();
-    const victory = !state.defeated && (bossOutcome ? bossOutcome.success : true);
+    const victory = didWin(state.hearts, bossOutcome);
     const book = await stage.think(this.story.storybook(state.history(), victory));
     stage.hud.setChapter('');
     await showStorybook(stage.screens, stage.input, book);
@@ -79,6 +83,10 @@ export class Game {
   private async heroesEnter(): Promise<void> {
     const { heroes } = this.stage;
     heroes.forEach((h) => (h.x = -120));
-    await Promise.all(heroes.map((h, i) => tween(h, { x: HERO_X[i] }, 1.1 + i * 0.25, ease.outCubic)));
+    await Promise.all(heroes.map(async (h, i) => {
+      h.setMovement('walk', 1, 0);
+      await tween(h, { x: HERO_X[i] }, 1.1 + i * 0.25, ease.outCubic);
+      h.setMovement('idle', 1, 0);
+    }));
   }
 }

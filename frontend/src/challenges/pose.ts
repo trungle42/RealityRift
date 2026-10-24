@@ -5,6 +5,7 @@ import type { Stage } from '../game/Stage';
 import { textures } from '../fx/textures';
 import { poseIcon, POSE_LABELS } from '../ui/poseIcon';
 import { palette, VIEW } from '../theme';
+import { matchesPose } from '../game/rules';
 
 type PoseSpec = Extract<ChallengeSpec, { type: 'pose' }>;
 
@@ -17,7 +18,8 @@ export async function runPose(stage: Stage, beatId: string, spec: PoseSpec): Pro
 
   for (let round = 0; round < spec.poses.length; round++) {
     const pose = spec.poses[round];
-    await prompt.show(`Shape ${round + 1} of ${spec.poses.length}`, `${POSE_LABELS[pose]} — hold it!`);
+    const keys = pose === 'arms-up' ? '1 · I' : pose === 't-pose' ? '2 · O' : 'S · ↓';
+    await prompt.show(`Shape ${round + 1} of ${spec.poses.length}`, `${POSE_LABELS[pose]} — hold it!  (${keys})`);
 
     const card = new Container();
     const glow = new Sprite(textures.glow);
@@ -39,7 +41,7 @@ export async function runPose(stage: Stage, beatId: string, spec: PoseSpec): Pro
       prompt.setTimer(1 - t / spec.secondsPerPose);
       for (const p of [0, 1] as const) {
         if (locked[p]) continue;
-        const matching = stage.input.read(p).pose === pose;
+        const matching = matchesPose(stage.input.read(p), pose);
         hold[p] = matching ? hold[p] + dt : Math.max(0, hold[p] - dt * 2);
         heroes[p].setMeter(hold[p] / HOLD_SEC);
         if (hold[p] >= HOLD_SEC) {

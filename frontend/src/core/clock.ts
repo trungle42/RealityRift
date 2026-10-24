@@ -5,10 +5,14 @@ export type FrameFn = (dt: number) => void;
 
 const subscribers = new Set<FrameFn>();
 let elapsed = 0;
+let paused = false;
+
+export function setPaused(value: boolean): void { paused = value; }
 
 /** Drive every onFrame / tween / wait from one ticker. dt is clamped so a background tab doesn't teleport everything. */
 export function startClock(ticker: Ticker): void {
   ticker.add((t) => {
+    if (paused || document.hidden) return;
     const dt = Math.min(t.deltaMS / 1000, 0.1);
     elapsed += dt;
     for (const fn of [...subscribers]) fn(dt);

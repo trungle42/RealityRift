@@ -3,6 +3,7 @@ import { until, wait } from '../core/clock';
 import type { Stage } from '../game/Stage';
 import { textures } from '../fx/textures';
 import { palette } from '../theme';
+import { isStill } from '../game/rules';
 
 type FreezeSpec = Extract<ChallengeSpec, { type: 'freeze' }>;
 
@@ -25,7 +26,7 @@ export class StillnessWatch {
     for (const p of [0, 1] as const) {
       if (this.caught[p]) continue;
       const hero = this.stage.heroes[p];
-      const moving = this.stage.input.read(p).motion > this.tolerance;
+      const moving = !isStill(this.stage.input.read(p), this.tolerance);
       this.strain[p] = moving ? this.strain[p] + dt : Math.max(0, this.strain[p] - dt * 0.5);
       hero.setMeter(1 - this.strain[p] / CATCH_SEC, palette.frost);
       if (this.strain[p] >= CATCH_SEC) {

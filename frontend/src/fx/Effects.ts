@@ -81,15 +81,16 @@ export class Effects {
 
   /** A glowing orb that arcs from one point to another, leaving a trail. Resolves on impact. */
   bolt(fromX: number, fromY: number, toX: number, toY: number, color: number, seconds = 0.38): Promise<void> {
-    const orb = new Sprite(textures.glow);
-    orb.anchor.set(0.5);
-    orb.tint = color;
+    const orb = new Container();
+    const halo = new Sprite(textures.glow);
+    halo.anchor.set(0.5);
+    halo.tint = color;
     orb.blendMode = 'add';
     orb.scale.set(0.55);
     const core = new Sprite(textures.dot);
     core.anchor.set(0.5);
     core.scale.set(0.9);
-    orb.addChild(core);
+    orb.addChild(halo, core);
     this.layer.addChild(orb);
 
     const lift = rand(60, 140);

@@ -1,7 +1,4 @@
 import type { Player } from '../contracts';
-import { PLAYER_COLORS } from '../theme';
-
-const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 /** DOM form for entering hero names (MVP step 1: "Create Characters"). */
 export function askForParty(previous?: [Player, Player]): Promise<[Player, Player]> {
@@ -9,11 +6,15 @@ export function askForParty(previous?: [Player, Player]): Promise<[Player, Playe
   root.className = 'party';
   root.innerHTML = `
     <form autocomplete="off">
-      <h2>Who Enters the Tale?</h2>
-      <label><span><i style="background:${hex(PLAYER_COLORS[0])}"></i>Hero One</span><input name="p0" maxlength="14" placeholder="Rowan" /></label>
-      <label><span><i style="background:${hex(PLAYER_COLORS[1])}"></i>Hero Two</span><input name="p1" maxlength="14" placeholder="Wren" /></label>
-      <button type="submit">Begin the Adventure</button>
-      <small>Hero One: A/D choose · W cast · 1/2/3 poses · S duck<br/>Hero Two: ←/→ choose · ↑ cast · I/O/P poses · ↓ duck</small>
+      <div class="eyebrow">Every legend begins with a name</div>
+      <h2>Who enters the tale?</h2>
+      <p class="party-intro">Two souls, bound by a little courage and a little magic.</p>
+      <div class="hero-fields">
+        <div class="hero-field"><img class="hero-portrait" src="${import.meta.env.BASE_URL}art/ranger-idle.webp" alt="Emerald-cloaked ranger" /><span class="hero-role">The woodland guardian</span><label for="hero-one">HERO ONE</label><input id="hero-one" name="p0" maxlength="14" placeholder="Rowan" /></div>
+        <div class="hero-field"><img class="hero-portrait" src="${import.meta.env.BASE_URL}art/mage-idle.webp" alt="Armored spellblade in an ivory and crimson cloak" /><span class="hero-role">The dawn spellweaver</span><label for="hero-two">HERO TWO</label><input id="hero-two" name="p1" maxlength="14" placeholder="Wren" /></div>
+      </div>
+      <button class="primary-button" type="submit">Enter the enchanted realm <span aria-hidden="true">↗</span></button>
+      <small>One keyboard. Two heroes. Three shared hearts.<br/>Open Controls at any time for your spellbook of moves.</small>
     </form>`;
   document.body.appendChild(root);
   const form = root.querySelector('form')!;

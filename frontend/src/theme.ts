@@ -2,29 +2,29 @@ import { Text, type TextStyleOptions } from 'pixi.js';
 
 /** Everything is laid out in this virtual resolution and letterboxed to the window. */
 export const VIEW = { width: 1280, height: 720 } as const;
-export const GROUND_Y = 540;
-export const HERO_X = [250, 390] as const;
+export const GROUND_Y = 550;
+export const HERO_X = [245, 425] as const;
 export const FOE_X = 1010;
 
 export const palette = {
-  night: 0x0b0a1a,
-  ink: 0x2b1a0e,
-  parchment: 0xf3e3c0,
+  night: 0x081713,
+  ink: 0x24352e,
+  parchment: 0xf0ecd9,
   parchmentDark: 0xd8bd8a,
-  gold: 0xf0c45a,
-  goldDeep: 0xa87420,
+  gold: 0xddc48e,
+  goldDeep: 0x9d8050,
   frost: 0x9fe6ff,
   shadow: 0x2a0f3d,
   danger: 0xff5a5a,
-  heart: 0xff4d6d,
-  star: 0xffd65a,
+  heart: 0xe87878,
+  star: 0xe2c481,
   fairy: 0xb9ffd2,
 } as const;
 
-export const PLAYER_COLORS = [0x5ec8ff, 0xff7ab8] as const;
+export const PLAYER_COLORS = [0x8ee3c4, 0xedc18a] as const;
 
 export const fonts = {
-  display: '"Cinzel Decorative", "Cinzel", Georgia, serif',
+  display: '"Cinzel", Georgia, serif',
   heading: '"Cinzel", Georgia, serif',
   body: '"IM Fell English", Georgia, serif',
 } as const;
@@ -41,7 +41,7 @@ export function goldText(text: string, size: number, family: string = fonts.disp
     fontFamily: family,
     fontSize: size,
     fill: palette.gold,
-    stroke: { color: 0x2a1405, width: Math.max(3, size / 9) },
+    stroke: { color: 0x0b1c18, width: 2 },
     dropShadow: { color: 0x000000, alpha: 0.6, blur: 8, distance: 3, angle: Math.PI / 2 },
     letterSpacing: size / 20,
     align: 'center',

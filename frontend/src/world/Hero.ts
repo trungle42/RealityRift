@@ -1,212 +1,145 @@
 import { Container, Graphics, Sprite, type Text } from 'pixi.js';
 import type { PlayerIndex, PoseId } from '../contracts';
 import { onFrame, now, tween, wait, ease } from '../core/clock';
-import { approach, lerpColor } from '../core/math';
 import { textures } from '../fx/textures';
 import { fonts, makeText, palette, PLAYER_COLORS } from '../theme';
+import { art } from './art';
+import { HeroAnimation, type Locomotion } from './animation';
 
 type Stance = PoseId | 'idle';
+const HEIGHT: Record<Stance, number> = { idle: 196, 'arms-up': 238, 't-pose': 196, crouch: 126 };
 
-/** [back arm, front arm] rotations. 0 = hanging down, PI = straight up. */
-const ARM_ANGLES: Record<Stance, [number, number]> = {
-  idle: [0.25, -0.35],
-  'arms-up': [Math.PI - 0.3, Math.PI + 0.3],
-  't-pose': [Math.PI / 2, -Math.PI / 2],
-  crouch: [-1.1, -1.4],
-};
-
-const SHOULDER_Y = -70;
-const ARM_LENGTH = 36;
-
-/** One of the two player characters, drawn procedurally and posed live from input. */
+/** Dimensional rendered heroes with an anatomically correct frame for each pose. */
 export class Hero extends Container {
   readonly color: number;
-  private readonly body = new Container();
-  private readonly armBack = new Graphics();
-  private readonly armFront = new Graphics();
-  private readonly staff = new Container();
-  private readonly orb: Sprite;
+  private readonly body = new Sprite();
+  private readonly echo = new Sprite();
+  private readonly orb = new Sprite(textures.glow);
   private readonly ice = new Graphics();
   private readonly meterBar = new Graphics();
-  private readonly mark = new Container();
+  private readonly mark = new Graphics();
   private readonly nameplate: Text;
   private stance: Stance = 'idle';
-  private angles: [number, number] = [...ARM_ANGLES.idle];
-  private castTimer = 0;
   private frozen = false;
-  private readonly phase: number;
+  private castTimer = 0;
+  private transition = 1;
+  private readonly animation = new HeroAnimation();
+  private readonly stopUpdates: () => void;
 
   constructor(readonly index: PlayerIndex) {
     super();
     this.color = PLAYER_COLORS[index];
-    this.phase = index * 1.7;
-
-    const halo = new Sprite(textures.glow);
-    halo.anchor.set(0.5);
-    halo.tint = this.color;
-    halo.blendMode = 'add';
-    halo.scale.set(1.3, 0.35);
-    halo.alpha = 0.5;
-    this.addChild(new Graphics().ellipse(0, 2, 36, 9).fill({ color: 0x000000, alpha: 0.4 }), halo);
-
-    this.drawArm(this.armBack, lerpColor(this.color, 0x000000, 0.45));
-    this.drawArm(this.armFront, lerpColor(this.color, 0x000000, 0.2));
-    this.armBack.position.set(-12, SHOULDER_Y);
-    this.armFront.position.set(12, SHOULDER_Y);
-
-    this.orb = new Sprite(textures.glow);
+    const shadow = new Sprite(textures.glow);
+    shadow.anchor.set(0.5);
+    shadow.tint = 0x000000;
+    shadow.scale.set(1.0, 0.14);
+    shadow.alpha = 0.7;
+    shadow.y = 1;
+    const rune = new Graphics().ellipse(0, 0, 42, 8).stroke({ color: this.color, width: 1, alpha: 0.4 });
+    this.body.anchor.set(0.5, 1);
+    this.echo.anchor.set(0.5, 1);
+    this.echo.alpha = 0;
+    this.setBody('idle');
     this.orb.anchor.set(0.5);
+    this.orb.position.set(36, -112);
     this.orb.tint = this.color;
     this.orb.blendMode = 'add';
-    this.orb.scale.set(0.4);
-    this.orb.position.set(0, -64);
-    this.staff.addChild(
-      new Graphics().roundRect(-3, -60, 6, 92, 3).fill(0x6b4423).circle(0, -64, 8).fill(0xffffff),
-      this.orb,
-    );
-
-    this.body.addChild(this.armBack, this.drawTorso(), this.drawHead(), this.armFront, this.staff);
-    this.addChild(this.body);
-
-    this.ice.roundRect(-38, -150, 76, 154, 14).fill({ color: palette.frost, alpha: 0.35 }).stroke({ width: 3, color: 0xe6fbff, alpha: 0.8 });
-    this.ice.poly([-30, -140, -10, -150, -24, -100]).fill({ color: 0xffffff, alpha: 0.35 });
+    this.orb.scale.set(0.3);
+    this.orb.alpha = 0.45;
+    this.addChild(shadow, rune, this.echo, this.body, this.orb);
+    this.ice.poly([-45, 0, -54, -150, -26, -210, 30, -205, 52, -140, 42, 0])
+      .fill({ color: palette.frost, alpha: 0.2 }).stroke({ width: 1, color: 0xe4ffff, alpha: 0.8 });
+    this.ice.moveTo(-26, -210).lineTo(12, -150).lineTo(-20, -80).lineTo(30, 0).stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
     this.ice.alpha = 0;
-    this.addChild(this.ice);
-
-    this.meterBar.position.set(0, -168);
-    this.mark.position.set(0, -190);
-    this.addChild(this.meterBar, this.mark);
-
-    this.nameplate = makeText('', { fontFamily: fonts.heading, fontWeight: '700', fontSize: 20, fill: this.color, stroke: { color: 0x0b0a1a, width: 5 } });
-    this.nameplate.position.set(0, 28);
-    this.addChild(this.nameplate);
-
-    onFrame((dt) => this.update(dt));
+    this.meterBar.y = -258;
+    this.mark.y = -284;
+    this.nameplate = makeText('', { fontFamily: fonts.heading, fontSize: 14, letterSpacing: 2, fill: this.color, stroke: { color: 0x07120f, width: 4 } });
+    this.nameplate.y = 24;
+    this.addChild(this.ice, this.meterBar, this.mark, this.nameplate);
+    this.stopUpdates = onFrame((dt) => this.update(dt));
   }
-
-  setName(name: string): void {
-    this.nameplate.text = name;
-  }
-
+  override destroy(): void { this.stopUpdates(); super.destroy({ children: true }); }
+  setName(name: string): void { this.nameplate.text = name; this.nameplate.scale.set(Math.min(1, 150 / this.nameplate.width)); }
+  get animationState() { return this.animation.current; }
+  setWalking(on: boolean, direction = 0): void { this.animation.move(on ? 'walk' : 'idle', direction); }
+  setMovement(mode: Locomotion, dx: number, dy: number): void { this.animation.move(mode, dx, dy); }
+  dodge(): void { this.animation.trigger('roll'); }
+  recoil(): void { this.animation.trigger('hit'); }
+  resetAnimation(): void { this.animation.reset(); }
   setPose(pose: PoseId | null): void {
-    this.stance = pose ?? 'idle';
+    const next = pose ?? 'idle';
+    if (next === this.stance || this.frozen) return;
+    this.echo.texture = this.body.texture;
+    this.echo.scale.copyFrom(this.body.scale);
+    this.echo.alpha = 1;
+    this.stance = next;
+    this.setBody(next);
+    this.transition = 0;
   }
-
+  private setBody(stance: Stance): void {
+    this.body.texture = art(`${this.index === 0 ? 'ranger' : 'mage'}-${stance}`);
+    this.body.anchor.set(0.5, 1);
+    this.body.scale.set(HEIGHT[stance] / this.body.texture.height);
+  }
   setFrozen(on: boolean): void {
     if (on === this.frozen) return;
     this.frozen = on;
     void tween(this.ice, { alpha: on ? 1 : 0 }, 0.3);
-    this.body.tint = on ? 0xb8ecff : 0xffffff;
+    this.body.tint = on ? 0x9edce9 : 0xffffff;
   }
-
-  /** Raise the staff; returns the orb position in the parent's space for spawning a bolt. */
-  cast(): { x: number; y: number } {
-    this.castTimer = 0.3;
-    this.orb.scale.set(0.9);
-    void tween(this.orb.scale, { x: 0.4, y: 0.4 }, 0.4);
-    return this.staffTip();
-  }
-
+  cast(): { x: number; y: number } { this.castTimer = 0.42; this.animation.trigger('cast'); return this.staffTip(); }
   staffTip(): { x: number; y: number } {
-    return this.parent ? this.parent.toLocal(this.orb.getGlobalPosition()) : { x: this.x, y: this.y - 120 };
+    return this.parent ? this.parent.toLocal(this.orb.getGlobalPosition()) : { x: this.x + 36, y: this.y - 112 };
   }
-
   async hurt(): Promise<void> {
+    this.recoil();
     const homeX = this.x;
-    this.body.tint = palette.danger;
-    this.x = homeX - 18;
-    void tween(this, { x: homeX }, 0.4, ease.outBack);
-    for (let i = 0; i < 3; i++) {
-      this.body.alpha = 0.35;
-      await wait(0.07);
-      this.body.alpha = 1;
-      await wait(0.07);
-    }
-    this.body.tint = this.frozen ? 0xb8ecff : 0xffffff;
+    this.body.tint = 0xff9d8f;
+    this.x -= 14;
+    void tween(this, { x: homeX }, 0.35, ease.outCubic);
+    await wait(0.18);
+    if (!this.destroyed) this.body.tint = this.frozen ? 0x9edce9 : 0xffffff;
   }
-
   async celebrate(): Promise<void> {
     const y = this.y;
-    await tween(this, { y: y - 34 }, 0.18, ease.outCubic);
-    await tween(this, { y }, 0.22, ease.inCubic);
+    await tween(this, { y: y - 16 }, 0.2, ease.outCubic);
+    await tween(this, { y }, 0.25, ease.inCubic);
   }
-
-  /** Small progress bar above the head (0..1), or null to hide. */
   setMeter(value: number | null, color = this.color): void {
     this.meterBar.clear();
     if (value === null) return;
-    this.meterBar.roundRect(-34, -6, 68, 12, 6).fill({ color: 0x0b0a1a, alpha: 0.75 }).stroke({ width: 2, color: palette.gold });
-    if (value > 0) this.meterBar.roundRect(-32, -4, 64 * Math.min(1, value), 8, 4).fill(color);
+    this.meterBar.roundRect(-34, -3, 68, 6, 3).fill({ color: 0x07120f, alpha: 0.9 });
+    if (value > 0) this.meterBar.roundRect(-33, -2, 66 * Math.min(1, value), 4, 2).fill(color);
   }
-
-  /** Check / cross / nothing above the head. */
   setMark(kind: 'ok' | 'fail' | null): void {
-    this.mark.removeChildren().forEach((c) => c.destroy());
+    const g = this.mark.clear();
     if (!kind) return;
-    const g = new Graphics().circle(0, 0, 18).fill(kind === 'ok' ? 0x2f9e5b : 0xb3263b).stroke({ width: 3, color: palette.gold });
-    if (kind === 'ok') g.moveTo(-8, 0).lineTo(-2, 7).lineTo(9, -7).stroke({ width: 4, color: 0xffffff, cap: 'round', join: 'round' });
-    else g.moveTo(-7, -7).lineTo(7, 7).moveTo(7, -7).lineTo(-7, 7).stroke({ width: 4, color: 0xffffff, cap: 'round' });
-    this.mark.addChild(g);
-    this.mark.scale.set(0.3);
-    void tween(this.mark.scale, { x: 1, y: 1 }, 0.35, ease.outBack);
+    g.circle(0, 0, 13).fill({ color: 0x0c201a, alpha: 0.9 }).stroke({ color: kind === 'ok' ? this.color : palette.danger, width: 1 });
+    if (kind === 'ok') g.moveTo(-6, 0).lineTo(-1, 5).lineTo(7, -5).stroke({ width: 2, color: this.color });
+    else g.moveTo(-5, -5).lineTo(5, 5).moveTo(5, -5).lineTo(-5, 5).stroke({ width: 2, color: palette.danger });
   }
-
   private update(dt: number): void {
-    const t = now();
-    const target = ARM_ANGLES[this.stance];
-    const frontTarget = this.castTimer > 0 ? -2.3 : target[1];
+    this.transition = Math.min(1, this.transition + dt * 9);
+    this.body.alpha = this.transition;
+    this.echo.alpha = 1 - this.transition;
     this.castTimer = Math.max(0, this.castTimer - dt);
-    const rate = this.frozen ? 0 : 14;
-    this.angles[0] = approach(this.angles[0], target[0], rate, dt);
-    this.angles[1] = approach(this.angles[1], frontTarget, rate, dt);
-    this.armBack.rotation = this.angles[0];
-    this.armFront.rotation = this.angles[1];
-
-    const crouch = this.stance === 'crouch' ? 0.72 : 1;
-    this.body.scale.y = approach(this.body.scale.y, crouch, rate, dt);
-    this.body.y = this.frozen ? 0 : Math.sin(t * 2.4 + this.phase) * 2;
-
-    // The staff follows the front hand but stays mostly upright.
-    const a = this.angles[1];
-    this.staff.position.set(this.armFront.x - Math.sin(a) * ARM_LENGTH, SHOULDER_Y + Math.cos(a) * ARM_LENGTH);
-    this.staff.rotation = Math.sin(a) * -0.35;
-    this.orb.alpha = 0.7 + 0.3 * Math.sin(t * 5 + this.phase);
-  }
-
-  private drawArm(g: Graphics, color: number): void {
-    g.roundRect(-5, -2, 10, ARM_LENGTH + 2, 5).fill(color).circle(0, ARM_LENGTH, 6).fill(0xf2c9a0);
-  }
-
-  private drawTorso(): Graphics {
-    const robe = lerpColor(this.color, 0x1a1030, 0.35);
-    const g = new Graphics();
-    g.poly([-30, 0, 30, 0, 17, -78, -17, -78]).fill(robe);
-    g.poly([-30, 0, 30, 0, 28, -8, -28, -8]).fill(palette.gold);
-    g.poly([-4, -78, 4, -78, 8, 0, -8, 0]).fill({ color: 0xffffff, alpha: 0.12 });
-    g.rect(-19, -48, 38, 6).fill(palette.goldDeep);
-    return g;
-  }
-
-  private drawHead(): Graphics {
-    const g = new Graphics();
-    if (this.index === 1) g.poly([-18, -100, 18, -100, 22, -66, -22, -66]).fill(0x7a3b1c); // long hair behind
-    g.circle(0, -96, 17).fill(0xf2c9a0);
-    g.circle(7, -98, 2.4).fill(0x2b1a0e).circle(-1, -98, 2.4).fill(0x2b1a0e);
-    g.ellipse(10, -91, 3, 1.5).fill({ color: 0xd9776a, alpha: 0.6 });
-    if (this.index === 0) {
-      // Pointed wizard hat with a star.
-      const hat = lerpColor(this.color, 0x10183a, 0.5);
-      g.ellipse(0, -108, 30, 7).fill(hat);
-      g.poly([-18, -110, 18, -110, 6, -150, -14, -168]).fill(hat);
-      g.rect(-18, -114, 36, 5).fill(palette.gold);
-      g.star(-2, -134, 5, 6, 2.5).fill(palette.star);
+    const breathing = this.frozen ? 0 : Math.sin(now() * 1.6 + this.index) * 0.003;
+    const motion = this.animation.advance(dt, this.frozen);
+    if (motion.clip !== 'idle' && !this.frozen) {
+      this.body.texture = art(`${this.index === 0 ? 'ranger' : 'mage'}-${motion.clip}-${motion.frame}`);
+      this.body.anchor.set(0.5, 240 / 256);
+      this.body.scale.set(motion.facing, 1);
+      this.body.alpha = 1; this.echo.alpha = 0;
     } else {
-      // Fringe and a jeweled circlet.
-      g.arc(0, -98, 18, Math.PI, Math.PI * 2).fill(0x8a4520);
-      g.rect(-18, -108, 36, 4).fill(palette.gold);
-      g.poly([-6, -108, 0, -120, 6, -108]).fill(palette.gold);
-      g.circle(0, -112, 3).fill(this.color);
+      this.setBody(this.stance);
+      const scale = HEIGHT[this.stance] / this.body.texture.height;
+      this.body.scale.set(scale * motion.facing, scale * (1 + breathing));
     }
-    return g;
+    this.body.y = 0; this.body.rotation = 0;
+    this.orb.x = 36 * motion.facing;
+    this.orb.visible = motion.clip !== 'roll' && motion.clip !== 'backwalk';
+    this.orb.y = this.stance === 'crouch' ? -70 : this.stance === 'arms-up' ? -224 : -112;
+    this.orb.scale.set(this.castTimer > 0 ? 0.75 : 0.19 + Math.sin(now() * 2) * 0.025);
+    this.orb.alpha = this.castTimer > 0 ? 0.95 : 0.45;
   }
 }

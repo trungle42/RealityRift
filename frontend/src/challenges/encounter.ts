@@ -4,6 +4,7 @@ import { rand } from '../core/math';
 import type { Stage } from '../game/Stage';
 import { Enemy } from '../world/Enemy';
 import { GROUND_Y, HERO_X, VIEW } from '../theme';
+import { heartsLostSince } from '../game/rules';
 
 const BASE_SPEED = 80;
 const BASE_INTERVAL = 1.6;
@@ -16,6 +17,8 @@ export function castCooldown(stage: Stage): number {
 
 export async function runEncounter(stage: Stage, beatId: string, spec: EncounterSpec): Promise<BeatOutcome> {
   const { prompt, fx, sfx, heroes, actors, input } = stage;
+  const startingHearts = stage.state.hearts;
+  let active = true;
   const label = spec.enemy === 'shadow-wisp' ? 'Shadow Wisps' : 'Thorn Imps';
   await prompt.show(`Ambush · ${label}`, 'Cast spells to drive them back!  (W  ·  ↑)');
 
@@ -30,7 +33,7 @@ export async function runEncounter(stage: Stage, beatId: string, spec: Encounter
   let inFlight = 0;
 
   const off = input.subscribe((e) => {
-    if (e.kind !== 'cast' || e.player === null) return;
+    if (!active || stage.state.defeated || e.kind !== 'cast' || e.player === null) return;
     const p: PlayerIndex = e.player;
     if (cooldown[p] > 0) return;
     cooldown[p] = castCooldown(stage);
@@ -46,7 +49,7 @@ export async function runEncounter(stage: Stage, beatId: string, spec: Encounter
     // Lead the target slightly since it keeps walking.
     void fx.bolt(tip.x, tip.y, target.x - 20, target.y - 45, heroes[p].color, 0.35).then(() => {
       inFlight--;
-      if (!target.alive) return;
+      if (!active || stage.state.defeated || !target.alive) return;
       target.dissolve(fx);
       sfx.impact();
       kills[p]++;
@@ -70,7 +73,7 @@ export async function runEncounter(stage: Stage, beatId: string, spec: Encounter
     }
 
     for (const enemy of enemies) {
-      if (!enemy.alive) continue;
+      if (!enemy.alive || stage.state.defeated) continue;
       enemy.x -= BASE_SPEED * spec.speed * dt;
       enemy.animate();
       if (enemy.x <= REACH_X) {
@@ -83,6 +86,7 @@ export async function runEncounter(stage: Stage, beatId: string, spec: Encounter
     const remaining = enemies.some((en) => en.alive);
     return stage.state.defeated || (spawned >= spec.count && !remaining && inFlight === 0);
   });
+  active = false;
   off();
   enemies.filter((en) => en.alive).forEach((en) => en.dissolve(fx));
   await wait(0.4);
@@ -93,5 +97,5 @@ export async function runEncounter(stage: Stage, beatId: string, spec: Encounter
   await stage.resetHeroes();
 
   const summary = `${stage.name(0)} defeated ${kills[0]} and ${stage.name(1)} defeated ${kills[1]} ${label.toLowerCase()}${heartsLost ? `; ${heartsLost} got through` : ''}`;
-  return stage.outcome(beatId, 'encounter', success, kills, [kills[0] > 0, kills[1] > 0], heartsLost, summary);
+  return stage.outcome(beatId, 'encounter', success, kills, [kills[0] > 0, kills[1] > 0], heartsLostSince(startingHearts, stage.state.hearts), summary);
 }

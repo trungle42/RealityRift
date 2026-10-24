@@ -2,10 +2,11 @@
  * Integration contracts between the game engine (Dev 1), the AI storyteller
  * (Dev 2) and computer vision / hardware input (Dev 3).
  *
- * The engine only ever talks to a StoryProvider and an InputSource. The
+ * Story challenges talk to a StoryProvider and an InputSource. The
  * scripted provider and keyboard input in this repo are the Phase 1
  * implementations; Gemini and MediaPipe versions implement the same
- * interfaces and are swapped in from main.ts.
+ * interfaces and are swapped in from main.ts. Campaign traversal currently
+ * owns keyboard/pointer movement separately from pose tracking.
  */
 
 export type PlayerIndex = 0 | 1;
