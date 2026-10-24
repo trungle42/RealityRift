@@ -9,10 +9,10 @@ load_dotenv()
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from . import gemini  # noqa: E402
+from . import gemini, store  # noqa: E402
 from .schemas import (  # noqa: E402
     ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
-    StoryEventResponse, StoryState,
+    GameEvent, ScoreSubmission, StoryEventResponse, StoryState,
 )
 
 app = FastAPI(title="Reality Rift API")
@@ -57,3 +57,29 @@ def beat(req: BeatRequest):
 def story_ending(req: EndingRequest):
     book, source = gemini.make_storybook(req)
     return EndingResponse(storybook=book, source=source)
+
+
+# ---- Telemetry + leaderboard (fire-and-forget; must never break gameplay) ----
+@app.post("/api/event")
+def event(ev: GameEvent):
+    try:
+        store.log_event(ev.session, ev.type, ev.payload)
+    except Exception:
+        return {"ok": False}
+    return {"ok": True}
+
+
+@app.post("/api/score")
+def score(s: ScoreSubmission):
+    store.add_score(s.team, s.stars, s.hearts, s.outcome, s.artifact)
+    return {"ok": True, "leaderboard": store.leaderboard()}
+
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    return {"leaderboard": store.leaderboard()}
+
+
+@app.get("/api/stats")
+def stats():
+    return store.stats()

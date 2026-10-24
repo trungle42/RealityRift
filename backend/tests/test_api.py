@@ -16,7 +16,7 @@ def test_health():
 
 
 def test_artifact_fallback_is_valid():
-    r = client.post("/api/artifact", json={"imageBase64": "AAAA"})
+    r = client.post("/api/artifact", json={"imageBase64": "AAAAAAAA"})
     body = r.json()
     assert r.status_code == 200 and body["source"] == "fallback"
     assert 1 <= body["artifact"]["damage"] <= 100
@@ -150,3 +150,21 @@ def test_beat_bounds_untrusted_player_notes():
     )
 
     assert response.status_code == 422
+
+
+def test_artifact_rejects_oversized_and_bad_mime():
+    assert client.post("/api/artifact", json={"imageBase64": "A" * 3_000_001}).status_code == 422
+    assert client.post("/api/artifact", json={"imageBase64": "AAAAAAAA", "mimeType": "text/html"}).status_code == 422
+
+
+def test_event_score_and_leaderboard():
+    from app import store
+
+    store.reset_for_tests()
+    assert client.post("/api/event", json={"session": "s1", "type": "scan", "payload": {"obj": "mug"}}).json()["ok"]
+    assert client.post("/api/event", json={"session": "s1", "type": "Bad Type!"}).status_code == 422
+    client.post("/api/score", json={"team": "A", "stars": 3, "hearts": 1, "outcome": "victory", "artifact": "Tidebreaker"})
+    r = client.post("/api/score", json={"team": "B", "stars": 9, "hearts": 3, "outcome": "victory"})
+    board = r.json()["leaderboard"]
+    assert [row["team"] for row in board] == ["B", "A"]
+    assert client.get("/api/stats").json()["events"]["scan"] == 1

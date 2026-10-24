@@ -68,3 +68,13 @@ cp .env.example .env   # add GEMINI_API_KEY (never commit)
 .venv/bin/python -m pytest
 ```
 Set `OFFLINE=1` to force canned responses (demo insurance).
+
+## Telemetry + leaderboard (fire-and-forget; never block gameplay on these)
+- `POST /api/event` `{ session, type: "scan"|"challenge_result"|"boss_hit"|..., payload:{} }` → `{ok}` (type is lowercase letters/underscores)
+- `POST /api/score` `{ team, stars, hearts(0-3), outcome: victory|bittersweet|defeat, artifact? }` → `{ok, leaderboard:[{team,stars,hearts,outcome,artifact}]}` (ranked by stars + 2×hearts)
+- `GET /api/leaderboard` → `{leaderboard:[...]}`; `GET /api/stats` → `{games, events:{type:count}}`
+Stored in SQLite (`DB_PATH`, default `reality_rift.db`); swappable for Tiger Data in `backend/app/store.py`.
+
+`/api/artifact` limits: `imageBase64` ≤ ~3 MB, `mimeType` jpeg/png/webp. Defaults: model `gemini-3.8-flash`, 12 s timeout, thinking off (~3-4 s per call).
+Photo tester: `python backend/tools/test_photos.py <folder>` (needs `pip install pillow`).
+Docker: `docker build -t reality-rift-api backend && docker run -e GEMINI_API_KEY=... -p 8000:8000 reality-rift-api` (Vultr-ready).

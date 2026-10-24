@@ -34,8 +34,25 @@ class Artifact(BaseModel):
 
 
 class ArtifactRequest(BaseModel):
-    imageBase64: str = Field(description="Base64 JPEG/PNG, no data: prefix needed")
-    mimeType: str = "image/jpeg"
+    # ~3 MB of base64 is plenty for a 512px JPEG; rejects accidental full-res frames.
+    imageBase64: str = Field(min_length=8, max_length=3_000_000,
+                             description="Base64 JPEG/PNG, no data: prefix needed")
+    mimeType: Literal["image/jpeg", "image/png", "image/webp"] = "image/jpeg"
+
+
+class GameEvent(BaseModel):
+    session: str = Field(min_length=1, max_length=64)
+    type: str = Field(min_length=1, max_length=40, pattern=r"^[a-z_]+$",
+                      description="e.g. scan, challenge_result, boss_hit")
+    payload: dict = Field(default_factory=dict)
+
+
+class ScoreSubmission(BaseModel):
+    team: str = Field(min_length=1, max_length=40)
+    stars: int = Field(ge=0, le=999)
+    hearts: int = Field(ge=0, le=3)
+    outcome: Literal["victory", "bittersweet", "defeat"]
+    artifact: str = Field(default="", max_length=60)
 
 
 class ArtifactResponse(BaseModel):
