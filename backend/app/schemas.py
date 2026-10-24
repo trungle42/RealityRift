@@ -4,9 +4,9 @@ Frontend (Dev 1/3) types should mirror these; see docs/api-contract.md.
 """
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 # ---- Catalogs (single source of truth) ------------------------------------
 ArtifactType = Literal["staff", "spear", "sword", "mirror", "chalice", "orb"]
@@ -44,7 +44,10 @@ class GameEvent(BaseModel):
     session: str = Field(min_length=1, max_length=64)
     type: str = Field(min_length=1, max_length=40, pattern=r"^[a-z_]+$",
                       description="e.g. scan, challenge_result, boss_hit")
-    payload: dict = Field(default_factory=dict)
+    # Flat, bounded: <=20 keys, scalar values, short keys/strings. Oversized input is rejected, not truncated.
+    payload: Dict[Annotated[str, StringConstraints(max_length=40)],
+                  Union[bool, int, float, Annotated[str, StringConstraints(max_length=200)]]] = Field(
+        default_factory=dict, max_length=20)
 
 
 class ScoreSubmission(BaseModel):

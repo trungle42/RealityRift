@@ -168,3 +168,10 @@ def test_event_score_and_leaderboard():
     board = r.json()["leaderboard"]
     assert [row["team"] for row in board] == ["B", "A"]
     assert client.get("/api/stats").json()["events"]["scan"] == 1
+
+
+def test_event_payload_is_bounded():
+    big = {f"k{i}": 1 for i in range(21)}
+    assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": big}).status_code == 422
+    assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": {"a": {"nested": 1}}}).status_code == 422
+    assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": {"a": "x" * 201}}).status_code == 422

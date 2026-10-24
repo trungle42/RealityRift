@@ -40,10 +40,11 @@ def reset_for_tests(path: str = ":memory:") -> None:
 
 
 def log_event(session: str, type_: str, payload: Dict[str, Any]) -> None:
+    body = json.dumps(payload)  # serialize outside the lock; payload is already bounded by the schema
     with _lock:
         _db().execute(
             "INSERT INTO events(ts, session, type, payload) VALUES (?,?,?,?)",
-            (time.time(), session, type_, json.dumps(payload)[:2000]),
+            (time.time(), session, type_, body),
         )
         _db().commit()
 
