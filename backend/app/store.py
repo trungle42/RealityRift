@@ -41,6 +41,8 @@ def reset_for_tests(path: str = ":memory:") -> None:
 
 def log_event(session: str, type_: str, payload: Dict[str, Any]) -> None:
     body = json.dumps(payload)  # serialize outside the lock; payload is already bounded by the schema
+    if len(body) > 8000:  # defense in depth (unicode escaping can inflate the schema-bounded size)
+        return
     with _lock:
         _db().execute(
             "INSERT INTO events(ts, session, type, payload) VALUES (?,?,?,?)",
