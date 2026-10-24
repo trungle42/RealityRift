@@ -64,9 +64,10 @@ _SCRIPT = [
 def fallback_event(state: StoryState) -> StoryEvent:
     last = state.totalChapters - 1
     failures = sum(1 for h in state.history if not h.success)
+    names = ", ".join(player.name for player in state.players)
     if state.chapter >= last:
         return StoryEvent(
-            narration="The Shadow Witch rises, her cloak swallowing the stars. This is the final stand!",
+            narration=f"{names}, the Shadow Witch rises, her cloak swallowing the stars. Stand together for the kingdom's final defense!",
             environment="castle",
             challenge=Challenge(type="pose", difficulty=min(3, 1 + failures), prompt="Strike the hero pose to cast your spell!", durationSec=10),
             enemies=[Enemy(type="witch_minion", count=2)],
@@ -79,7 +80,7 @@ def fallback_event(state: StoryState) -> StoryEvent:
     if ctype == "object_quest":
         challenge.requestedObject = "any everyday object"
     enemies: List[Enemy] = [Enemy(type="shadow_creature", count=1 + failures)] if failures else []
-    return StoryEvent(narration=line, environment=env, challenge=challenge,
+    return StoryEvent(narration=f"{names}, {line[0].lower() + line[1:]}", environment=env, challenge=challenge,
                       enemies=enemies, reward="star_bonus" if not failures else "none")
 
 
