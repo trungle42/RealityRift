@@ -6,6 +6,7 @@ import { initTextures } from './fx/textures';
 import { Game } from './game/Game';
 import { Stage } from './game/Stage';
 import { KeyboardInput } from './input/KeyboardInput';
+import { GeminiStory } from './story/GeminiStory';
 import { ScriptedStory } from './story/ScriptedStory';
 import { palette } from './theme';
 
@@ -32,7 +33,9 @@ async function boot(): Promise<void> {
 
   // Swap these for the MediaPipe input (Dev 3) and Gemini storyteller (Dev 2).
   const input = new KeyboardInput();
-  const story = new ScriptedStory();
+  // Gemini storyteller with the scripted tale as per-beat fallback. Set VITE_STORY=scripted to force offline.
+  const scripted = new ScriptedStory();
+  const story = import.meta.env.VITE_STORY === 'scripted' ? scripted : new GeminiStory(scripted);
 
   const narrator = new Narrator();
   window.addEventListener('keydown', (e) => {

@@ -78,3 +78,10 @@ Stored in SQLite (`DB_PATH`, default `reality_rift.db`); swappable for Tiger Dat
 `/api/artifact` limits: `imageBase64` ≤ ~3 MB, `mimeType` jpeg/png/webp. Defaults: model `gemini-3.8-flash`, 12 s timeout, thinking off (~3-4 s per call).
 Photo tester: `python backend/tools/test_photos.py <folder>` (needs `pip install pillow`).
 Docker: `docker build -t reality-rift-api backend && docker run -e GEMINI_API_KEY=... -p 8000:8000 reality-rift-api` (Vultr-ready).
+
+## Engine provider (Dev 1's `StoryProvider`; used by the game)
+`POST /api/provider/begin {party}`, `POST /api/provider/next {history, last}`, `POST /api/provider/storybook {history, victory}`
+take/return exactly the shapes in `frontend/src/contracts.ts` (`StoryBeat`, `Storybook`). The backend keeps Dev 1's beat ids and
+branching (`provider.py` mirrors `ScriptedStory.ts`); Gemini writes only narration, prompts, vote labels and reward names.
+Returns **503** if Gemini is unavailable. `frontend/src/story/GeminiStory.ts` then falls back to `ScriptedStory` for that beat.
+Set `VITE_STORY=scripted` to force offline, `VITE_API_URL` to point at a deployed backend (default `http://localhost:8000`).
