@@ -1,4 +1,4 @@
-import { Graphics, Sprite } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import type { BeatOutcome, BossAttack, BossSpec, PlayerIndex } from '../contracts';
 import { until, wait, tween } from '../core/clock';
 import type { Stage } from '../game/Stage';
@@ -8,6 +8,7 @@ import { Fairy } from '../world/Fairy';
 import { FOE_X, GROUND_Y, HERO_X, palette } from '../theme';
 import { StillnessWatch } from './freeze';
 import { castCooldown } from './encounter';
+import { heartsLostSince, initialBossHp, matchesPose } from '../game/rules';
 
 const GAZE_SEC = 2.4;
 const WAVE_SEC = 1.8;
@@ -20,6 +21,8 @@ const ATTACK_TEXT: Record<BossAttack, [string, string]> = {
 
 export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Promise<BeatOutcome> {
   const { prompt, fx, sfx, heroes, actors, input, bossBar, banner, state } = stage;
+  const startingHearts = state.hearts;
+  let active = true;
 
   const boss = new Boss(spec.kind);
   boss.position.set(FOE_X, GROUND_Y);
@@ -30,9 +33,8 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
   await boss.enter();
   await bossBar.show(spec.name);
 
-  let hp = spec.maxHp;
+  let hp = initialBossHp(spec.maxHp, state.has('boss-weaken'));
   if (state.has('boss-weaken')) {
-    hp = Math.round(spec.maxHp * 0.75);
     await wait(0.3);
     fx.floatText('Moonpetal Charm!  −25%', boss.x - 40, boss.y - 300, palette.gold, 30);
     fx.burst(boss.x, boss.y - 180, palette.gold, { count: 40, speed: 300, size: 0.3, texture: textures.sparkle });
@@ -51,7 +53,7 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
   const cooldown: [number, number] = [0, 0];
 
   const damage = (amount: number, at: { x: number; y: number }) => {
-    if (hp <= 0 || boss.destroyed) return;
+    if (!active || state.defeated || hp <= 0 || boss.destroyed) return;
     hp = Math.max(0, hp - amount);
     bossBar.set(hp / spec.maxHp);
     boss.hit(fx);
@@ -60,7 +62,7 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
   };
 
   const off = input.subscribe((e) => {
-    if (e.kind !== 'cast' || e.player === null || hp <= 0) return;
+    if (!active || state.defeated || e.kind !== 'cast' || e.player === null || hp <= 0) return;
     const p: PlayerIndex = e.player;
     if (cooldown[p] > 0) return;
     cooldown[p] = castCooldown(stage);
@@ -73,7 +75,7 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
       return;
     }
     void fx.bolt(tip.x, tip.y, target.x, target.y, heroes[p].color, 0.35).then(() => {
-      if (hp <= 0) return;
+      if (!active || state.defeated || hp <= 0) return;
       damage(1, target);
       hits[p]++;
       if (hits[p] % 3 === 0) {
@@ -147,6 +149,7 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
     await prompt.hide();
     await wait(0.4);
   }
+  active = false;
   off();
 
   const victory = hp <= 0;
@@ -166,7 +169,7 @@ export async function runBoss(stage: Stage, beatId: string, spec: BossSpec): Pro
   const summary = victory
     ? `They defeated ${spec.name} after ${attacksFaced} attacks (${stage.name(0)} landed ${hits[0]} spells, ${stage.name(1)} landed ${hits[1]})`
     : `${spec.name} overwhelmed them with ${hp} health remaining`;
-  return stage.outcome(beatId, 'boss', victory, stars, [dodged[0] > 0 || hits[0] > 0, dodged[1] > 0 || hits[1] > 0], 0, summary);
+  return stage.outcome(beatId, 'boss', victory, stars, [dodged[0] > 0 || hits[0] > 0, dodged[1] > 0 || hits[1] > 0], heartsLostSince(startingHearts, state.hearts), summary);
 }
 
 /** Icy beams sweep the party; anyone moving gets frozen. */
@@ -209,13 +212,14 @@ async function shadowWave(stage: Stage, boss: Boss, tick: (dt: number) => void):
   const { fx, sfx, heroes, actors, input } = stage;
   sfx.roar();
   void stage.banner.show('DUCK!', '', 0.8, 0xc58bff);
-  const wave = new Sprite(textures.glow);
-  wave.anchor.set(0.5);
-  wave.tint = 0x7a2fd0;
+  const wave = new Container();
+  const waveGlow = new Sprite(textures.glow);
+  waveGlow.anchor.set(0.5);
+  waveGlow.tint = 0x7a2fd0;
   wave.scale.set(1.1, 1.6);
   const core = new Graphics()
     .moveTo(-30, -70).quadraticCurveTo(40, 0, -30, 70).quadraticCurveTo(0, 0, -30, -70).fill({ color: 0x1a0828, alpha: 0.9 });
-  wave.addChild(core);
+  wave.addChild(waveGlow, core);
   const startX = boss.x - 120;
   const endX = -120;
   wave.position.set(startX, GROUND_Y - 120);
@@ -232,7 +236,7 @@ async function shadowWave(stage: Stage, boss: Boss, tick: (dt: number) => void):
     for (const p of [0, 1] as const) {
       if (passed[p] || wave.x > heroes[p].x + 20) continue;
       passed[p] = true;
-      if (input.read(p).pose === 'crouch') {
+      if (matchesPose(input.read(p), 'crouch')) {
         fx.floatText('Dodged!', heroes[p].x, heroes[p].y - 170, 0xd6b8ff, 24);
       } else {
         caught.push(p);

@@ -12,6 +12,18 @@ export class GameState {
 
   constructor(readonly party: [Player, Player]) {}
 
+  loseHeart(): boolean {
+    if (this.hearts <= 0) return false;
+    this.hearts--;
+    return true;
+  }
+
+  gainHeart(): boolean {
+    if (this.hearts >= MAX_HEARTS || this.defeated) return false;
+    this.hearts++;
+    return true;
+  }
+
   has(kind: RewardKind): boolean {
     return this.rewards.some((r) => r.kind === kind);
   }
@@ -25,7 +37,7 @@ export class GameState {
   }
 
   history(): GameHistory {
-    return {
+    return structuredClone({
       party: this.party,
       hearts: this.hearts,
       maxHearts: MAX_HEARTS,
@@ -33,6 +45,6 @@ export class GameState {
       rewards: [...this.rewards],
       outcomes: [...this.outcomes],
       environments: [...this.environments],
-    };
+    });
   }
 }

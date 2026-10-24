@@ -8,6 +8,8 @@ import { Stage } from './game/Stage';
 import { KeyboardInput } from './input/KeyboardInput';
 import { ScriptedStory } from './story/ScriptedStory';
 import { palette } from './theme';
+import { loadArt } from './world/art';
+import { setupGameTools } from './ui/Controls';
 
 async function loadFonts(): Promise<void> {
   const faces = ['700 40px "Cinzel Decorative"', '500 40px "Cinzel"', '700 40px "Cinzel"', '40px "IM Fell English"', 'italic 40px "IM Fell English"'];
@@ -25,19 +27,23 @@ async function boot(): Promise<void> {
     resolution: Math.min(window.devicePixelRatio || 1, 2),
   });
   document.getElementById('app')!.appendChild(app.canvas);
+  app.canvas.setAttribute('aria-label', 'RealityRift game world');
+  app.canvas.tabIndex = 0;
   await loadFonts();
 
   startClock(app.ticker);
   initTextures(app.renderer);
+  await loadArt((fraction) => {
+    const progress = document.querySelector<HTMLProgressElement>('#loading-progress');
+    if (progress) progress.value = fraction;
+  });
 
   // Swap these for the MediaPipe input (Dev 3) and Gemini storyteller (Dev 2).
   const input = new KeyboardInput();
   const story = new ScriptedStory();
 
   const narrator = new Narrator();
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) narrator.toggle();
-  });
+  setupGameTools(narrator);
 
   const stage = new Stage(input, new Sfx(), narrator);
   app.stage.addChild(stage.root);
@@ -45,7 +51,16 @@ async function boot(): Promise<void> {
   layout();
   app.renderer.on('resize', layout);
 
-  void new Game(stage, story).run();
+  document.getElementById('loading')?.remove();
+  await new Game(stage, story).run();
 }
 
-void boot();
+void boot().catch((error: unknown) => {
+  console.error('Unable to start RealityRift', error);
+  document.getElementById('loading')?.remove();
+  const errorScreen = document.createElement('div');
+  errorScreen.className = 'loading-screen';
+  errorScreen.innerHTML = '<h1>The rift needs a moment</h1><p>The adventure could not load. Please try again.</p><button class="primary-button" type="button">Try again</button>';
+  errorScreen.querySelector('button')!.addEventListener('click', () => location.reload());
+  document.body.appendChild(errorScreen);
+});

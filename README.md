@@ -2,6 +2,22 @@
 
 An AI-powered interactive fairy-tale adventure for two players — HackTX 2026.
 
+## Dev 1 visual edition
+
+The game uses a cinematic 2.5D presentation: realistically proportioned rendered
+heroes and creatures, perspective environment paintings, contact shadows,
+animated mist, light rays, particles, and magical wards. PixiJS still owns the
+gameplay; this is not a free-roaming 3D engine. All 15 artwork files ship locally
+in `frontend/public/art` (about 3.6 MB total), including four poses per hero.
+
+The title menu and character setup adapt to narrow windows. Gameplay keeps a
+16:9 view so combat positions stay consistent. The Controls button opens a guide
+and pauses the adventure. Inactive tabs also pause the game clock.
+
+See [the Dev 1 review](docs/dev1-review.md) for verified requirements, fixes,
+integration boundaries, and checks, and [art direction](docs/art-direction.md)
+for asset provenance and generation prompts.
+
 ## Run the game
 
 ```bash
@@ -11,6 +27,23 @@ npm run dev
 ```
 
 Open http://localhost:5173. `npm run build` type-checks and produces `frontend/dist`.
+
+## Verify Dev 1
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+While the dev server is running, open
+`http://localhost:5173/tests/playthrough.html` and select **Run gameplay checks**.
+This exercises the actual rendered challenge and combat routines with deterministic
+test inputs, checks heart/star accounting, and checks actor/listener cleanup.
+The harness is excluded from the production build. It also has three scene
+preview buttons for visual QA. Test TypeScript is included in the build's typecheck.
+
+For a production smoke test, run `npm run preview -- --port 4173` after building.
 
 ## Keyboard controls
 

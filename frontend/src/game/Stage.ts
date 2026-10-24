@@ -38,6 +38,7 @@ export class Stage {
   readonly screens = new Container();
   state!: GameState;
   private readonly thinking: Text;
+  private viewport = { width: VIEW.width as number, height: VIEW.height as number };
 
   constructor(readonly input: InputSource, readonly sfx: Sfx, readonly narrator: Narrator) {
     this.fx = new Effects(this.world);
@@ -68,7 +69,9 @@ export class Stage {
   }
 
   layout(screenWidth: number, screenHeight: number): void {
-    const s = Math.min(screenWidth / VIEW.width, screenHeight / VIEW.height);
+    this.viewport = { width: screenWidth, height: screenHeight };
+    const fit = this.actors.visible ? Math.min : Math.max;
+    const s = fit(screenWidth / VIEW.width, screenHeight / VIEW.height);
     this.root.scale.set(s);
     this.root.position.set((screenWidth - VIEW.width * s) / 2, (screenHeight - VIEW.height * s) / 2);
   }
@@ -78,6 +81,9 @@ export class Stage {
     this.hud.setParty(state.party);
     this.hud.setHearts(state.hearts, false);
     state.party.forEach((p, i) => {
+      this.heroes[i].setFrozen(false);
+      this.heroes[i].setMark(null);
+      this.heroes[i].setMeter(null);
       this.heroes[i].setName(p.name);
       this.hud.setStars(i, 0);
     });
@@ -86,6 +92,7 @@ export class Stage {
   setGameplayVisible(on: boolean): void {
     this.actors.visible = on;
     this.hud.visible = on;
+    this.layout(this.viewport.width, this.viewport.height);
   }
 
   async setEnvironment(env: EnvironmentId): Promise<void> {
@@ -100,8 +107,7 @@ export class Stage {
   }
 
   loseHeart(): void {
-    if (this.state.hearts <= 0) return;
-    this.state.hearts--;
+    if (!this.state.loseHeart()) return;
     this.hud.setHearts(this.state.hearts);
     const at = this.hud.heartPosition();
     this.fx.burst(at.x, at.y, palette.heart, { count: 18, speed: 200, size: 0.2 });
@@ -111,8 +117,7 @@ export class Stage {
   }
 
   gainHeart(): void {
-    if (this.state.hearts >= MAX_HEARTS) return;
-    this.state.hearts++;
+    if (!this.state.gainHeart()) return;
     this.hud.setHearts(this.state.hearts);
     const at = this.hud.heartPosition();
     this.fx.burst(at.x, at.y, palette.heart, { count: 18, speed: 160, size: 0.2, texture: textures.sparkle, gravity: -40 });
@@ -122,7 +127,7 @@ export class Stage {
     this.state.stars[p] += count;
     this.hud.setStars(p, this.state.stars[p]);
     const h = this.heroes[p];
-    this.fx.floatText(`+${count} ★`, h.x, h.y - 200, palette.star, 28);
+    this.fx.floatText(`+${count} ★`, h.x, h.y - 242, palette.star, 24);
     this.fx.burst(h.x, h.y - 80, palette.star, { count: 10, speed: 150, size: 0.25, texture: textures.sparkle, gravity: -60 });
   }
 

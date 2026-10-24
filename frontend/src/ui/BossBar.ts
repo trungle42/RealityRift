@@ -48,6 +48,6 @@ export class BossBar extends Container {
     const g = this.bar.clear();
     g.roundRect(-W / 2 - 4, 14, W + 8, 22, 11).fill(0x120818).stroke({ width: 2, color: palette.gold });
     g.roundRect(-W / 2, 18, W * this.trail, 14, 7).fill(0xffe3a0);
-    if (this.hp > 0) g.roundRect(-W / 2, 18, W * this.hp, 14, 7).fill(0xc2264a);
+    if (this.hp > 0) g.roundRect(-W / 2, 18, W * this.hp, 14, 7).fill(0x9e4157);
   }
 }

@@ -11,6 +11,7 @@ import { showTitle } from '../screens/TitleScreen';
 import { HERO_X } from '../theme';
 import { GameState } from './GameState';
 import type { Stage } from './Stage';
+import { didWin } from './rules';
 
 /**
  * Game progression: title → party → story beats (narration, rewards,
@@ -59,7 +60,7 @@ export class Game {
     }
 
     await stage.narration.close();
-    const victory = !state.defeated && (bossOutcome ? bossOutcome.success : true);
+    const victory = didWin(state.hearts, bossOutcome);
     const book = await stage.think(this.story.storybook(state.history(), victory));
     stage.hud.setChapter('');
     await showStorybook(stage.screens, stage.input, book);

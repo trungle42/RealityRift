@@ -11,7 +11,7 @@ export class Banner extends Container {
   constructor() {
     super();
     this.position.set(VIEW.width / 2, 300);
-    this.title = goldText('', 72);
+    this.title = goldText('', 54);
     this.sub = makeText('', {
       fontFamily: fonts.heading,
       fontWeight: '700',
@@ -31,8 +31,13 @@ export class Banner extends Container {
     this.title.text = title;
     this.title.style.fill = color;
     this.sub.text = sub;
+    this.title.scale.set(1);
+    this.sub.scale.set(1);
     this.alpha = 1;
-    this.scale.set(1.6);
+    const fit = Math.min(1, 1100 / Math.max(this.title.width, this.sub.width));
+    this.title.scale.set(fit);
+    this.sub.scale.set(fit);
+    this.scale.set(1.12);
     void tween(this.scale, { x: 1, y: 1 }, 0.4, ease.outBack);
     if (!Number.isFinite(hold)) return;
     await wait(hold);

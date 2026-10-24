@@ -1,111 +1,70 @@
-html,
-body {
-  margin: 0;
-  height: 100%;
-  overflow: hidden;
-  background: #05040c;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-#app {
-  position: fixed;
-  inset: 0;
-}
-
-canvas {
-  display: block;
-}
-
-/* Party setup overlay (DOM so text entry behaves like a real input). */
-.party {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.party form {
-  pointer-events: auto;
-  display: grid;
-  gap: 18px;
-  width: min(440px, calc(100vw - 32px));
-  padding: 32px 36px 28px;
-  background: linear-gradient(#f6e8c8, #e3c995);
-  border: 3px solid #c8962e;
-  border-radius: 10px;
-  box-shadow: 0 0 0 6px #3a2208, 0 0 0 8px #f0c45a, 0 20px 60px rgba(0, 0, 0, 0.6);
-  font-family: 'IM Fell English', Georgia, serif;
-  color: #2b1a0e;
-  animation: party-in 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both;
-}
-
-@keyframes party-in {
-  from {
-    opacity: 0;
-    transform: translateY(24px) scale(0.92);
-  }
-}
-
-.party h2 {
-  margin: 0;
-  text-align: center;
-  font-family: 'Cinzel Decorative', Georgia, serif;
-  font-size: 26px;
-  color: #6b3f0c;
-}
-
-.party label {
-  display: grid;
-  gap: 6px;
-  font-size: 18px;
-}
-
-.party label span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.party label i {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.party input {
-  font: inherit;
-  font-size: 20px;
-  padding: 8px 12px;
-  border: 2px solid #a87420;
-  border-radius: 6px;
-  background: #fff8e6;
-  color: #2b1a0e;
-}
-
-.party input:focus {
-  outline: 3px solid #f0c45a;
-}
-
-.party button {
-  margin-top: 6px;
-  font-family: 'Cinzel', Georgia, serif;
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: 1px;
-  padding: 10px;
-  color: #fff4d6;
-  background: linear-gradient(#b8452f, #7a2316);
-  border: 2px solid #f0c45a;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.party button:hover {
-  filter: brightness(1.12);
-}
-
-.party small {
-  text-align: center;
-  opacity: 0.7;
-}
+:root { color-scheme: dark; --ivory: #f0ecd9; --gold: #ddc48e; --mint: #a2d9bc; --ink: #0a1b16; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #050e0b; }
+body { color: var(--ivory); font-family: 'Inter', system-ui, sans-serif; }
+#app { position: fixed; inset: 0; }
+canvas { display: block; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outline-offset: 5px; }
+button { -webkit-tap-highlight-color: transparent; }
+kbd { font: 10px 'Inter', sans-serif; border: 1px solid #d5d8c340; border-radius: 3px; padding: 4px 7px; color: #e0e4d3; }
+.title-screen { position: fixed; inset: 0; z-index: 2; background: linear-gradient(90deg, #04100ee6 0%, #04100eb0 27%, #04100e30 55%, transparent 75%); animation: appear 1.3s ease both; transition: opacity .4s; }
+.title-screen.leaving { opacity: 0; pointer-events: none; }
+.title-wordmark { position: absolute; top: 5.4%; left: 5.8%; display: flex; align-items: center; gap: 16px; font: 600 12px 'Cinzel', Georgia, serif; letter-spacing: 3px; color: #e4d2ac; }
+.small-diamond { font-size: 27px; }
+.wordmark-line { display: block; width: 65px; height: 1px; background: linear-gradient(90deg, #ddc48e70, transparent); }
+.title-content { position: absolute; left: 8.5%; top: 21%; width: min(440px, 42vw); }
+.eyebrow { color: #c8cdae; font-size: 10px; letter-spacing: 3.6px; text-transform: uppercase; }
+.title-content h1 { font: 500 clamp(56px, 7.5vw, 112px)/.97 'Cinzel', Georgia, serif; letter-spacing: -3px; margin: 24px 0 16px; text-shadow: 0 3px 30px #0007; }
+.title-content h1 span { display: block; color: #e4d0a4; }
+.title-rule { display: flex; align-items: center; gap: 15px; width: 210px; color: var(--gold); font-size: 15px; margin: 20px 0; }
+.title-rule span { height: 1px; width: 90px; background: linear-gradient(90deg, #ddc48e80, #ddc48e10); }
+.title-tagline { font: italic 23px/1.35 'IM Fell English', Georgia, serif; color: #e5e7d7; margin: 0 0 14px; }
+.title-description { font-size: 11px; line-height: 1.9; color: #afbeb1; margin: 0 0 28px; }
+.primary-button { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 16px 24px; color: #132a21; background: linear-gradient(120deg, #e4d1a6, #c2aa77); border: 1px solid #f6e6bd; border-radius: 2px; font-family: 'Cinzel', Georgia, serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; box-shadow: 0 4px 24px #0004, inset 0 0 0 3px #7c694c25; transition: filter .2s, transform .2s; }
+.primary-button:hover { filter: brightness(1.13); transform: translateY(-2px); }
+.title-keyhint { color: #a8b4a6; font-size: 10px; margin-top: 20px; letter-spacing: .5px; }
+.title-keyhint kbd { margin: 0 3px; }
+.title-footer { position: absolute; bottom: 5%; left: 5.8%; right: 5.8%; display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2px; color: #c0cbb4; }
+.title-footer i { margin: 0 12px; color: #ddc48e; }
+.location-tag { position: absolute; right: 8%; bottom: 19%; padding: 11px 17px; background: #0b1c183d; border-bottom: 1px solid #e0dec54d; backdrop-filter: blur(8px); color: #eef2df; font-size: 9px; letter-spacing: 2px; }
+.location-dot { display: inline-block; width: 5px; height: 5px; margin-right: 10px; border-radius: 50%; background: #b8f5cd; box-shadow: 0 0 12px #d1ffac; }
+.game-tools { position: fixed; z-index: 5; top: 4%; right: 4%; display: flex; gap: 8px; }
+.game-tools button { background: #081c169e; color: #d5dfcd; border: 1px solid #d5d8c330; border-radius: 3px; padding: 8px 10px; font-size: 10px; backdrop-filter: blur(10px); }
+.game-tools button:hover { border-color: #ddc48e; color: #fff4d5; }
+.party { position: fixed; inset: 0; z-index: 4; display: grid; place-items: center; padding: 22px; overflow-y: auto; background: #04110d75; backdrop-filter: blur(7px); }
+.party form { position: relative; width: min(690px, 100%); padding: 40px; background: linear-gradient(140deg, #10271fef, #091911f5); border: 1px solid #bca57565; box-shadow: 0 24px 100px #0007, inset 0 0 0 6px #bca57508; text-align: center; animation: rise .6s ease both; }
+.party h2 { font: 500 32px 'Cinzel', Georgia, serif; margin: 18px 0 10px; }
+.party-intro { font: italic 19px 'IM Fell English', Georgia, serif; color: #c2ceba; margin-bottom: 24px; }
+.hero-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.hero-field { position: relative; display: grid; gap: 8px; text-align: left; background: #01110a42; padding: 15px 20px 20px; border: 1px solid #b8c8a820; }
+.hero-portrait { height: 170px; width: 100%; object-fit: contain; filter: drop-shadow(0 8px 12px #0006); }
+.hero-role { font-size: 9px; letter-spacing: 2px; color: #a9bda5; text-transform: uppercase; }
+.hero-field label { font-size: 11px; color: var(--gold); letter-spacing: 1px; }
+.hero-field input { width: 100%; background: #07180f; color: #f1edda; border: 1px solid #afc6a34d; padding: 11px 12px; border-radius: 2px; font-size: 15px; }
+.hero-field input::placeholder { color: #a5b2a2; }
+.party .primary-button { margin: 24px auto 16px; min-width: 280px; }
+.party small { color: #a6bba7; font-size: 10px; line-height: 1.8; }
+.controls-dialog { max-width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); color: #ede7d5; padding: 32px; background: #10231c; border: 1px solid #bca575; border-radius: 4px; box-shadow: 0 20px 80px #0009; }
+.controls-dialog::backdrop { background: #03110dd9; backdrop-filter: blur(5px); }
+.controls-dialog h2 { font: 26px 'Cinzel', Georgia, serif; margin: 0 0 14px; }
+.controls-dialog p { color: #b9c9b5; font-size: 13px; line-height: 1.7; }
+.controls-dialog table { width: 100%; border-collapse: collapse; margin: 22px 0; font-size: 13px; }
+.controls-dialog th, .controls-dialog td { text-align: left; padding: 11px 8px; border-bottom: 1px solid #bca57530; }
+.controls-dialog th { color: var(--gold); font-size: 11px; }
+.controls-dialog .primary-button { margin-left: auto; }
+.loading-screen { position: fixed; z-index: 10; inset: 0; display: grid; place-content: center; text-align: center; background: #081713; transition: opacity .4s; }
+.loading-screen h1 { font: 36px 'Cinzel', Georgia, serif; color: #e4d0a4; letter-spacing: 3px; }
+.loading-screen p { font: italic 20px Georgia, serif; color: #b7c9b3; }
+.loading-screen progress { accent-color: #b7d6ad; width: 240px; height: 3px; margin: 20px auto; }
+.loading-screen button { margin: 20px auto; }
+@keyframes appear { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@media (max-height: 700px) { .title-content { top: 16%; } .title-content h1 { font-size: clamp(50px, 7vw, 86px); margin: 17px 0 10px; } .title-rule { margin: 14px 0; } .title-tagline { font-size: 20px; } .title-description { margin-bottom: 18px; } .party form { padding: 24px; } .hero-portrait { height: 125px; } }
+@media (max-width: 650px) { .title-content { left: 7%; width: 84%; top: 21%; } .title-content h1 { font-size: 78px; } .title-screen { background: linear-gradient(90deg, #04100eeb, #04100e8c 70%, #04100e20); } .location-tag, .title-footer span:last-child { display: none; } .title-description { max-width: 300px; } .title-wordmark { top: 10%; } .game-tools { top: 18px; right: 18px; } .party h2 { font-size: 24px; } .hero-fields { gap: 10px; } .hero-field { padding: 10px; } .hero-portrait { height: 120px; } .party form { padding: 24px 16px; } }
+@media (max-width: 650px) and (max-height: 700px) { .title-content { top: 20%; } .title-content h1 { font-size: 64px; margin: 15px 0 8px; } .title-rule { margin: 12px 0; } .title-tagline { font-size: 19px; margin-bottom: 10px; } .title-description { margin-bottom: 14px; } .title-keyhint { margin-top: 14px; } .title-footer { bottom: 18px; } }
+@media (max-height: 500px) { .title-content { top: 20%; width: 70%; } .title-content h1 { font-size: 56px; } .title-content h1 span { display: inline; margin-left: 12px; } .title-description, .title-rule, .location-tag, .title-keyhint { display: none; } .title-tagline { font-size: 19px; } .title-tagline br { display: none; } .begin-button { margin-top: 15px; } .title-wordmark { top: 7%; } .party { align-items: start; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

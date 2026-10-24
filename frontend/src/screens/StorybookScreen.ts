@@ -17,12 +17,13 @@ export async function showStorybook(parent: Container, input: InputSource, book:
 
   const title = goldText(book.title, 44);
   title.position.set(VIEW.width / 2, 90);
+  title.scale.set(Math.min(1, 1080 / title.width));
   screen.addChild(title);
 
   const cx = VIEW.width / 2;
   const cover = new Graphics()
     .roundRect(cx - PAGE_W - 24, BOOK_Y - 16, PAGE_W * 2 + 48, PAGE_H + 32, 14)
-    .fill(0x5a1a14)
+    .fill(0x14392a)
     .stroke({ width: 4, color: palette.gold });
   const pages = new Graphics();
   for (const side of [-1, 1]) {
@@ -35,7 +36,7 @@ export async function showStorybook(parent: Container, input: InputSource, book:
 
   const slots = [-1, 1].map((side) => {
     const x = side < 0 ? cx - PAGE_W / 2 : cx + PAGE_W / 2;
-    const heading = makeText('', { fontFamily: fonts.display, fontSize: 28, fill: 0x7a2316, align: 'center', wordWrap: true, wordWrapWidth: PAGE_W - 80 });
+    const heading = makeText('', { fontFamily: fonts.display, fontSize: 25, fill: 0x274b3b, align: 'center', wordWrap: true, wordWrapWidth: PAGE_W - 80 });
     heading.position.set(x, BOOK_Y + 70);
     const body = makeText('', { fontSize: 23, fill: palette.ink, align: 'center', wordWrap: true, wordWrapWidth: PAGE_W - 90, lineHeight: 32 }, 0.5);
     body.anchor.set(0.5, 0);

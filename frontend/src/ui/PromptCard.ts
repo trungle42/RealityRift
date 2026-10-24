@@ -13,8 +13,8 @@ export class PromptCard extends Container {
 
   constructor() {
     super();
-    this.position.set(VIEW.width / 2, 120);
-    this.heading = makeText('', { fontFamily: fonts.heading, fontWeight: '700', fontSize: 30, fill: palette.gold, stroke: { color: 0x120818, width: 5 } });
+    this.position.set(VIEW.width / 2, 128);
+    this.heading = makeText('', { fontFamily: fonts.heading, fontWeight: '500', fontSize: 24, fill: palette.gold, stroke: { color: 0x0a1c14, width: 2 } });
     this.heading.y = -12;
     this.detail = makeText('', { fontFamily: fonts.body, fontSize: 20, fill: palette.parchment, align: 'center', wordWrap: true, wordWrapWidth: W - 40 });
     this.detail.y = 24;
@@ -27,11 +27,11 @@ export class PromptCard extends Container {
     this.heading.text = heading;
     this.detail.text = detail;
     const h = 92 + Math.max(0, this.detail.height - 26);
-    this.plate.clear().roundRect(-W / 2, -46, W, h, 14).fill({ color: 0x120a1e, alpha: 0.82 }).stroke({ width: 2, color: palette.gold });
+    this.plate.clear().roundRect(-W / 2, -46, W, h, 3).fill({ color: 0x081b15, alpha: 0.86 }).stroke({ width: 1, color: palette.gold, alpha: 0.55 });
     this.bar.clear();
     this.bar.y = h - 52;
     this.visible = true;
-    this.scale.set(0.85);
+    this.scale.set(0.98);
     void tween(this.scale, { x: 1, y: 1 }, 0.3, ease.outBack);
     await tween(this, { alpha: 1 }, 0.25);
   }

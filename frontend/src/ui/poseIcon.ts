@@ -1,5 +1,7 @@
-import { Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import type { PoseId } from '../contracts';
+import { art } from '../world/art';
+import { makeText, fonts } from '../theme';
 
 export const POSE_LABELS: Record<PoseId, string> = {
   'arms-up': 'Arms to the Sky',
@@ -7,21 +9,17 @@ export const POSE_LABELS: Record<PoseId, string> = {
   crouch: 'Duck Low',
 };
 
-/** A glowing stick-figure card showing the pose to copy. Centered on (0, 0). */
-export function poseIcon(pose: PoseId, color: number): Graphics {
-  const g = new Graphics();
-  g.roundRect(-70, -90, 140, 180, 16).fill({ color: 0x120a1e, alpha: 0.85 }).stroke({ width: 3, color });
-  const line = { width: 7, color, cap: 'round' as const, join: 'round' as const };
-  const crouch = pose === 'crouch';
-  const hip = crouch ? 30 : 20;
-  const neck = crouch ? -5 : -30;
-  g.circle(0, neck - 18, 14).fill(color);
-  g.moveTo(0, neck).lineTo(0, hip).stroke(line);
-  if (crouch) g.moveTo(-26, 70).lineTo(-18, 48).lineTo(0, hip).lineTo(18, 48).lineTo(26, 70).stroke(line);
-  else g.moveTo(-22, 72).lineTo(0, hip).lineTo(22, 72).stroke(line);
-  const shoulder = neck + 8;
-  if (pose === 'arms-up') g.moveTo(-26, shoulder - 44).lineTo(0, shoulder).lineTo(26, shoulder - 44).stroke(line);
-  else if (pose === 't-pose') g.moveTo(-52, shoulder).lineTo(52, shoulder).stroke(line);
-  else g.moveTo(-24, shoulder - 26).lineTo(0, shoulder).lineTo(24, shoulder - 26).stroke(line);
-  return g;
+/** Show a dimensional hero as the pose reference, matching the playable characters. */
+export function poseIcon(pose: PoseId, color: number): Container {
+  const card = new Container();
+  const plate = new Graphics().roundRect(-105, -124, 210, 250, 3)
+    .fill({ color: 0x081c16, alpha: 0.9 }).stroke({ width: 1, color, alpha: 0.7 });
+  const hero = new Sprite(art(`ranger-${pose}`));
+  hero.anchor.set(0.5, 1);
+  hero.scale.set(Math.min(175 / hero.texture.height, 170 / hero.texture.width));
+  hero.y = 82;
+  const label = makeText('MIRROR THE SHAPE', { fontFamily: fonts.heading, fontSize: 11, letterSpacing: 1.4, fill: color });
+  label.y = -104;
+  card.addChild(plate, hero, label);
+  return card;
 }
