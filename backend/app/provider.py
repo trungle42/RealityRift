@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from . import gemini
 
 OUTCOME_KIND = Literal["story", "freeze", "pose", "vote", "encounter", "boss"]
+EnvId = Literal["forest", "castle", "cave"]
 
 
 # ---- Request models (mirror contracts.ts) -----------------------------------
@@ -44,7 +45,7 @@ class HistoryIn(BaseModel):
     stars: List[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
     rewards: List[RewardIn] = Field(default_factory=list, max_length=8)
     outcomes: List[OutcomeIn] = Field(default_factory=list, max_length=30)
-    environments: List[str] = Field(default_factory=list, max_length=30)
+    environments: List[EnvId] = Field(default_factory=list, max_length=30)
 
 
 class BeginRequest(BaseModel):
