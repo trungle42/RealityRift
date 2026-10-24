@@ -1,8 +1,45 @@
 # RealityRift
 
-An AI-powered interactive fairy-tale adventure for two players — HackTX 2026.
+**Don't just read the fairy tale. Become part of it.**
 
-## Run the game
+An AI-powered interactive fairy-tale adventure for two players, built for HackTX 2026 (theme: Fairy Tale).
+Two heroes enter an enchanted kingdom. A Gemini-powered storyteller writes each scene from what the players
+actually did (who froze, who missed a pose, which path they voted for), the engine runs the challenges and the boss
+fight, and the game ends with a personalized storybook of that exact playthrough.
+
+## How it works
+
+```
+ webcam / keyboard ──► game engine (PixiJS, runs in the browser) ──► StoryProvider ──► FastAPI ──► Google Gemini
+   (input)              challenges, boss, hearts, stars            GeminiStory.ts      backend/        (text)
+                                    ▲                                     │ 503 / timeout
+                                    └──────────── ScriptedStory (offline fallback, per beat) ◄┘
+```
+
+- **The engine owns the rules.** Combat, hearts, stars, timing and animation are deterministic game code.
+- **Gemini owns the story.** The backend fixes each beat's *structure* from a catalog the engine supports
+  (environments, challenge types, enemies, boss kinds, rewards). Gemini only writes the text: narration, prompts,
+  vote labels, reward names and the final storybook. It cannot invent mechanics the game cannot run.
+- **It never blocks the game.** If the backend, network or Gemini fails, that beat falls back to the hand-written
+  `ScriptedStory` (same beat ids), so a run can switch between the two mid-adventure.
+- **Real-time stays local.** Rendering and (planned) hand/body tracking run in the browser; Gemini is called once
+  per story beat, never per frame.
+
+## Run it
+
+Requirements: Node 20.19+, Python 3.9+, a Google Gemini API key (without one the game still plays, on the scripted story).
+
+**1. Backend**
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env          # then set GEMINI_API_KEY=... (never commit .env)
+.venv/bin/uvicorn app.main:app --port 8000
+```
+
+**2. Frontend** (second terminal)
 
 ```bash
 cd frontend
@@ -10,9 +47,12 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. `npm run build` type-checks and produces `frontend/dist`.
+Open http://localhost:5173, press Space, enter two hero names, and begin.
 
-## Keyboard controls
+Useful switches: `OFFLINE=1` (backend) forces canned responses; `VITE_STORY=scripted` (frontend) skips the backend
+entirely; `VITE_API_URL` points the game at a different backend (default `http://localhost:8000`).
+
+## Controls (keyboard fallback)
 
 | | Hero One | Hero Two |
 |---|---|---|
@@ -20,26 +60,57 @@ Open http://localhost:5173. `npm run build` type-checks and produces `frontend/d
 | Cast spell | W | ↑ |
 | Poses: arms up / T-pose / duck | 1 / 2 / 3 (or S to duck) | I / O / P (or ↓ to duck) |
 
-Space or Enter advances narration. M toggles spoken narration. Any key a hero presses counts as movement during freeze spells.
+Space or Enter advances narration. M toggles spoken narration. Any key a hero presses counts as movement during
+freeze spells. Webcam input (MediaPipe) plugs into the same `InputSource` interface; see Status.
 
-## Layout
+## The adventure
+
+Freeze spell → (reward, or a shadow-wisp fight if you move) → crossroads vote → pose gate → (thorn-imp fight if you
+miss) → rescue the lantern fairy or hurry on → boss fight → personalized ending and storybook. Failures make later
+challenges and the boss harder; successes earn rewards that help in the final battle.
+
+## Backend API
+
+FastAPI app in `backend/app`. Full request/response shapes: [docs/api-contract.md](docs/api-contract.md).
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/provider/begin`, `/next`, `/storybook` | The game's story provider (shapes from `frontend/src/contracts.ts`). Returns 503 if Gemini is unavailable. |
+| `POST /api/artifact` | Photo of a real object in, magical artifact out (name, type, element, ability, rarity). Not yet used by the game. |
+| `POST /api/beat`, `/api/story/next`, `/api/story/ending` | Earlier generic story schema. |
+| `POST /api/event`, `/api/score`, `GET /api/leaderboard`, `/api/stats` | Gameplay telemetry and a small leaderboard (SQLite). |
+| `GET /api/health` | Whether the Gemini key is loaded and which model is in use. |
+
+Gemini model defaults to `gemini-3.8-flash` (`GEMINI_MODEL`), with a 12 s timeout and thinking disabled for latency
+(about 3 s per beat). The API key lives only in `backend/.env` and is never sent to the browser.
+
+## Testing
+
+```bash
+cd backend && OFFLINE=1 .venv/bin/python -m pytest          # offline unit/contract tests
+PYTHONPATH=. .venv/bin/python tools/live_smoke.py             # plays full runs against real Gemini (needs key)
+.venv/bin/python tools/test_photos.py <folder-of-photos>      # run real object photos through /api/artifact
+cd ../frontend && npm run build                               # type-check + production build
+```
+
+## Repository layout
 
 ```
-frontend/src/
-  contracts.ts        Shared types: StoryProvider, InputSource, StoryBeat, BeatOutcome…
-  main.ts             Boot; picks the StoryProvider and InputSource
-  game/               Game loop (Game), shared rules (Stage), hearts/stars/history (GameState)
-  challenges/         freeze, pose, vote, encounter (enemy waves), boss
-  world/              Backdrop (forest / castle / cave), Hero, Enemy, Boss, Fairy
-  fx/                 Particles, spell bolts, shake, flash, frost overlay
-  ui/                 HUD, narration panel, banners, prompt card, boss bar
-  screens/            Title, party setup, storybook
-  story/ScriptedStory Phase 1 branching tale (also the offline fallback)
-  input/KeyboardInput Keyboard fallback controls
-  audio/              Synthesized sound effects, browser text-to-speech narrator
+frontend/src/   contracts.ts (shared types), game/ (loop, stage, state), challenges/ (freeze, pose, vote, encounter, boss),
+                world/, fx/, ui/, screens/, audio/, input/KeyboardInput, story/ (ScriptedStory, GeminiStory)
+backend/app/    main.py (routes), provider.py (engine story provider), gemini.py (Gemini calls), schemas.py,
+                fallbacks.py, store.py (telemetry/leaderboard)
+backend/tools/  live_smoke.py, test_photos.py
+docs/           api-contract.md
 ```
 
-## Integration points
+## Status
 
-- **AI / backend (Dev 2):** implement `StoryProvider` from `contracts.ts` (e.g. a client for the FastAPI + Gemini service) and swap it in for `ScriptedStory` in `main.ts`. Each beat chooses from the supported catalog — environments, challenge types, enemy kinds, boss kinds and attacks, reward kinds — and the engine reports a `BeatOutcome` with a plain-English `summary` after every beat. `stage.think()` already shows a "storyteller ponders…" indicator while a request is in flight.
-- **Computer vision / hardware (Dev 3):** implement `InputSource` (per-frame `motion` 0–1 and `pose` per player, plus `cast` / `left` / `right` / `confirm` events) and swap it in for `KeyboardInput` in `main.ts`.
+Working: two-player game with keyboard input, freeze, pose, vote, enemy-wave and boss mechanics, Gemini
+storyteller with per-beat fallback, personalized storybook, telemetry and leaderboard APIs.
+In progress: webcam body/hand input via MediaPipe (replaces the keyboard fallback). Planned: the object-scan moment
+(hold up a real object, Gemini turns it into a magical artifact for the boss fight).
+
+## Team
+
+Three developers: game and visuals; AI and backend; computer vision and integration.
