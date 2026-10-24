@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from . import gemini  # noqa: E402
 from .schemas import (  # noqa: E402
-    ArtifactRequest, ArtifactResponse, EndingRequest, EndingResponse,
+    ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
     StoryEventResponse, StoryState,
 )
 
@@ -38,6 +38,17 @@ def artifact(req: ArtifactRequest):
 
 @app.post("/api/story/next", response_model=StoryEventResponse)
 def story_next(state: StoryState):
+    event, source = gemini.next_event(state)
+    return StoryEventResponse(event=event, source=source)
+
+
+@app.post("/api/beat", response_model=StoryEventResponse)
+def beat(req: BeatRequest):
+    """Generate one supported story beat from player history and fresh outcomes."""
+    state = StoryState.model_validate(
+        req.model_dump(exclude={"challengeOutcomes"})
+    )
+    state.history = (state.history + req.challengeOutcomes)[-40:]
     event, source = gemini.next_event(state)
     return StoryEventResponse(event=event, source=source)
 

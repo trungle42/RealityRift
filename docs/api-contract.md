@@ -4,6 +4,32 @@ Base URL (dev): `http://localhost:8000`. Frontend dev server: `http://localhost:
 Every endpoint **always returns 200 with a valid body** (`source` says `gemini` or `fallback`).
 Types live in `backend/app/schemas.py`; the OpenAPI schema is at `/docs`.
 
+## POST /api/beat (Storybound game loop)
+
+Send the browser game state and the outcomes recorded since the previous beat:
+
+```json
+{
+  "players": [{"name": "Ava", "stars": 2}, {"name": "Ben", "stars": 1}],
+  "hearts": 3,
+  "chapter": 1,
+  "totalChapters": 5,
+  "history": [{"challenge": "freeze", "success": true, "player": "Ava"}],
+  "challengeOutcomes": [{"challenge": "pose", "success": false, "player": "Ben"}],
+  "artifacts": [],
+  "lastEnvironment": "forest"
+}
+```
+
+Response: `{ "event": <StoryEvent>, "source": "gemini" | "fallback" }`.
+`StoryEvent` uses only the environment, challenge, enemy, reward, and boss values
+listed above. Vote beats have exactly two options; object quests name the
+requested object. The backend decides whether this is the final chapter and
+falls back to a scripted fairy-tale beat if Gemini fails validation or is
+unavailable. Player names and outcome notes are size-limited and treated as
+untrusted prompt data. Keep `GEMINI_API_KEY` on the server in `backend/.env`;
+never send it to the browser.
+
 ## POST /api/artifact
 Request: `{ "imageBase64": "<jpeg base64>", "mimeType": "image/jpeg" }` (downscale to ~512px first)
 Response: `{ "artifact": { object, artifactName, artifactType, element, ability, damage(1-100), rarity, description }, "source" }`

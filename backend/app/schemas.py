@@ -45,15 +45,15 @@ class ArtifactResponse(BaseModel):
 
 # ---- Story ----------------------------------------------------------------
 class Player(BaseModel):
-    name: str
-    stars: int = 0
+    name: str = Field(min_length=1, max_length=32)
+    stars: int = Field(default=0, ge=0, le=999)
 
 
 class HistoryEntry(BaseModel):
     challenge: ChallengeType
     success: bool
-    player: Optional[str] = None
-    note: Optional[str] = None
+    player: Optional[str] = Field(default=None, max_length=32)
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 class StoryState(BaseModel):
@@ -61,18 +61,24 @@ class StoryState(BaseModel):
     hearts: int = Field(ge=0, le=3, default=3)
     chapter: int = Field(ge=0, default=0, description="0 = intro; boss is the last chapter")
     totalChapters: int = Field(ge=2, le=8, default=5)
-    history: List[HistoryEntry] = []
-    artifacts: List[Artifact] = []
+    history: List[HistoryEntry] = Field(default_factory=list, max_length=40)
+    artifacts: List[Artifact] = Field(default_factory=list, max_length=12)
     lastEnvironment: Optional[Environment] = None
+
+
+class BeatRequest(StoryState):
+    """Complete game context plus the outcomes just completed by the players."""
+
+    challengeOutcomes: List[HistoryEntry] = Field(default_factory=list, max_length=8)
 
 
 class Challenge(BaseModel):
     type: ChallengeType
     difficulty: int = Field(ge=1, le=3)
-    prompt: str = Field(description="Instruction shown/read to players")
+    prompt: str = Field(min_length=1, max_length=400, description="Instruction shown/read to players")
     durationSec: int = Field(ge=3, le=20)
-    options: Optional[List[str]] = Field(default=None, description="For vote: exactly 2 paths")
-    requestedObject: Optional[str] = Field(default=None, description="For object_quest")
+    options: Optional[List[str]] = Field(default=None, max_length=2, description="For vote: exactly 2 paths")
+    requestedObject: Optional[str] = Field(default=None, max_length=80, description="For object_quest")
 
 
 class Enemy(BaseModel):
@@ -81,7 +87,7 @@ class Enemy(BaseModel):
 
 
 class StoryEvent(BaseModel):
-    narration: str = Field(description="2-3 sentence fairy-tale narration")
+    narration: str = Field(min_length=1, max_length=1000, description="2-3 sentence fairy-tale narration")
     environment: Environment
     challenge: Challenge
     enemies: List[Enemy] = []

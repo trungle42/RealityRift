@@ -44,3 +44,109 @@ def test_ending():
 
 def test_bad_input_rejected():
     assert client.post("/api/story/next", json={"players": []}).status_code == 422
+
+
+def test_beat_returns_scripted_fairy_tale_event_from_player_history():
+    response = client.post(
+        "/api/beat",
+        json={
+            "players": PLAYERS,
+            "chapter": 0,
+            "totalChapters": 5,
+            "history": [{"challenge": "freeze", "success": True, "player": "Ava"}],
+            "challengeOutcomes": [{"challenge": "pose", "success": False, "player": "Ben"}],
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["source"] == "fallback"
+    assert body["event"]["environment"] in {"forest", "castle", "cave"}
+    assert body["event"]["challenge"]["type"] in {
+        "freeze", "pose", "vote", "object_quest", "mirror"
+    }
+    assert "Ava" in body["event"]["narration"] or "Ben" in body["event"]["narration"]
+
+
+def test_beat_rejects_unsupported_challenge_outcomes():
+    response = client.post(
+        "/api/beat",
+        json={
+            "players": PLAYERS,
+            "challengeOutcomes": [{"challenge": "invented", "success": True}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_beat_does_not_allow_a_boss_before_the_final_chapter(monkeypatch):
+    from app.schemas import StoryEvent
+
+    monkeypatch.setattr(
+        "app.gemini._generate",
+        lambda *_args, **_kwargs: StoryEvent(
+            narration="A fairy tale continues.",
+            environment="forest",
+            challenge={"type": "pose", "difficulty": 1, "prompt": "Pose!", "durationSec": 5},
+            isBoss=True,
+            bossVariant="dragon",
+            bossHealth=10,
+        ),
+    )
+
+    response = client.post(
+        "/api/beat",
+        json={"players": PLAYERS, "chapter": 0, "totalChapters": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["event"]["isBoss"] is False
+    assert response.json()["event"]["bossVariant"] is None
+
+
+def test_beat_final_chapter_uses_only_supported_boss_values():
+    response = client.post(
+        "/api/beat",
+        json={"players": PLAYERS, "chapter": 4, "totalChapters": 5},
+    )
+
+    event = response.json()["event"]
+    assert response.status_code == 200
+    assert event["isBoss"] is True
+    assert event["bossVariant"] in {"witch", "dragon", "shadow_king"}
+
+
+def test_beat_falls_back_when_gemini_returns_an_incomplete_vote(monkeypatch):
+    from app.schemas import StoryEvent
+
+    monkeypatch.setattr(
+        "app.gemini._generate",
+        lambda *_args, **_kwargs: StoryEvent(
+            narration="A path opens beneath the old oak.",
+            environment="forest",
+            challenge={"type": "vote", "difficulty": 1, "prompt": "Choose.", "durationSec": 5},
+        ),
+    )
+
+    response = client.post(
+        "/api/beat",
+        json={"players": PLAYERS, "chapter": 2, "totalChapters": 5},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "fallback"
+    assert len(body["event"]["challenge"]["options"]) == 2
+
+
+def test_beat_bounds_untrusted_player_notes():
+    response = client.post(
+        "/api/beat",
+        json={
+            "players": PLAYERS,
+            "history": [{"challenge": "freeze", "success": True, "note": "x" * 501}],
+        },
+    )
+
+    assert response.status_code == 422
