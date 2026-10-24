@@ -7,8 +7,31 @@ An AI-powered interactive fairy-tale adventure for two players — HackTX 2026.
 The game uses a cinematic 2.5D presentation: realistically proportioned rendered
 heroes and creatures, perspective environment paintings, contact shadows,
 animated mist, light rays, particles, and magical wards. PixiJS still owns the
-gameplay; this is not a free-roaming 3D engine. All 15 artwork files ship locally
-in `frontend/public/art` (about 3.6 MB total), including four poses per hero.
+gameplay, including free roaming across connected 2.5D clearings. The forest,
+castle and cave have dedicated walkable scenery. All artwork ships locally in
+`frontend/public/art`, including 60 movement/action frames across two hero atlases.
+This uses a fixed perspective camera and rendered sprites, rather than 3D meshes.
+
+## Interactive campaign
+
+Walk with WASD, or click the ground or a landmark to follow a route around
+obstacles. Hold Space while moving to run. E interacts with nearby objects;
+Q opens the journal, region map, quest history and relic inventory. Your second
+hero follows automatically; use the arrow keys for direct control or turn
+following off. Click an enemy or press F (Hero Two: /) to cast. Left / right Shift
+performs that hero's dodge roll. Enemy strikes have a red warning before impact.
+
+Discover treasure, speak with the waykeeper, save healing springs for when you
+need them, and dispel roaming guardians. Each cache, spring and guardian can
+reward the party only once per adventure. Story choices unlock region crossings;
+you can revisit the forest. Approach the golden quest beacon to begin the next
+narrated challenge, branching decision or boss encounter. Those encounters retain
+their existing pose / freeze / spell controls. Movement stops while the journal
+or controls guide is open. Progress lasts for the current adventure; refreshing
+the browser starts over.
+
+Both heroes have directional walk cycles, rear-facing movement, running, dodge
+rolls, spellcasting and hit reactions, with idle breathing and celebration.
 
 The title menu and character setup adapt to narrow windows. Gameplay keeps a
 16:9 view so combat positions stay consistent. The Controls button opens a guide
@@ -42,6 +65,10 @@ This exercises the actual rendered challenge and combat routines with determinis
 test inputs, checks heart/star accounting, and checks actor/listener cleanup.
 The harness is excluded from the production build. It also has three scene
 preview buttons for visual QA. Test TypeScript is included in the build's typecheck.
+
+Also open `http://localhost:5173/tests/campaign.html` and select **Run campaign
+checks** for rendered movement, animation switching, collision, click navigation,
+treasure, healing, dialogue pause, route locks, travel, combat and cleanup checks.
 
 For a production smoke test, run `npm run preview -- --port 4173` after building.
 

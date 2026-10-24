@@ -16,8 +16,10 @@ interface Scene { root: Container; animate: (dt: number, t: number) => void }
 
 /** Painted perspective environments, grounded at the same actor baseline. */
 export class Backdrop extends Container {
-  private readonly scenes = new Map<EnvironmentId, Scene>();
+  private readonly scenes = new Map<string, Scene>();
   private current: EnvironmentId | null = null;
+  private currentKey = '';
+  private exploring = false;
   constructor() {
     super();
     onFrame((dt) => {
@@ -25,12 +27,18 @@ export class Backdrop extends Container {
     });
   }
   get environment(): EnvironmentId | null { return this.current; }
+  async setExploration(on: boolean): Promise<void> {
+    this.exploring = on;
+    if (this.current) await this.show(this.current, 0.4);
+  }
   async show(env: EnvironmentId, seconds = 1.2): Promise<void> {
-    if (env === this.current) return;
-    let next = this.scenes.get(env);
-    if (!next) { next = createScene(env); this.scenes.set(env, next); }
-    const prev = this.current ? this.scenes.get(this.current) : undefined;
+    const key = env + (this.exploring ? '-field' : '');
+    if (key === this.currentKey) return;
+    let next = this.scenes.get(key);
+    if (!next) { next = createScene(env, this.exploring); this.scenes.set(key, next); }
+    const prev = this.scenes.get(this.currentKey);
     this.current = env;
+    this.currentKey = key;
     this.addChild(next.root);
     next.root.alpha = prev ? 0 : 1;
     if (prev) {
@@ -50,14 +58,14 @@ function glow(x: number, y: number, color: number, sx: number, sy = sx): Sprite 
   return sprite;
 }
 
-function createScene(env: EnvironmentId): Scene {
+function createScene(env: EnvironmentId, exploring = false): Scene {
   const root = new Container();
   const theme = THEMES[env];
-  const painting = new Sprite(art(env));
-  const height = Math.max(H, GROUND_Y / theme.floor, (H - GROUND_Y) / (1 - theme.floor));
+  const painting = new Sprite(art(env + (exploring ? '-field' : '')));
+  const height = exploring ? H : Math.max(H, GROUND_Y / theme.floor, (H - GROUND_Y) / (1 - theme.floor));
   painting.height = height;
   painting.width = height * W / H;
-  painting.position.set((W - painting.width) / 2, GROUND_Y - height * theme.floor);
+  painting.position.set((W - painting.width) / 2, exploring ? 0 : GROUND_Y - height * theme.floor);
   root.addChild(painting);
   const rays = new Graphics();
   rays.blendMode = 'add';

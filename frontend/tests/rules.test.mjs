@@ -13,6 +13,9 @@ async function load(relative) {
 const { GameState } = await load('../src/game/GameState.ts');
 const { ScriptedStory } = await load('../src/story/ScriptedStory.ts');
 const { isStill, matchesPose, initialBossHp, heartsLostSince, didWin } = await load('../src/game/rules.ts');
+const { walkable, move, findPath, distance, depthScale } = await load('../src/campaign/navigation.ts');
+const { CampaignProgress, REGIONS, questFor } = await load('../src/campaign/locations.ts');
+const { HeroAnimation } = await load('../src/world/animation.ts');
 const party = () => [{ index: 0, name: 'Rowan' }, { index: 1, name: 'Wren' }];
 const outcome = (beatId, success = true, choiceId) => ({ beatId, kind: 'story', success, choiceId, heartsLost: success ? 0 : 1, perPlayer: [{ success, stars: 1 }, { success, stars: 1 }], summary: success ? 'The heroes prevailed' : 'The heroes stumbled' });
 
@@ -119,4 +122,84 @@ test('replay starts fresh without leaking prior rewards, history, or scores', ()
   const replay = new GameState(first.party);
   assert.equal(replay.hearts, 3); assert.deepEqual(replay.stars, [0, 0]);
   assert.deepEqual(replay.outcomes, []); assert.equal(replay.has('quick-cast'), false);
+});
+
+test('walking and a long dash cannot tunnel through an obstacle or the world boundary', () => {
+  const obstacles = [{ x: 500, y: 500, radius: 30 }];
+  const stopped = move({ x: 400, y: 500 }, 600, 0, obstacles);
+  assert.ok(stopped.x <= 456 && walkable(stopped, obstacles));
+  const edge = move({ x: 300, y: 600 }, -1000, 1000, []);
+  assert.ok(walkable(edge, []));
+  assert.equal(walkable({ x: 100, y: 390 }, []), false, 'perspective edges must block movement');
+  const pixiLike = Object.create({ get x() { return 300; }, get y() { return 500; } });
+  assert.deepEqual(move(pixiLike, 20, 0, []), { x: 320, y: 500 });
+});
+test('click navigation routes around obstacles without clipping corners', () => {
+  const obstacles = REGIONS.forest.obstacles;
+  const path = findPath({ x: 245, y: 540 }, { x: 1000, y: 515 }, obstacles);
+  assert.ok(path.length > 0);
+  for (const point of path) assert.ok(walkable(point, obstacles));
+  for (let i = 1; i < path.length; i++) {
+    const moved = move(path[i - 1], path[i].x - path[i - 1].x, path[i].y - path[i - 1].y, obstacles);
+    assert.ok(distance(moved, path[i]) < 0.01, 'path segment must be traversable');
+  }
+  assert.ok(distance(path.at(-1), { x: 1000, y: 515 }) < 20);
+});
+test('every landmark and campaign quest has an accessible approach in its region', async () => {
+  for (const route of ['castle', 'cave']) {
+    const state = new GameState(party()), story = new ScriptedStory();
+    let beat = await story.begin(state.party);
+    while (!beat.isEnding) {
+      const region = REGIONS[beat.environment];
+      for (const target of [...region.landmarks, questFor(beat)]) {
+        const path = findPath({ x: 245, y: 540 }, target, region.obstacles);
+        assert.ok(path.length && distance(path.at(-1), target) < 85, `${beat.id}: ${target.name} unreachable`);
+      }
+      const result = outcome(beat.id, true, beat.id === 'crossroads' ? route : 'free');
+      state.outcomes.push(result); beat = await story.next(state.history(), result);
+    }
+  }
+});
+test('clicks outside the clearing resolve to a reachable edge and depth scales nearer heroes up', () => {
+  const path = findPath({ x: 245, y: 540 }, { x: -9000, y: -9000 }, REGIONS.cave.obstacles);
+  assert.ok(path.length && walkable(path.at(-1), REGIONS.cave.obstacles));
+  assert.ok(depthScale(400) < depthScale(600));
+});
+test('treasure claims are unique per area, route locks follow the story, replay is fresh', () => {
+  const campaign = new CampaignProgress();
+  assert.deepEqual([...campaign.unlocked], ['forest']);
+  assert.equal(campaign.claim('forest:chest'), true);
+  assert.equal(campaign.claim('forest:chest'), false);
+  assert.equal(campaign.claim('castle:chest'), true);
+  campaign.unlock({ environment: 'cave' });
+  assert.equal(campaign.unlocked.has('cave'), true);
+  assert.equal(campaign.unlocked.has('castle'), false);
+  const replay = new CampaignProgress();
+  assert.equal(replay.collected.size, 0); assert.equal(replay.defeated.size, 0);
+  assert.deepEqual([...replay.unlocked], ['forest']);
+});
+
+test('movement animation cycles use distinct frames, turn correctly and stop at idle', () => {
+  const animation = new HeroAnimation(); animation.move('walk', 1, 0);
+  const frames = new Set(Array.from({ length: 20 }, () => animation.advance(0.08).frame));
+  assert.equal(frames.size, 5);
+  animation.move('walk', -1, -1); assert.equal(animation.advance(0.1).clip, 'backwalk');
+  assert.equal(animation.current.facing, -1);
+  animation.move('run', 1, 0); assert.equal(animation.advance(0.1).clip, 'run');
+  animation.move('idle'); assert.equal(animation.advance(0.1).clip, 'idle');
+});
+test('dodge and damage override casting, finish once, and return to locomotion', () => {
+  const animation = new HeroAnimation(); animation.move('walk');
+  animation.trigger('roll'); animation.trigger('cast');
+  assert.equal(animation.advance(0.1).clip, 'roll');
+  animation.trigger('hit'); assert.equal(animation.advance(0.1).clip, 'hit');
+  assert.equal(animation.advance(0.6).clip, 'walk');
+  animation.trigger('cast'); assert.equal(animation.advance(0.1).clip, 'cast');
+  assert.equal(animation.advance(0.5).clip, 'walk');
+});
+test('frozen animation holds its frame and replay resets all action state', () => {
+  const animation = new HeroAnimation(); animation.trigger('cast');
+  const frame = { ...animation.advance(0.1) };
+  assert.deepEqual(animation.advance(10, true), frame);
+  animation.reset(); assert.deepEqual(animation.advance(0.1), { clip: 'idle', frame: 0, facing: 1 });
 });

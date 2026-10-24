@@ -1,5 +1,24 @@
 # Dev 1 verification — October 24, 2026
 
+## Interactive campaign and animation update
+
+The game now includes keyboard and mouse exploration between story beats,
+collision and click-route navigation, automatic companion following with manual
+two-player control, region crossings unlocked by story choices, treasure,
+healing springs, an NPC, a quest journal and map, and roaming enemies with
+telegraphed strikes, spell combat and dodge rolls. Each hero has 30 animation
+frames for walking, rear-facing walking, running, rolling, casting and hit
+reactions. The 26 local WebP files total about 6.5 MB.
+
+Validation for this update: 22 rule/navigation/story/animation tests, 16 rendered
+campaign integration checks, the existing 11 engine scenarios, and a successful
+production build. Manual production checks cover click movement, treasure,
+journal pause/resume and the exploration-to-story transition. This remains a
+fixed-camera 2.5D game; browser refresh starts a fresh adventure.
+
+See `campaign.md` for controls and `art-direction.md` for exact generation prompts
+and the final local asset paths. The earlier visual-edition audit follows.
+
 Scope: the Game Development / Visuals responsibilities listed on pages 6–7 of
 the supplied HackTX brief. Work was performed on `dev1/game-visuals`.
 

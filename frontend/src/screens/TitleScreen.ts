@@ -13,7 +13,7 @@ export async function showTitle(_parent: Container, input: InputSource): Promise
       <h1>Reality<span>Rift</span></h1>
       <div class="title-rule"><span></span>◇<span></span></div>
       <p class="title-tagline">The world is enchanted.<br>The story is yours.</p>
-      <p class="title-description">Two heroes. One living fairy tale.<br>Step beyond the ordinary, together.</p>
+      <p class="title-description">Explore enchanted lands. Discover forgotten treasures.<br>Two heroes. One adventure of your own.</p>
       <button class="primary-button begin-button" type="button"><span>Begin your adventure</span><span aria-hidden="true">↗</span></button>
       <div class="title-keyhint"><kbd>Space</kbd> or <kbd>Enter</kbd> to begin</div>
     </div>

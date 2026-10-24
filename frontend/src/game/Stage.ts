@@ -37,6 +37,7 @@ export class Stage {
   /** Full-screen layer for title, party setup and storybook. */
   readonly screens = new Container();
   state!: GameState;
+  exploring = false;
   private readonly thinking: Text;
   private viewport = { width: VIEW.width as number, height: VIEW.height as number };
 
@@ -63,7 +64,7 @@ export class Stage {
 
     // Heroes always mirror what the players are doing.
     onFrame(() => {
-      this.heroes.forEach((h, i) => h.setPose(this.input.read(i as PlayerIndex).pose));
+      if (!this.exploring) this.heroes.forEach((h, i) => h.setPose(this.input.read(i as PlayerIndex).pose));
       if (this.thinking.alpha > 0) this.thinking.scale.set(1 + Math.sin(now() * 4) * 0.03);
     });
   }
@@ -81,6 +82,7 @@ export class Stage {
     this.hud.setParty(state.party);
     this.hud.setHearts(state.hearts, false);
     state.party.forEach((p, i) => {
+      this.heroes[i].resetAnimation();
       this.heroes[i].setFrozen(false);
       this.heroes[i].setMark(null);
       this.heroes[i].setMeter(null);
@@ -189,7 +191,12 @@ export class Stage {
 
   /** Slide heroes back to their marks (after knockbacks etc). */
   async resetHeroes(): Promise<void> {
-    await Promise.all(this.heroes.map((h, i) => tween(h, { x: HERO_X[i], y: GROUND_Y }, 0.4, ease.outCubic)));
+    await Promise.all(this.heroes.map(async (h, i) => {
+      const dx = HERO_X[i] - h.x, dy = GROUND_Y - h.y;
+      h.setMovement(Math.hypot(dx, dy) > 5 ? 'walk' : 'idle', dx, dy);
+      await tween(h, { x: HERO_X[i], y: GROUND_Y }, 0.4, ease.outCubic);
+      h.setMovement('idle', 1, 0);
+    }));
     this.heroes.forEach((h) => h.setFrozen(false));
   }
 }

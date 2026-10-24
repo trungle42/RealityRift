@@ -1,6 +1,8 @@
-import { Assets, type Texture } from 'pixi.js';
+import { Assets, Rectangle, Texture } from 'pixi.js';
+import { MOTION_CLIPS } from './animation';
 
-const names = ['forest', 'castle', 'cave', 'witch', 'dragon', 'wisp', 'imp',
+const names = ['forest', 'castle', 'cave', 'forest-field', 'castle-field', 'cave-field', 'ranger-motion', 'mage-motion', 'witch', 'dragon', 'wisp', 'imp',
+  ...['chest', 'shrine', 'portal', 'quest', 'pillar', 'lore'].map((name) => `prop-${name}`),
   ...['ranger', 'mage'].flatMap((hero) => ['idle', 'arms-up', 't-pose', 'crouch'].map((pose) => `${hero}-${pose}`))];
 const loaded = new Map<string, Texture>();
 
@@ -12,6 +14,12 @@ export async function loadArt(progress: (fraction: number) => void): Promise<voi
     loaded.set(name, texture);
     progress(++complete / names.length);
   }));
+  for (const hero of ['ranger', 'mage']) {
+    const atlas = loaded.get(`${hero}-motion`)!;
+    MOTION_CLIPS.forEach((clip, row) => {
+      for (let frame = 0; frame < 5; frame++) loaded.set(`${hero}-${clip}-${frame}`, new Texture({ source: atlas.source, frame: new Rectangle(frame * 256, row * 256, 256, 256) }));
+    });
+  }
 }
 
 export function art(name: string): Texture {

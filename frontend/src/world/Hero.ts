@@ -4,6 +4,7 @@ import { onFrame, now, tween, wait, ease } from '../core/clock';
 import { textures } from '../fx/textures';
 import { fonts, makeText, palette, PLAYER_COLORS } from '../theme';
 import { art } from './art';
+import { HeroAnimation, type Locomotion } from './animation';
 
 type Stance = PoseId | 'idle';
 const HEIGHT: Record<Stance, number> = { idle: 196, 'arms-up': 238, 't-pose': 196, crouch: 126 };
@@ -22,6 +23,7 @@ export class Hero extends Container {
   private frozen = false;
   private castTimer = 0;
   private transition = 1;
+  private readonly animation = new HeroAnimation();
   private readonly stopUpdates: () => void;
 
   constructor(readonly index: PlayerIndex) {
@@ -58,6 +60,12 @@ export class Hero extends Container {
   }
   override destroy(): void { this.stopUpdates(); super.destroy({ children: true }); }
   setName(name: string): void { this.nameplate.text = name; this.nameplate.scale.set(Math.min(1, 150 / this.nameplate.width)); }
+  get animationState() { return this.animation.current; }
+  setWalking(on: boolean, direction = 0): void { this.animation.move(on ? 'walk' : 'idle', direction); }
+  setMovement(mode: Locomotion, dx: number, dy: number): void { this.animation.move(mode, dx, dy); }
+  dodge(): void { this.animation.trigger('roll'); }
+  recoil(): void { this.animation.trigger('hit'); }
+  resetAnimation(): void { this.animation.reset(); }
   setPose(pose: PoseId | null): void {
     const next = pose ?? 'idle';
     if (next === this.stance || this.frozen) return;
@@ -70,6 +78,7 @@ export class Hero extends Container {
   }
   private setBody(stance: Stance): void {
     this.body.texture = art(`${this.index === 0 ? 'ranger' : 'mage'}-${stance}`);
+    this.body.anchor.set(0.5, 1);
     this.body.scale.set(HEIGHT[stance] / this.body.texture.height);
   }
   setFrozen(on: boolean): void {
@@ -78,11 +87,12 @@ export class Hero extends Container {
     void tween(this.ice, { alpha: on ? 1 : 0 }, 0.3);
     this.body.tint = on ? 0x9edce9 : 0xffffff;
   }
-  cast(): { x: number; y: number } { this.castTimer = 0.38; return this.staffTip(); }
+  cast(): { x: number; y: number } { this.castTimer = 0.42; this.animation.trigger('cast'); return this.staffTip(); }
   staffTip(): { x: number; y: number } {
     return this.parent ? this.parent.toLocal(this.orb.getGlobalPosition()) : { x: this.x + 36, y: this.y - 112 };
   }
   async hurt(): Promise<void> {
+    this.recoil();
     const homeX = this.x;
     this.body.tint = 0xff9d8f;
     this.x -= 14;
@@ -114,9 +124,20 @@ export class Hero extends Container {
     this.echo.alpha = 1 - this.transition;
     this.castTimer = Math.max(0, this.castTimer - dt);
     const breathing = this.frozen ? 0 : Math.sin(now() * 1.6 + this.index) * 0.003;
-    const scale = HEIGHT[this.stance] / this.body.texture.height;
-    this.body.scale.set(scale, scale * (1 + breathing));
-    this.body.rotation = this.castTimer > 0 ? 0.025 * Math.sin(this.castTimer * 12) : 0;
+    const motion = this.animation.advance(dt, this.frozen);
+    if (motion.clip !== 'idle' && !this.frozen) {
+      this.body.texture = art(`${this.index === 0 ? 'ranger' : 'mage'}-${motion.clip}-${motion.frame}`);
+      this.body.anchor.set(0.5, 240 / 256);
+      this.body.scale.set(motion.facing, 1);
+      this.body.alpha = 1; this.echo.alpha = 0;
+    } else {
+      this.setBody(this.stance);
+      const scale = HEIGHT[this.stance] / this.body.texture.height;
+      this.body.scale.set(scale * motion.facing, scale * (1 + breathing));
+    }
+    this.body.y = 0; this.body.rotation = 0;
+    this.orb.x = 36 * motion.facing;
+    this.orb.visible = motion.clip !== 'roll' && motion.clip !== 'backwalk';
     this.orb.y = this.stance === 'crouch' ? -70 : this.stance === 'arms-up' ? -224 : -112;
     this.orb.scale.set(this.castTimer > 0 ? 0.75 : 0.19 + Math.sin(now() * 2) * 0.025);
     this.orb.alpha = this.castTimer > 0 ? 0.95 : 0.45;
