@@ -1,87 +1,156 @@
-# Reality Rift API contract (Dev 2 → Dev 1 / Dev 3)
+# Reality Rift API contracts
 
-Base URL (dev): `http://localhost:8000`. Frontend dev server: `http://localhost:5173`.
-Every endpoint **always returns 200 with a valid body** (`source` says `gemini` or `fallback`).
-Types live in `backend/app/schemas.py`; the OpenAPI schema is at `/docs`.
+Development defaults: backend `http://localhost:8000`, frontend `http://localhost:5173`.
+The service exposes two different story interfaces. The playable engine uses
+`/api/provider/*` and the `StoryProvider` types in `frontend/src/contracts.ts`.
+`/api/beat` and `/api/story/*` use the separate `StoryEvent` schema in
+`backend/app/schemas.py`; their event payloads are not interchangeable with
+`StoryBeat`.
 
-## POST /api/beat (Storybound game loop)
+## Engine story provider
 
-Send the browser game state and the outcomes recorded since the previous beat:
+The engine calls these endpoints through `frontend/src/story/GeminiStory.ts`.
+Successful responses are the JSON object shown below directly (there is no
+`event` or `source` wrapper). When Gemini is unavailable or returns unusable
+text, these endpoints return HTTP 503. The frontend catches that error and
+uses `ScriptedStory` for the beat.
+
+### `POST /api/provider/begin`
+
+Request:
 
 ```json
 {
-  "players": [{"name": "Ava", "stars": 2}, {"name": "Ben", "stars": 1}],
-  "hearts": 3,
-  "chapter": 1,
-  "totalChapters": 5,
-  "history": [{"challenge": "freeze", "success": true, "player": "Ava"}],
-  "challengeOutcomes": [{"challenge": "pose", "success": false, "player": "Ben"}],
-  "artifacts": [],
-  "lastEnvironment": "forest"
+  "party": [
+    {"index": 0, "name": "Ava"},
+    {"index": 1, "name": "Ben"}
+  ]
 }
 ```
 
-Response: `{ "event": <StoryEvent>, "source": "gemini" | "fallback" }`.
-`StoryEvent` uses only the environment, challenge, enemy, reward, and boss values
-listed above. Vote beats have exactly two options; object quests name the
-requested object. The backend decides whether this is the final chapter and
-falls back to a scripted fairy-tale beat if Gemini fails validation or is
-unavailable. Player names and outcome notes are size-limited and treated as
-untrusted prompt data. Keep `GEMINI_API_KEY` on the server in `backend/.env`;
-never send it to the browser.
+Returns a `StoryBeat`, initially the narration-only `intro` beat.
 
-## POST /api/artifact
-Request: `{ "imageBase64": "<jpeg base64>", "mimeType": "image/jpeg" }` (downscale to ~512px first)
-Response: `{ "artifact": { object, artifactName, artifactType, element, ability, damage(1-100), rarity, description }, "source" }`
+### `POST /api/provider/next`
 
-Catalogs (exact values):
-- artifactType: staff | spear | sword | mirror | chalice | orb
-- element: fire | water | lightning | ice | nature | shadow | light
-- ability: wave | bolt | nova | pierce | meteor | chain
-- rarity: common | rare | epic | legendary
+Request follows `GameHistory` plus the most recently completed `BeatOutcome`.
+The engine's `perPlayer` and `heartsLost` fields are accepted but are not used
+to plan the next beat; planning uses `beatId`, `kind`, `success`, `choiceId`,
+`summary`, party, hearts, rewards, and environment history.
 
-## POST /api/story/next
-Request (the whole game state, sent after each challenge):
-`{ players:[{name,stars}], hearts(0-3), chapter(0-based), totalChapters, history:[{challenge,success,player?,note?}], artifacts:[Artifact], lastEnvironment? }`
-Response: `{ "event": { narration, environment, challenge:{type,difficulty 1-3,prompt,durationSec,options?,requestedObject?}, enemies:[{type,count}], reward, isBoss, bossVariant?, bossHealth? }, "source" }`
-
-- environment: forest | castle | cave
-- challenge.type: freeze | pose | vote | object_quest | mirror (`vote` always has exactly 2 `options`)
-- enemies: shadow_creature | goblin | wolf | witch_minion
-- reward: heart | star_bonus | artifact_buff | none
-- bossVariant: witch | dragon | shadow_king. `isBoss` is true only when `chapter >= totalChapters-1`.
-
-The **game engine** owns hearts/stars/combat; Gemini only chooses the next event from these options.
-
-## POST /api/story/ending
-Request: `{ state: <same as /story/next>, bossDefeated: boolean }`
-Response: `{ storybook: { title, pages:[{text,environment}], outcome: victory|bittersweet|defeat }, "source" }`
-
-## GET /api/health
-`{ ok, gemini: boolean, model }`: `gemini:false` means key missing or `OFFLINE=1`.
-
-## Run
-```bash
-cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env   # add GEMINI_API_KEY (never commit)
-.venv/bin/uvicorn app.main:app --reload --port 8000
-.venv/bin/python -m pytest
+```json
+{
+  "history": {
+    "party": [{"index": 0, "name": "Ava"}, {"index": 1, "name": "Ben"}],
+    "hearts": 3,
+    "maxHearts": 3,
+    "stars": [0, 0],
+    "rewards": [],
+    "outcomes": [],
+    "environments": ["forest"]
+  },
+  "last": {
+    "beatId": "intro",
+    "kind": "story",
+    "success": true,
+    "perPlayer": [{"success": true, "stars": 0}, {"success": true, "stars": 0}],
+    "heartsLost": 0,
+    "summary": "The heroes enter the wood."
+  }
+}
 ```
-Set `OFFLINE=1` to force canned responses (demo insurance).
 
-## Telemetry + leaderboard (fire-and-forget; never block gameplay on these)
-- `POST /api/event` `{ session, type: "scan"|"challenge_result"|"boss_hit"|..., payload:{} }` → `{ok}` (type is lowercase letters/underscores)
-- `POST /api/score` `{ team, stars, hearts(0-3), outcome: victory|bittersweet|defeat, artifact? }` → `{ok, leaderboard:[{team,stars,hearts,outcome,artifact}]}` (ranked by stars + 2×hearts)
-- `GET /api/leaderboard` → `{leaderboard:[...]}`; `GET /api/stats` → `{games, events:{type:count}}`
-Stored in SQLite (`DB_PATH`, default `reality_rift.db`); swappable for Tiger Data in `backend/app/store.py`.
+`kind` is `story | freeze | pose | vote | encounter | boss`. A vote may include
+`choiceId`. The server bounds names, history, and text fields and restricts
+environments and outcome kinds to the engine's supported values.
 
-`/api/artifact` limits: `imageBase64` ≤ ~3 MB, `mimeType` jpeg/png/webp. Defaults: model `gemini-3.8-flash`, 12 s timeout, thinking off (~3-4 s per call).
-Photo tester: `python backend/tools/test_photos.py <folder>` (needs `pip install pillow`).
-Docker: `docker build -t reality-rift-api backend && docker run -e GEMINI_API_KEY=... -p 8000:8000 reality-rift-api` (Vultr-ready).
+### `POST /api/provider/storybook`
 
-## Engine provider (Dev 1's `StoryProvider`; used by the game)
-`POST /api/provider/begin {party}`, `POST /api/provider/next {history, last}`, `POST /api/provider/storybook {history, victory}`
-take/return exactly the shapes in `frontend/src/contracts.ts` (`StoryBeat`, `Storybook`). The backend keeps Dev 1's beat ids and
-branching (`provider.py` mirrors `ScriptedStory.ts`); Gemini writes only narration, prompts, vote labels and reward names.
-Returns **503** if Gemini is unavailable. `frontend/src/story/GeminiStory.ts` then falls back to `ScriptedStory` for that beat.
-Set `VITE_STORY=scripted` to force offline, `VITE_API_URL` to point at a deployed backend (default `http://localhost:8000`).
+Request: `{ "history": <GameHistory>, "victory": true }`.
+
+Returns a `Storybook` directly:
+
+```json
+{"title": "The Moonpetal Quest", "pages": [{"heading": "Once Upon a Time", "text": "..."}]}
+```
+
+### Engine response shapes
+
+`StoryBeat` has `id`, `chapter`, `environment`, and `narration` (an array of
+paragraphs), with optional `speaker`, `reward`, `challenge`, `encounter`,
+`boss`, and `isEnding`. `environment` is `forest | castle | cave`. At most one
+of `challenge`, `encounter`, and `boss` is present on a beat.
+
+The supported challenges mirror the frontend discriminated union:
+
+- `freeze`: `prompt`, `durationSec`, and `tolerance`.
+- `pose`: `prompt`, `poses` (`arms-up | t-pose | crouch`), and `secondsPerPose`.
+- `vote`: `prompt`, exactly two `{id, label}` options, and `timeLimitSec`.
+
+Encounters use `enemy: shadow-wisp | thorn-imp`, `count`, and `speed`. Bosses
+use `kind: frost-witch | shadow-dragon`, `name`, `maxHp`, attacks
+`frost-gaze | shadow-wave`, `telegraphSec`, and `vulnerableSec`. Rewards use
+`heart | boss-weaken | fairy-ally | quick-cast`, with `name` and `description`.
+An ending beat has `isEnding: true` and no challenge, encounter, or boss.
+
+The backend owns beat structure and branching to keep gameplay values valid;
+Gemini supplies narration and may rewrite challenge prompts, vote labels, and
+reward text. It does not select mechanics or catalog values.
+
+## Separate `StoryEvent` API
+
+These routes are retained for clients using `backend/app/schemas.py`'s older
+`StoryState` / `StoryEvent` contract. Their responses must not be passed to the
+engine's `StoryProvider`.
+
+### `POST /api/beat`
+
+Accepts a `StoryState` plus optional `challengeOutcomes`. The state contains
+`players`, `hearts`, `chapter`, `totalChapters`, `history`, `artifacts`, and
+`lastEnvironment`. Returns
+`{ "event": <StoryEvent>, "source": "gemini" | "fallback" }`.
+`StoryEvent` has one narration string, an environment, a challenge, enemies,
+reward, and boss fields from the legacy catalogs in `backend/app/schemas.py`.
+
+### `POST /api/story/next`
+
+Accepts `StoryState` and returns the same wrapped `StoryEvent` response as
+`/api/beat`, without the additional `challengeOutcomes` field.
+
+### `POST /api/story/ending`
+
+Accepts `{ "state": <StoryState>, "bossDefeated": boolean }` and returns
+`{ "storybook": <legacy Storybook>, "source": "gemini" | "fallback" }`.
+This legacy storybook uses pages with `text` and `environment`, and an
+`outcome` of `victory | bittersweet | defeat`.
+
+## Artifact, health, and telemetry endpoints
+
+- `POST /api/artifact` accepts `{ "imageBase64": "...", "mimeType": "image/jpeg" }`;
+  image data is limited to 3,000,000 characters and MIME type to JPEG, PNG, or
+  WebP. Returns `{ "artifact": <Artifact>, "source": "gemini" | "fallback" }`.
+  Artifact catalogs are defined in `backend/app/schemas.py`.
+- `GET /api/health` returns `{ "ok": true, "gemini": boolean, "model": string }`.
+- `POST /api/event` records bounded telemetry and returns `{ "ok": boolean }`.
+- `POST /api/score` submits a score and returns `{ "ok": true, "leaderboard": [...] }`.
+- `GET /api/leaderboard` returns `{ "leaderboard": [...] }`;
+  `GET /api/stats` returns aggregate game and event counts.
+
+## Local development
+
+Install backend dependencies and run the offline suite:
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+OFFLINE=1 .venv/bin/python -m pytest
+```
+
+To run the server, copy `.env.example` to `.env` and configure
+`GEMINI_API_KEY` locally. Keep the key on the server; never send it to the
+browser or commit `.env`. Set `OFFLINE=1` to force canned responses. The
+frontend can force the scripted provider with `VITE_STORY=scripted`; set
+`VITE_API_URL` to point it at a backend other than `http://localhost:8000`.
+
+Telemetry and scores are stored in SQLite (`DB_PATH`, default
+`reality_rift.db`).
