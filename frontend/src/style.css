@@ -1,0 +1,111 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #05040c;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+canvas {
+  display: block;
+}
+
+/* Party setup overlay (DOM so text entry behaves like a real input). */
+.party {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.party form {
+  pointer-events: auto;
+  display: grid;
+  gap: 18px;
+  width: min(440px, calc(100vw - 32px));
+  padding: 32px 36px 28px;
+  background: linear-gradient(#f6e8c8, #e3c995);
+  border: 3px solid #c8962e;
+  border-radius: 10px;
+  box-shadow: 0 0 0 6px #3a2208, 0 0 0 8px #f0c45a, 0 20px 60px rgba(0, 0, 0, 0.6);
+  font-family: 'IM Fell English', Georgia, serif;
+  color: #2b1a0e;
+  animation: party-in 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes party-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+}
+
+.party h2 {
+  margin: 0;
+  text-align: center;
+  font-family: 'Cinzel Decorative', Georgia, serif;
+  font-size: 26px;
+  color: #6b3f0c;
+}
+
+.party label {
+  display: grid;
+  gap: 6px;
+  font-size: 18px;
+}
+
+.party label span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.party label i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.party input {
+  font: inherit;
+  font-size: 20px;
+  padding: 8px 12px;
+  border: 2px solid #a87420;
+  border-radius: 6px;
+  background: #fff8e6;
+  color: #2b1a0e;
+}
+
+.party input:focus {
+  outline: 3px solid #f0c45a;
+}
+
+.party button {
+  margin-top: 6px;
+  font-family: 'Cinzel', Georgia, serif;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 1px;
+  padding: 10px;
+  color: #fff4d6;
+  background: linear-gradient(#b8452f, #7a2316);
+  border: 2px solid #f0c45a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.party button:hover {
+  filter: brightness(1.12);
+}
+
+.party small {
+  text-align: center;
+  opacity: 0.7;
+}
