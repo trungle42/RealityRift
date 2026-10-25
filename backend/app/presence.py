@@ -1,0 +1,120 @@
+"""Presence relay: up to three laptops, each running its own game, see each other's heroes.
+
+Every player runs their own game, backend, tracker and phone; the host's backend is also the meeting point. Each game joins
+WS /ws/presence/{room}?name=<name>&colour=red|blue|yellow (teammates through the host's internet tunnel, see tunnel.py) and
+gets {"type":"welcome","id","peers":[{id,name,colour}]}; the others hear {"type":"peer","state":"joined"|"left",id,name,colour}.
+From then on each game sends its hero's {"type":"state",x,y,z,heading,speed,anim,hp} and cosmetic
+{"type":"fx",kind,x,y,z,dx,dz,ability?,element?}; the relay rebuilds them from known fields (numbers finite and clamped, names
+from fixed lists), stamps the sender's id and passes them to everyone else. Anything else is dropped, messages are capped at
+MAX_MSG bytes and RATE a second per player, and nothing is stored. A fourth player gets {"type":"full"} and a close. The
+tunnel's random room code is the only "auth", as for the phone joystick.
+"""
+from __future__ import annotations
+
+import json
+import math
+import re
+import time
+from typing import Dict, Optional
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+router = APIRouter()
+ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+NAME_RE = re.compile(r"^[A-Za-z0-9 _-]{1,16}$")
+COLOURS = ("red", "blue", "yellow")
+ANIMS = ("idle", "walk", "run", "strike", "roll", "jump", "cast", "hurt", "dead", "pose")
+FX = ("cast", "slash")
+ABILITIES = ("wave", "bolt", "nova", "pierce", "meteor", "chain")      # schemas.Ability
+ELEMENTS = ("fire", "water", "lightning", "ice", "nature", "shadow", "light")   # schemas.Element
+MAX_PEERS, MAX_MSG, RATE = 3, 512, 30
+WORLD, LOW, HIGH = 5000.0, -100.0, 1000.0
+
+_rooms: Dict[str, Dict[WebSocket, dict]] = {}  # room -> socket -> {"id", "name", "colour"}
+
+
+def _num(v: object, lo: float, hi: float) -> Optional[float]:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        return None
+    return round(min(float(hi), max(float(lo), float(v))), 3)
+
+
+def _heading(v: object) -> Optional[float]:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        return None
+    return round(math.atan2(math.sin(v), math.cos(v)), 3)
+
+
+def clean_presence(msg: object) -> Optional[dict]:
+    """A hero's state or a cosmetic effect, rebuilt from known fields; None for anything else or anything malformed."""
+    if not isinstance(msg, dict):
+        return None
+    pos = {k: _num(msg.get(k), lo, hi) for k, lo, hi in (("x", -WORLD, WORLD), ("y", LOW, HIGH), ("z", -WORLD, WORLD))}
+    if None in pos.values():
+        return None
+    if msg.get("type") == "state":
+        heading, speed, hp = _heading(msg.get("heading")), _num(msg.get("speed"), 0, 50), _num(msg.get("hp"), 0, 10)
+        if heading is None or speed is None or hp is None or msg.get("anim") not in ANIMS:
+            return None
+        return {"type": "state", **pos, "heading": heading, "speed": speed, "anim": msg["anim"], "hp": hp}
+    if msg.get("type") == "fx":
+        dx, dz = _num(msg.get("dx"), -1, 1), _num(msg.get("dz"), -1, 1)
+        if dx is None or dz is None or msg.get("kind") not in FX:
+            return None
+        out = {"type": "fx", "kind": msg["kind"], **pos, "dx": dx, "dz": dz}
+        if msg.get("ability") in ABILITIES:
+            out["ability"] = msg["ability"]
+        if msg.get("element") in ELEMENTS:
+            out["element"] = msg["element"]
+        return out
+    return None
+
+
+async def _send_all(targets, text: str) -> None:
+    for ws in list(targets):
+        try:
+            await ws.send_text(text)
+        except Exception:
+            pass
+
+
+@router.websocket("/ws/presence/{room}")
+async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""):
+    name = name.strip()
+    if not ROOM_RE.match(room) or not NAME_RE.match(name) or colour not in COLOURS:
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    peers = _rooms.setdefault(room, {})
+    free = [n for n in range(MAX_PEERS) if n not in {p["id"] for p in peers.values()}]
+    if not free:
+        await ws.send_text(json.dumps({"type": "full"}))
+        await ws.close(code=1008)
+        return
+    me = {"id": free[0], "name": name, "colour": colour}
+    await ws.send_text(json.dumps({"type": "welcome", "id": me["id"], "peers": sorted(peers.values(), key=lambda p: p["id"])}))
+    await _send_all(peers, json.dumps({"type": "peer", "state": "joined", **me}))
+    peers[ws] = me
+    window, sent = 0.0, 0
+    try:
+        while True:
+            text = await ws.receive_text()
+            now = time.monotonic()
+            if now - window >= 1.0:
+                window, sent = now, 0
+            sent += 1
+            if sent > RATE or len(text.encode("utf-8")) > MAX_MSG:
+                continue
+            try:
+                msg = clean_presence(json.loads(text))
+            except ValueError:
+                continue
+            if msg:
+                await _send_all([p for p in peers if p is not ws], json.dumps({**msg, "id": me["id"]}))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        peers.pop(ws, None)
+        await _send_all(peers, json.dumps({"type": "peer", "state": "left", **me}))
+        if not peers:
+            _rooms.pop(room, None)

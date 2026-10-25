@@ -8,6 +8,10 @@
 #   ./scripts/demo.sh --tune                          first tune the tracker's colours to this camera and room (no keys)
 #   ./scripts/demo.sh --tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
 #   ./scripts/demo.sh --color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
+#   ./scripts/demo.sh --tunnel --color red --name Trung
+#                                                     host a 3-laptop game: prints the command each teammate runs to join
+#   ./scripts/demo.sh --color blue --name Rishaan --join https://<words>.trycloudflare.com --room abcdef
+#                                                     join it: your own backend, game, tracker and phone; your hero in theirs
 #   API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh     other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -17,7 +21,7 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}"
+tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}" name="" join="" join_room=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-tracker) tracker=0 ;;
@@ -26,7 +30,10 @@ while [[ $# -gt 0 ]]; do
     --tunnel) tunnel=1 ;;
     --color|--colors) [[ $# -ge 2 ]] || { echo "--color needs colours, e.g. --color red,blue" >&2; exit 2; }; colors="$2"; shift ;;
     --color=*|--colors=*) colors="${1#*=}" ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    --name) name="${2:-}"; shift ;;
+    --join) join="${2:-}"; shift ;;
+    --room) join_room="${2:-}"; shift ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -51,12 +58,28 @@ public_url="" public_url_file="$repo_root/backend/.public_url"
 
 # The room code the game, the phones and the tracker share. With --tunnel the phone page is on the internet, so each launch
 # gets a fresh random one (6 letters, in the QR link) that a stranger cannot guess; ROOM=... picks one instead.
-room="${ROOM:-storybound}"
-if [[ "$tunnel" == 1 && -z "${ROOM:-}" ]]; then
+room="${join_room:-${ROOM:-storybound}}"
+# --join: a teammate's laptop. The host's tunnel link is the meeting point (the presence relay); the room is the host's.
+presence=""
+if [[ -n "$join" ]]; then
+  [[ "$join" =~ ^(https?)://([A-Za-z0-9.-]+(:[0-9]+)?) ]] || { echo "demo: --join takes the host's link, e.g. https://<words>.trycloudflare.com" >&2; exit 2; }
+  if [[ "${BASH_REMATCH[1]}" == https ]]; then presence="wss://${BASH_REMATCH[2]}"; else presence="ws://${BASH_REMATCH[2]}"; fi
+  [[ -z "$join_room" && "$join" =~ [?\&]room=([A-Za-z0-9_-]+) ]] && room="${BASH_REMATCH[1]}"
+  [[ "$room" != storybound ]] || { echo "demo: --join needs the host's room code: --room <code> (printed by the host's demo.sh --tunnel)" >&2; exit 2; }
+fi
+if [[ "$tunnel" == 1 && -z "$join_room$join" && -z "${ROOM:-}" ]]; then
   letters=abcdefghjkmnpqrstuvwxyz room=""
   for b in $(od -An -N6 -tu1 /dev/urandom); do room+="${letters:b%${#letters}:1}"; done
 fi
 [[ "$room" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "demo: ROOM must be 1-32 letters, digits, - or _" >&2; exit 2; }
+
+# Networked play (presence): this laptop's game shows the other laptops' heroes. Hosting with --tunnel or --name turns it on
+# (the host's own game meets the others on its own backend); --join meets them on the host's.
+[[ -z "$presence" && ( "$tunnel" == 1 || -n "$name" ) ]] && presence="ws://localhost:$api_port"
+if [[ -n "$presence" ]]; then
+  name="$(printf '%s' "${name:-${USER:-Player}}" | tr -cd 'A-Za-z0-9 _-' | cut -c1-16)"
+  [[ -n "${name// /}" ]] || name="Player"
+fi
 
 up() { curl -fsS --max-time 2 "$1" >/dev/null 2>&1; }
 fail() { echo "demo: $*" >&2; exit 1; }
@@ -179,10 +202,19 @@ lan_ip="$(curl -fsS --max-time 2 "$api/joystick/info" 2>/dev/null | sed -n 's/.*
 if curl -fsS --max-time 2 "$api/api/health" 2>/dev/null | grep -Eq '"gemini": ?true'; then story="Gemini storyteller"; else story="scripted story, no Gemini key loaded"; fi
 echo
 query="?wand=$colors"; [[ "$room" != storybound ]] && query="?room=$room&wand=$colors"
-echo "  Game:            $web/$query   ($story)"
+game_query="$query"; [[ -n "$presence" ]] && game_query="$query&presence=$presence&name=${name// /%20}"
+echo "  Game:            $web/$game_query   ($story)"
 if [[ -n "$public_url" ]]; then
   echo "  Phone joystick:  $public_url/joystick$query   (any network; or scan the QR code in the game)"
   echo "  Room:            $room   (new each launch; up to 3 phones)"
+  if [[ -z "$join" ]]; then
+    echo "  Teammates' laptops (each its own game, tracker and phone; up to 3 players): send each one their line"
+    for c in red blue yellow; do
+      [[ ",$colors," == *",$c,"* ]] && continue
+      echo "    $c:  ./scripts/demo.sh --color $c --name <name> --join $public_url --room $room"
+      echo "          Windows: powershell -ExecutionPolicy Bypass -File .\\scripts\\demo.ps1 -Color $c -Name <name> -Join $public_url -Room $room"
+    done
+  fi
 elif [[ -n "$lan_ip" ]]; then
   echo "  Phone joystick:  http://$lan_ip:$api_port/joystick$query   (phone on the same Wi-Fi or hotspot)"
 else
@@ -202,8 +234,8 @@ elif [[ "$tracker" == 1 ]]; then
   [[ "$room" != storybound ]] && echo "         It may be on another room: to see it in this game, stop it and run this again (room $room)."
 fi
 if [[ "$browser" == 1 ]]; then
-  if command -v open >/dev/null 2>&1; then open "$web/$query"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$web/$query" >/dev/null 2>&1 || true
+  if command -v open >/dev/null 2>&1; then open "$web/$game_query"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$web/$game_query" >/dev/null 2>&1 || true
   fi
 fi
 

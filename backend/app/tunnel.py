@@ -3,8 +3,9 @@
 Venue Wi-Fi often blocks phone-to-laptop traffic, so the launcher can expose this backend through a Cloudflare quick tunnel.
 Tunnel requests reach uvicorn from 127.0.0.1, so the loopback checks (cv.client_allowed) would let them through as if they
 were this laptop. Cloudflare always adds its own headers, which a visitor cannot remove, so any request that carries one is
-treated as coming from the internet and may only fetch the phone page (GET /joystick) and join a room as a phone
-(WS /ws/joystick/{room}?role=phone). Everything else, the API with the Gemini key behind it, the camera relay, the game's
+treated as coming from the internet and may only fetch the phone page (GET /joystick), join a room as a phone
+(WS /ws/joystick/{room}?role=phone) and, for teammates' games on their own laptops, join the presence relay
+(WS /ws/presence/{room}, presence.py). Everything else, the API with the Gemini key behind it, the camera relay, the game's
 side of the joystick relay, /docs and /joystick/info, answers 403 or closes the socket with 1008.
 """
 from __future__ import annotations
@@ -20,6 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 # Added by Cloudflare (and by most other proxies) to every proxied request.
 TUNNEL_HEADERS = (b"cf-connecting-ip", b"cf-ray", b"x-forwarded-for", b"cdn-loop", b"cf-visitor", b"forwarded", b"x-real-ip")
 PHONE_WS_RE = re.compile(r"^/ws/joystick/[A-Za-z0-9_-]{1,32}$")
+PRESENCE_WS_RE = re.compile(r"^/ws/presence/[A-Za-z0-9_-]{1,32}$")
 
 # Written by the launcher once cloudflared prints its URL, removed when it stops; read on every /joystick/info request so a
 # running backend picks up a new tunnel without a restart. PUBLIC_URL (environment) takes its place if set.
@@ -44,13 +46,13 @@ def via_tunnel(scope: Scope) -> bool:
 
 
 def tunnel_allowed(scope: Scope) -> bool:
-    """What an internet visitor may reach: the phone page, and a room as a phone."""
+    """What an internet visitor may reach: the phone page, a room as a phone, and the presence relay."""
     path = scope.get("path", "")
     if scope["type"] == "http":
         return scope.get("method") in ("GET", "HEAD") and path == "/joystick"
     if scope["type"] == "websocket":
         roles = parse_qs(scope.get("query_string", b"").decode("latin-1")).get("role", ["phone"])
-        return bool(PHONE_WS_RE.match(path)) and roles == ["phone"]
+        return (bool(PHONE_WS_RE.match(path)) and roles == ["phone"]) or bool(PRESENCE_WS_RE.match(path))
     return False
 
 
