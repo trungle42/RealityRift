@@ -238,7 +238,13 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 .venv\Scripts\python.exe -m tools.demo
 ```
 
-Calibrate for your lighting with `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
+**Tune the colours to your camera and room first** (the built-in thresholds were measured on one webcam; in a new room they can miss the wand or the tape entirely):
+
+```bash
+.venv/bin/python -m tools.autotune                                         # on Windows: .venv\Scripts\python.exe -m tools.autotune
+```
+
+No keys to press: a window asks you to hold the yellow wand ball in a box, then the phone tape, about 3 s each after a countdown, then to move both around for 4 s while it checks the new thresholds with the real tracker, and prints e.g. `Result: wand seen 96 %, tape seen 91 %`. It saves `cv_2/tuned.env` (git-ignored), which every tracker tool reads from then on; `YT_*` environment variables still win, and deleting the file goes back to the built-in values. Stop `tools.publish` first: only one program can hold the camera. `./scripts/demo.sh --tune` (`.\scripts\demo.ps1 -Tune`) runs it before starting the demo. For fine control there is still the click tool, `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
 
 To send the tracker to the game, keep the backend (step 1) running and the game open, then run one of these instead of the demo (on Windows use `.venv\Scripts\python.exe`):
 
@@ -262,7 +268,7 @@ Once the setup above is done (`backend/.venv`, `frontend/node_modules`, `cv_2/.v
 .\scripts\demo.ps1           # Windows
 ```
 
-It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--no-tracker` (`-NoTracker` on Windows) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--tune` (`-Tune` on Windows) to first tune the tracker's colours to this camera and room (the no-keys setup above; it refuses if a tracker is already running, since it needs the camera), `--no-tracker` (`-NoTracker`) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
 
 ## Controls
 

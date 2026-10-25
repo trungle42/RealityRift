@@ -14,7 +14,8 @@ tracker/
   config.py    Config + ColorSpec table (yellow, blue, red) + from_env() (YT_* env vars)
   capture.py   Camera: newest-frame-wins webcam thread
   detector.py  ColorDetector: HSV mask (red = two hue ranges) -> blob -> centroid/radius; strict to find, relaxed to follow
-  calibrate.py suggest(): HSV samples -> thresholds (used by tools/tune.py)
+  calibrate.py suggest(): HSV samples -> thresholds (used by tools/tune.py and autotune)
+  autotune.py  object_pixels / band / Sampler: an object held in a box -> its own pixels -> thresholds (pure, tested)
   shapes.py    ShapeRecognizer: closed path -> circle / triangle / square / star (Fourier descriptors) or unknown
   trace.py     DetectionGate (5 s on/off square wave), Trace (polyline segments, broken across lost-track gaps)
   pipeline.py  Pipeline.process(frame, now) -> payload; one gate for all colours; clears every trace on the on->off edge;
@@ -23,6 +24,7 @@ tracker/
   game.py      game_message(payload): the small per-frame message the game receives
 tools/demo.py  OpenCV window
 tools/tune.py  click-to-calibrate window: sample your objects, get thresholds to paste
+tools/autotune.py  no-keys calibration: prompts and timers, writes tuned.env, checks the result with the real tracker
 tools/publish.py  sends the tracker to the game through the backend relay
 tests/         Synthetic frames and an injectable clock: no camera needed
 ```
@@ -92,7 +94,22 @@ unmirrored) snapshot instead of opening the camera, so there is no webcam confli
 
 ## Tuning
 
-**Best way: measure your own objects.** Webcam lighting is rarely even (on the dev laptop the brightness differs 2x from one
+**Quickest: automatic, no keys.** Stop `tools.publish` first (it holds the camera), then:
+
+```
+python -m tools.autotune
+```
+
+Hold the **yellow wand ball** in the box when asked, then the **phone tape** (a countdown, then about 3 s of sampling each), then
+move both around for 4 s. It keeps only each object's own pixels (no background, no skin from the hand holding it), turns their
+spread into thresholds with the same `calibrate.suggest()` the click tool uses, checks them with the real detector and tracking
+rules and prints e.g. `Result: wand seen 96 %, tape seen 91 %`. The result goes to `cv_2/tuned.env` (git-ignored), which
+`Config.from_env()` reads automatically, so `tools.publish`, `tools.demo` and `tools.tune` all use it. Real `YT_*` environment
+variables still win; `YT_TUNED_ENV=0` ignores the file (the tests do) and `YT_TUNED_ENV=<path>` reads another one; delete it to
+go back to the built-in values. Under 70 % means: closer to the camera, better light, and run it again. `../scripts/demo.sh
+--tune` runs it before the demo. Only the yellow wand and the tape are tuned (the solo setup); blue and red keep their values.
+
+**Most control: measure your own objects by clicking.** Webcam lighting is rarely even (on the dev laptop the brightness differs 2x from one
 side of the frame to the other), so a ball gets washed out or dim toward one edge and a fixed threshold makes it flicker
 or vanish there.
 
