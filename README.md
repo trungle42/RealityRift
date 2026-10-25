@@ -214,11 +214,6 @@ The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, G
 
 ## Status
 
-**Working on `main`:** the 3D adventure (demo run and full story), the Gemini storyteller with scripted fallbacks and the storybook, Reality Rift relics and boss weaknesses, the riddle door, two weapons with rune requests, phone control through the tunnel, up to three players including Pip, the camera tracker connected to the game (with autotune), presence for three laptops, the one-command launcher, and our own waystone, lantern and sword models.
-
-**In progress (not on `main` yet):**
-
-- **Per-player avatar skins.** Today a remote hero is the ranger or the shield-maiden with the player's colour on the wand, sword glow, ground ring and name tag. `TODO(after merge)`
-- **A permanent link through `storybound.tech`:** `demo.sh --domain play.storybound.tech` instead of a new `trycloudflare.com` link each launch (PR #51, a draft waiting on the domain). `TODO(after merge)`
+**Working on `main`:** the 3D adventure (demo run and full story), the Gemini storyteller with scripted fallbacks and the storybook, Reality Rift relics and boss weaknesses, the riddle door, two weapons with rune requests, phone control through the tunnel, up to three players including Pip, the camera tracker connected to the game (with autotune), presence for three laptops with a distinct look per player (crimson ranger, royal-blue shieldmaiden, ochre-gold ranger), the one-command launcher, and our own waystone, lantern and sword models.
 
 **Not done:** aiming spells by pointing the wand; a hosted version (phones can join through a tunnel, but the game runs on a laptop); validating the tracker across lighting, cameras and people (slash recall needs the whole swing in view); the 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); and the character models still come from the private pack.
