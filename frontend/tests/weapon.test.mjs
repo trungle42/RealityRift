@@ -64,3 +64,33 @@ test('camera frames are downscaled to the upload size without stretching', () =>
   assert.deepEqual(W.fitWithin(200, 100), { width: 200, height: 100 });
   assert.ok(W.fitWithin(0, 0).width >= 1);
 });
+
+test('bosses take double from the element they fear, half from the one they resist, normal otherwise', () => {
+  assert.equal(W.elementMultiplier('frost-witch', 'fire'), 2);
+  assert.equal(W.elementMultiplier('frost-witch', 'ice'), 0.5);
+  assert.equal(W.elementMultiplier('frost-witch', 'water'), 1);
+  assert.equal(W.elementMultiplier('shadow-dragon', 'light'), 2);
+  assert.equal(W.elementMultiplier('shadow-dragon', 'shadow'), 0.5);
+});
+
+test('no element, an unknown boss, or no boss means no change', () => {
+  assert.equal(W.elementMultiplier('frost-witch', undefined), 1);
+  assert.equal(W.elementMultiplier('mystery-boss', 'fire'), 1);
+  assert.equal(W.elementMultiplier(undefined, 'fire'), 1);
+});
+
+test('scaled damage stays a whole number and never drops below 1', () => {
+  assert.equal(W.scaledDamage(3, 2), 6);
+  assert.equal(W.scaledDamage(3, 0.5), 2);
+  assert.equal(W.scaledDamage(1, 0.5), 1);
+  assert.equal(W.scaledDamage(4, 2), 8);
+});
+
+test('every boss has a different weak and resisted element, and both are real elements', () => {
+  for (const [kind, e] of Object.entries(W.BOSS_ELEMENTS)) { assert.notEqual(e.weak, e.resists, kind); assert.ok(W.ELEMENTS.includes(e.weak) && W.ELEMENTS.includes(e.resists), kind); }
+});
+
+test('a scanned weapon carries its element so hits can use it, the default spell has none', () => {
+  assert.equal(W.spellFor(artifact({ element: 'fire' })).element, 'fire');
+  assert.equal(W.defaultSpell(0xffffff).element, undefined);
+});

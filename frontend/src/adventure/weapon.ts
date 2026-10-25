@@ -28,7 +28,7 @@ export const ABILITY_LABEL: Record<Ability, string> = {
 };
 
 export interface SpellSpec {
-  ability: Ability; color: number; damage: number; cooldown: number;
+  ability: Ability; element?: Element; color: number; damage: number; cooldown: number;
   speed: number; life: number; count: number; spread: number; pierce: number;
   radius: number; delay: number; chain: number;
 }
@@ -47,8 +47,26 @@ export function damageTier(damage: number): number { return damage <= 30 ? 1 : d
 
 export function spellFor(artifact: Artifact): SpellSpec {
   const base = BASE[artifact.ability];
-  return { ability: artifact.ability, color: ELEMENT_COLOR[artifact.element], damage: damageTier(artifact.damage) + (artifact.ability === 'meteor' ? 1 : 0), ...base };
+  return { ability: artifact.ability, element: artifact.element, color: ELEMENT_COLOR[artifact.element], damage: damageTier(artifact.damage) + (artifact.ability === 'meteor' ? 1 : 0), ...base };
 }
+
+/** Each boss fears one element and shrugs off another, so which object you scan is a real choice. */
+export const BOSS_ELEMENTS: Record<string, { weak: Element; resists: Element }> = {
+  'frost-witch': { weak: 'fire', resists: 'ice' },
+  'shadow-dragon': { weak: 'light', resists: 'shadow' },
+};
+export const WEAK_MULTIPLIER = 2;
+export const RESIST_MULTIPLIER = 0.5;
+
+/** Damage multiplier for an element hitting a boss kind: x2 if it is weak to it, x0.5 if it resists, else x1. */
+export function elementMultiplier(bossKind: string | undefined, element: Element | undefined): number {
+  const entry = bossKind ? BOSS_ELEMENTS[bossKind] : undefined;
+  if (!entry || !element) return 1;
+  return element === entry.weak ? WEAK_MULTIPLIER : element === entry.resists ? RESIST_MULTIPLIER : 1;
+}
+
+/** Final damage: scaled by the multiplier, never below 1 and always a whole number. */
+export function scaledDamage(base: number, multiplier: number): number { return Math.max(1, Math.round(base * multiplier)); }
 
 /** The spell every hero has before scanning anything. */
 export function defaultSpell(color: number): SpellSpec { return { ability: 'bolt', color, damage: 1, ...BASE.bolt }; }

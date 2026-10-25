@@ -16,7 +16,7 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { defaultSpell, type SpellSpec, type Weapon } from './weapon';
+import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
@@ -47,9 +47,9 @@ const COMBO = [
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
 const FLASH_COOLDOWN = 6;
-interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex; color: number; damage: number; pierce: number; chain: number; chainRadius: number; hit: Set<Enemy> }
+interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex; color: number; element?: Element; damage: number; pierce: number; chain: number; chainRadius: number; hit: Set<Enemy> }
 /** A delayed area strike (meteor): telegraphed on the ground, lands after `delay`. */
-interface Strike { at: number; delay: number; pos: T.Vector3; radius: number; damage: number; color: number; player: PlayerIndex }
+interface Strike { at: number; delay: number; pos: T.Vector3; radius: number; damage: number; color: number; element?: Element; player: PlayerIndex }
 interface Spark { mesh: T.Mesh; velocity: T.Vector3; life: number; max: number }
 interface Trial { type: 'freeze' | 'pose'; elapsed: number; duration: number; moved: number; held: number; poseIndex: number; poses: PoseId[]; secondsPerPose: number; before: number }
 const MOVE = [['KeyA', 'KeyD', 'KeyW', 'KeyS'], ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']];
@@ -604,7 +604,7 @@ export class Adventure {
     else if (spell.ability === 'meteor') {
       const aim = target ? target.root.position : p.clone().addScaledVector(new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading)), 8);
       const pos = new T.Vector3(aim.x, heightAt(aim.x, aim.z), aim.z);
-      this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color, player });
+      this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color, element: spell.element, player });
       this.fx.shockwave(pos, color, spell.radius, spell.delay, 0.12);
     } else {
       for (let k = 0; k < spell.count; k++) {
@@ -621,7 +621,7 @@ export class Adventure {
     const bolt = mesh(new T.IcosahedronGeometry(0.17, 1), new T.MeshBasicMaterial({ color: 0xffffff }), this.scene); bolt.castShadow = false;
     const halo = new T.Mesh(new T.SphereGeometry(0.42, 12, 10), new T.MeshBasicMaterial({ color: spell.color, transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false })); bolt.add(halo);
     bolt.position.copy(start);
-    this.bolts.push({ mesh: bolt, velocity: direction.clone().normalize().multiplyScalar(spell.speed), life: spell.life, player, color: spell.color, damage: spell.damage, pierce: spell.pierce, chain: spell.chain, chainRadius: spell.radius, hit: new Set() });
+    this.bolts.push({ mesh: bolt, velocity: direction.clone().normalize().multiplyScalar(spell.speed), life: spell.life, player, color: spell.color, element: spell.element, damage: spell.damage, pierce: spell.pierce, chain: spell.chain, chainRadius: spell.radius, hit: new Set() });
   }
 
   /** Nova: everything around the hero is struck at once. */
@@ -629,7 +629,7 @@ export class Adventure {
     const p = this.heroes[player].root.position, at = p.clone().add(new T.Vector3(0, 0.9, 0));
     this.fx.shockwave(p, spell.color, spell.radius * 1.15, 0.55, 0.3); this.fx.shockwave(p, 0xffffff, spell.radius * 0.7, 0.3, 0.12);
     this.fx.motes(at, spell.color, 46, spell.radius * 0.55, 1.4, 0.3, 0.8); this.fx.flash(at, spell.color, 20, 0.35); this.rig.addTrauma(0.3); this.sfx.burst();
-    for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, p) < spell.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, spell.damage, player);
+    for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, p) < spell.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, spell.damage, player, false, spell.element);
   }
 
   /** Lightning leaps from `from` to up to `jumps` more nearby foes. */
@@ -641,9 +641,12 @@ export class Adventure {
       if (!best) break;
       const a = current.root.position.clone().add(new T.Vector3(0, 0.9, 0)), b = best.root.position.clone().add(new T.Vector3(0, 0.9, 0));
       for (let k = 0; k <= 8; k++) this.fx.trail(a.clone().lerp(b, k / 8).add(new T.Vector3((Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4)), bolt.color, 0.34);
-      this.fx.flash(b, bolt.color, 12, 0.18); this.hit(best, bolt.damage, bolt.player); visited.add(best); current = best;
+      this.fx.flash(b, bolt.color, 12, 0.18); this.hit(best, bolt.damage, bolt.player, false, bolt.element); visited.add(best); current = best;
     }
   }
+
+  /** HUD hint: which element the boss fears, so a scan can be chosen on purpose. */
+  private fearsLine(kind: string): string { const entry = BOSS_ELEMENTS[kind]; return entry ? ` · weak to ${entry.weak}` : ''; }
 
   private updateStrikes(): void {
     for (let i = this.strikes.length - 1; i >= 0; i--) {
@@ -657,7 +660,7 @@ export class Adventure {
       this.strikes.splice(i, 1);
       this.fx.shockwave(strike.pos, strike.color, strike.radius * 1.4, 0.55, 0.3); this.fx.sparks(strike.pos.clone().add(new T.Vector3(0, 0.5, 0)), strike.color, 40, 9, 0.26, 0.6, 7);
       this.fx.puff(strike.pos, 0xb6ad8f, 10, strike.radius * 0.6, 0.6, 0.7); this.fx.flash(strike.pos.clone().add(new T.Vector3(0, 1, 0)), strike.color, 24, 0.35); this.rig.addTrauma(0.4); this.sfx.land(true);
-      for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, strike.pos) < strike.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, strike.damage, strike.player);
+      for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, strike.pos) < strike.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, strike.damage, strike.player, false, strike.element);
     }
   }
 
@@ -717,13 +720,16 @@ export class Adventure {
   private canAct(): boolean { return !!this.state && !this.busy && !this.ui.blocked && !this.ended; }
   private closestEnemy(p: T.Vector3, radius: number): Enemy | undefined { return this.enemies.filter((e) => e.hp > 0 && distance(e.root.position, p) < radius && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1.2, 0)), e.root.position.clone().add(new T.Vector3(0, e.boss ? 1.8 : 0.9, 0))) === undefined).sort((a, b) => distance(a.root.position, p) - distance(b.root.position, p))[0]; }
 
-  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false): void {
+  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false, element?: Element): void {
     if (enemy.hp <= 0 || this.ended) return;
     const at = enemy.root.position.clone().add(new T.Vector3(0, enemy.boss ? 2 : 1, 0));
     if (enemy.boss && (enemy.windup > 0 || enemy.cooldown <= 0)) {
       // Warded: sparks bounce off and the blade rings, so the player reads "not now".
       this.fx.sparks(at, 0xbfe0ff, 10, 5, 0.16, 0.35, 8); this.fx.number(at.clone().add(new T.Vector3(0, 0.6, 0)), 'Warded', '#bfe0ff'); this.sfx.lockOff(); return;
     }
+    // Reality Rift: a boss takes double from the element it fears and half from the one it resists.
+    const multiplier = enemy.boss ? elementMultiplier(enemy.boss.kind, element) : 1;
+    if (multiplier !== 1) damage = scaledDamage(damage, multiplier);
     enemy.hp -= damage;
     enemy.shown = 4; this.drawBar(enemy);
     if (!enemy.encounter && !enemy.boss) { if (enemy.ai === 'idle') this.alertCamp(enemy); enemy.ai = 'chase'; }
@@ -737,6 +743,11 @@ export class Adventure {
     this.fx.sparks(at, 0xffffff, 6, 10, 0.12, 0.2, 0);
     this.fx.flash(at, 0xffd59a, crit ? 16 : 10, 0.14);
     this.fx.number(at.clone().add(new T.Vector3(0, 0.7, 0)), String(damage), crit ? '#ffe27a' : '#fff4df', crit);
+    if (multiplier > 1) {
+      const color = this.weapon?.spell.color ?? 0xffd36b;
+      this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Weak point!', '#ffd36b', true); this.fx.shockwave(enemy.root.position, color, 5, 0.6, 0.25);
+      this.fx.sparks(at, color, 34, 9, 0.24, 0.7, 3); this.fx.flash(at, color, 22, 0.3); this.hitstop = Math.max(this.hitstop, 0.11); this.rig.addTrauma(0.35);
+    } else if (multiplier < 1) this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Resisted', '#9fb0b8');
     this.hitstop = Math.max(this.hitstop, heavy ? 0.085 : 0.05); this.rig.addTrauma(heavy ? 0.32 : 0.18);
     this.sfx.hit(heavy, crit); this.sfx.enemyHurt();
     if (enemy.actor) enemy.actor.stagger = 0.4;
@@ -1005,7 +1016,7 @@ export class Adventure {
       enemy.cooldown -= dt; enemy.core.position.y = (enemy.boss ? 1.9 : 0.9) + Math.sin(this.time * 3 + enemy.home.x) * 0.13;
       if (enemy.windup > 0) {
         enemy.windup -= dt; enemy.ring.visible = true; enemy.ring.scale.setScalar(1 + Math.sin(this.time * 11) * 0.04);
-        if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away');
+        if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away' + this.fearsLine(enemy.boss.kind));
         if (enemy.windup <= 0) {
           enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : 2;
           // Regular foes lunge into the strike.
@@ -1050,7 +1061,7 @@ export class Adventure {
       if (enemy.bar) { enemy.shown -= dt; enemy.bar.visible = enemy.shown > 0 || this.lock === enemy; }
       if (enemy.visual) enemy.visual.rotation.z = Math.sin(this.time * 2 + enemy.home.x) * 0.025;
       if (enemy.actor) { enemy.actor.heading = 0; enemy.actor.moving = motion.length() / Math.max(dt, 0.001); enemy.actor.pose = enemy.windup > 0 ? 'arms-up' : ''; enemy.actor.update(dt, this.time); }
-      if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now');
+      if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now' + this.fearsLine(enemy.boss.kind));
       dt = real;
     }
   }
@@ -1069,7 +1080,7 @@ export class Adventure {
         const line = new T.Line3(from, bolt.mesh.position); const nearest = line.closestPointToPoint(center, true, new T.Vector3());
         if (bolt.hit.has(enemy)) continue;
         if (nearest.distanceTo(center) < (enemy.boss ? 1.5 : 0.7)) {
-          this.hit(enemy, bolt.damage, bolt.player); bolt.hit.add(enemy);
+          this.hit(enemy, bolt.damage, bolt.player, false, bolt.element); bolt.hit.add(enemy);
           this.fx.sparks(nearest, color, 22, 7, 0.24, 0.5, 3); this.fx.shockwave(enemy.root.position, color, 2.2, 0.35); this.fx.flash(nearest, color, 14, 0.2); this.sfx.burst();
           if (bolt.chain > 0) this.chainFrom(enemy, bolt);
           if (bolt.pierce > 0) { bolt.pierce--; continue; }
