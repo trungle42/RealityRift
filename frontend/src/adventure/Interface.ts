@@ -78,10 +78,15 @@ export class Interface {
   get speaking(): boolean { return !this.dialogue.hidden; }
   advance(): void { this.resolveLine?.(); this.resolveLine = undefined; }
 
-  async start(): Promise<[Player, Player]> {
+  /** In solo play only the hero's name is asked; the story still knows a companion by name. */
+  async start(solo = false): Promise<[Player, Player]> {
     const overlay = document.createElement('section'); overlay.className = 'adventure-start';
     overlay.innerHTML = `<div class="start-content"><div class="start-flourish">✧</div><p class="start-subtitle">An Evermere adventure</p><h1>Storybound</h1><p class="start-tale">The last warm spring</p><p class="start-description">Beyond the familiar path, a kingdom waits.<br>Step into the tale. Make it your own.</p><form><div class="start-names"><label>Your hero<input name="hero" value="Rowan" maxlength="24" required autocomplete="off" aria-label="Your hero's name"></label><label>Your companion<input name="companion" value="Wren" maxlength="24" required autocomplete="off" aria-label="Companion's name"></label></div><button class="adventure-primary" type="submit">Begin your tale <span>↗</span></button></form><div class="start-controls"><span><kbd>W A S D</kbd> explore</span><span><kbd>Space</kbd> jump</span><span><kbd>E</kbd> interact</span></div><p class="start-footnote">An original fairy-tale world · Play solo or together</p></div>`;
     document.body.append(overlay); this.root.classList.add('before-start');
+    if (solo) {
+      const field = overlay.querySelector<HTMLInputElement>('input[name="companion"]');
+      if (field) { if (!field.value.trim()) field.value = 'Wren'; (field.closest('label, .start-field, div') as HTMLElement | null)?.setAttribute('hidden', ''); }
+    }
     return new Promise((resolve) => {
       const form = overlay.querySelector('form')!;
       form.onsubmit = (event) => {

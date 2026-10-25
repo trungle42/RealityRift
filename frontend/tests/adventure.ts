@@ -6,6 +6,9 @@ import type { GameState } from '../src/game/GameState';
 
 // Development-only harness. It exercises real renderer, inputs and game routines;
 // no test globals or control hooks are added to the production application.
+// These checks cover both heroes (companion, player two), so run the two-player mode.
+(window as unknown as { RIFT_PLAYERS: number }).RIFT_PLAYERS = 2;
+
 interface Internals {
   state: GameState; beat: StoryBeat; busy: boolean; ended: boolean; yaw: number; stamina: number;
   trial?: { elapsed: number }; target?: { x: number; z: number }; invulnerable: number;

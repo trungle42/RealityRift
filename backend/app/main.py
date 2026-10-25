@@ -21,6 +21,8 @@ app = FastAPI(title="Reality Rift API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
+    # Any local dev port (the 3D game runs on its own Vite port), plus explicit CORS_ORIGINS above.
+    allow_origin_regex=os.getenv("CORS_ORIGIN_REGEX", r"http://(localhost|127\.0\.0\.1)(:\d+)?"),
     allow_methods=["*"], allow_headers=["*"],
 )
 

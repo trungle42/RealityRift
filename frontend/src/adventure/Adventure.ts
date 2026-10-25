@@ -74,6 +74,10 @@ export class Adventure {
   private readonly airborne = [false, false];
   private readonly fallSpeed = [0, 0];
   private companionSide = 1;
+  /** Single player by default; `?players=2` (or window.RIFT_PLAYERS = 2) restores the second hero. */
+  private readonly solo = !((window as unknown as { RIFT_PLAYERS?: number }).RIFT_PLAYERS === 2 || new URLSearchParams(location.search).get('players') === '2');
+  /** Heroes actually in play: just the ranger in solo. */
+  private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
   private readonly pickups: Pickup[] = [];
   private readonly wheel = document.createElement('div');
@@ -174,11 +178,13 @@ export class Adventure {
     if (this.disposed) return;
     const physics = await Physics.create(this.world.collisionSurfaces(), this.world.treeSolids);
     if (this.disposed) { physics.dispose(); return; }
-    this.physics = physics; this.heroes.forEach((hero) => physics.addCharacter(hero.root.position));
+    this.physics = physics;
+    if (this.solo) { this.heroes[1].root.position.set(500, 0, 500); this.heroes[1].root.visible = false; }
+    this.heroes.forEach((hero) => physics.addCharacter(hero.root.position));
     // Scenery between the camera and the hero dissolves instead of blocking the view.
     fadeOccluders(this.world.root, (o) => o.name === 'ground' || o.name === 'lake' || o.userData.noFade === true);
     document.getElementById('loading')?.remove();
-    const party = await this.ui.start();
+    const party = await this.ui.start(this.solo);
     this.state = new GameState(party); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q dodge · Z lock on · Esc frees the mouse');
@@ -230,9 +236,9 @@ export class Adventure {
       if (event.code === 'KeyE') void this.interact();
       if (event.code === 'KeyJ') this.strike(0);
       if (event.code === 'KeyF') this.cast(0);
-      if (event.code === 'Slash') this.cast(1);
+      if (event.code === 'Slash') this.cast(this.solo ? 0 : 1);
       if (event.code === 'KeyQ') this.roll(0);
-      if (event.code === 'ShiftRight') this.roll(1);
+      if (event.code === 'ShiftRight') this.roll(this.solo ? 0 : 1);
       if (event.code === 'Space') this.leap(0);
       if (event.code === 'KeyZ' || event.code === 'Tab') this.toggleLock();
       if (event.code === 'KeyC' || event.code === 'KeyV') this.rig.manual(this.time);
@@ -310,7 +316,7 @@ export class Adventure {
         object.used = true; this.state.gainHeart();
         const at = object.root.position.clone().add(new T.Vector3(0, 1, 0));
         this.fx.motes(at, 0xabf4cc, 50, 1.2, 2.6, 0.32, 1.8); this.fx.shockwave(object.root.position, 0x9ff0d0, 3.5, 0.8); this.fx.flash(at, 0x9ff0d0, 16, 0.8);
-        this.heroes.forEach((hero) => this.fx.motes(hero.root.position, 0xc9ffe0, 18, 0.5, 2, 0.24, 1.2));
+        this.active.forEach((hero) => this.fx.motes(hero.root.position, 0xc9ffe0, 18, 0.5, 2, 0.24, 1.2));
         this.sfx.success(); this.ui.toast('The old magic restores a shared heart.');
       }
     } else {
@@ -693,7 +699,7 @@ export class Adventure {
       this.ui.update(this.state, this.stamina);
       this.updateWheel();
       this.mapTimer += real;
-      if (this.mapTimer > 0.12) { this.mapTimer = 0; this.ui.drawMap(this.heroes[0].root.position, this.heroes[1].root.position, this.target, this.world.objects, this.yaw); }
+      if (this.mapTimer > 0.12) { this.mapTimer = 0; this.ui.drawMap(this.heroes[0].root.position, this.active[this.active.length - 1].root.position, this.target, this.world.objects, this.yaw); }
       this.fx.ambience(paused ? 0 : real, this.heroes[0].root.position, this.region === 'forest');
       const near = this.enemies.some((e) => e.hp > 0 && distance(e.root.position, this.heroes[0].root.position) < 15);
       this.sfx.setCombat(!!this.encounterKind || near);
@@ -726,12 +732,16 @@ export class Adventure {
     this.stamina = Math.min(1, this.stamina + dt * 0.16);
     if (this.keys.has('KeyC')) this.yaw += dt * 1.4;
     if (this.keys.has('KeyV')) this.yaw -= dt * 1.4;
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < this.active.length; i++) {
       const hero = this.heroes[i], p = hero.root.position, keys = MOVE[i];
       const beforeX = p.x, beforeZ = p.z;
       this.attackCooldown[i] = Math.max(0, this.attackCooldown[i] - dt); this.spellCooldown[i] = Math.max(0, this.spellCooldown[i] - dt);
-      let dx = Number(this.keys.has(keys[1])) - Number(this.keys.has(keys[0]));
-      let dz = Number(this.keys.has(keys[3])) - Number(this.keys.has(keys[2]));
+      const held = (k: number) => this.keys.has(keys[k]) || (this.solo && this.keys.has(MOVE[1][k]));
+      let dx = Number(held(1)) - Number(held(0));
+      const dz = Number(held(3)) - Number(held(2));
+      // Keyboard diagonals: weight forward/back over sideways (about 34 deg instead of 45) so a diagonal reads as
+      // "forward and drifting", not a wide sideways run.
+      if (dx !== 0 && dz !== 0) dx *= 0.68;
       const moving = dx !== 0 || dz !== 0;
       const poseKeys = i === 0 ? ['Digit1', 'Digit2', 'Digit3'] : ['KeyI', 'KeyO', 'KeyP'];
       hero.pose = ['arms-up', 't-pose', 'crouch'][poseKeys.findIndex((key) => this.keys.has(key))] ?? '';
@@ -761,7 +771,16 @@ export class Adventure {
       if (this.dodge[i] > 0) { this.dodge[i] -= dt; direction.copy(this.dodgeDirection[i]); speed = 19; }
       direction.normalize();
       const velocity = this.movementVelocity[i];
-      velocity.lerp(direction.clone().multiplyScalar(speed), this.dodge[i] > 0 ? 1 : 1 - Math.exp(-dt * (speed ? 12 : 14)));
+      const wanted = direction.clone().multiplyScalar(speed), current = Math.hypot(velocity.x, velocity.z);
+      if (this.dodge[i] > 0) velocity.copy(wanted);
+      else if (speed > 0 && current > 0.8) {
+        // Steer: turn the current motion toward the input at up to 16 rad/s; reversing snaps straight round.
+        const from = Math.atan2(velocity.x, velocity.z), to = Math.atan2(wanted.x, wanted.z);
+        const diff = Math.atan2(Math.sin(to - from), Math.cos(to - from)), step = dt * 16;
+        const angle = Math.abs(diff) > 2.6 ? to : from + clamp(diff, -step, step);
+        const mag = current + (speed - current) * (1 - Math.exp(-dt * 10));
+        velocity.set(Math.sin(angle) * mag, velocity.y, Math.cos(angle) * mag);
+      } else velocity.lerp(wanted, 1 - Math.exp(-dt * (speed ? 12 : 14)));
       if (this.trial?.type === 'pose') velocity.set(0, 0, 0);
       // Safety net: anything that slips under the terrain is set back on top of it.
       if (p.y < heightAt(p.x, p.z) - 2.5) { p.y = Math.max(heightAt(p.x, p.z), -0.5) + 0.3; this.velocityY[i] = 0; this.fallSpeed[i] = 0; }
@@ -829,7 +848,7 @@ export class Adventure {
     this.resolveHits(); this.updateEnemies(dt); this.updateBolts(dt); this.updateSparks(dt); this.updatePickups(dt); this.updateCamps(dt);
     if (this.lock && (this.lock.hp <= 0 || distance(this.lock.root.position, p) > 26)) { this.lock = undefined; this.sfx.lockOff(); }
     this.companionCast -= dt;
-    if (this.companionCast <= 0 && this.time > this.companionUntil && !this.trial && this.closestEnemy(this.heroes[1].root.position, 13)) { this.cast(1); this.companionCast = this.state!.has('fairy-ally') ? 0.85 : 2.1; }
+    if (!this.solo && this.companionCast <= 0 && this.time > this.companionUntil && !this.trial && this.closestEnemy(this.heroes[1].root.position, 13)) { this.cast(1); this.companionCast = this.state!.has('fairy-ally') ? 0.85 : 2.1; }
     this.physics?.step(dt);
   }
 
@@ -837,7 +856,7 @@ export class Adventure {
     const trial = this.trial; if (!trial) return;
     trial.elapsed += dt;
     if (trial.type === 'freeze') {
-      if (this.heroes.some((hero) => hero.moving > 0.1)) trial.moved += dt;
+      if (this.active.some((hero) => hero.moving > 0.1)) trial.moved += dt;
       this.ui.challenge('Let the frost pass', `Stay still · ${Math.max(0, trial.duration - trial.elapsed).toFixed(1)} seconds`, trial.elapsed / trial.duration);
       if (trial.elapsed >= trial.duration) {
         const success = trial.moved < 0.25; this.trial = undefined;
@@ -848,7 +867,7 @@ export class Adventure {
       const pose = trial.poses[trial.poseIndex];
       const name = { 'arms-up': 'Raise your arms', 't-pose': 'Spread your arms', crouch: 'Crouch low' }[pose];
       const key = { 'arms-up': '1', 't-pose': '2', crouch: '3' }[pose];
-      const matching = this.heroes.every((hero) => hero.pose === pose);
+      const matching = this.active.every((hero) => hero.pose === pose);
       if (matching) trial.held += dt;
       else trial.held = Math.max(0, trial.held - dt * 0.5);
       this.ui.challenge(name, `Hold ${key} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
@@ -878,7 +897,7 @@ export class Adventure {
       if (this.ended || this.trial) continue;
       // Enemies crawl during a flurry rush; the hero does not.
       const real = dt; dt = this.flurry > 0 ? dt * 0.15 : dt;
-      const target = this.heroes.reduce((a, b) => distance(a.root.position, enemy.root.position) < distance(b.root.position, enemy.root.position) ? a : b);
+      const target = this.active.reduce((a, b) => distance(a.root.position, enemy.root.position) < distance(b.root.position, enemy.root.position) ? a : b);
       const p = enemy.root.position, d = distance(p, target.root.position);
       const motion = new T.Vector3(enemy.knock.x * real, -dt * 4, enemy.knock.z * real); enemy.knock.multiplyScalar(Math.exp(-real * 8));
       enemy.cooldown -= dt; enemy.core.position.y = (enemy.boss ? 1.9 : 0.9) + Math.sin(this.time * 3 + enemy.home.x) * 0.13;
@@ -891,7 +910,7 @@ export class Adventure {
           if (!enemy.boss) { const lunge = target.root.position.clone().sub(p).setY(0); if (lunge.lengthSq() > 0.01) enemy.knock.add(lunge.normalize().multiplyScalar(7)); }
           this.burst(p.clone().add(new T.Vector3(0, 0.2, 0)), enemy.boss ? 0xa4d8df : 0xf7b69a, 17);
           this.fx.shockwave(p, enemy.boss ? 0xa4d8df : 0xff9a7a, enemy.boss ? 8 : 2.6, 0.4); this.sfx.land(!!enemy.boss); if (enemy.boss) this.rig.addTrauma(0.35);
-          const victim = this.heroes.findIndex((hero, i) => distance(p, hero.root.position) < (enemy.boss ? 8 : 2.6) && this.dodge[i] <= 0 && this.jump[i] < 0.7 && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1, 0)), hero.root.position.clone().add(new T.Vector3(0, 1, 0))) === undefined && (enemy.attack === 'frost-gaze' ? hero.moving > 0.1 : enemy.attack === 'shadow-wave' ? hero.pose !== 'crouch' : true));
+          const victim = this.active.findIndex((hero, i) => distance(p, hero.root.position) < (enemy.boss ? 8 : 2.6) && this.dodge[i] <= 0 && this.jump[i] < 0.7 && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1, 0)), hero.root.position.clone().add(new T.Vector3(0, 1, 0))) === undefined && (enemy.attack === 'frost-gaze' ? hero.moving > 0.1 : enemy.attack === 'shadow-wave' ? hero.pose !== 'crouch' : true));
           if (victim >= 0) this.hurt();
         }
       } else {
