@@ -1,8 +1,11 @@
 """Body-tracker relay.
 
 The webcam tracker in cv_2/ (`python -m tools.publish`) joins /ws/cv/{room}?role=tracker and sends one message per frame; the
-game joins the same room with role=game and receives it. Tracker -> game is {"type":"cv","slash","jump","motion","wand"}; game ->
-tracker is {"type":"gate","on","target"}, which tools.publish applies (Pipeline.control): the game drives the wand while it is here.
+game joins the same room with role=game and receives it. Tracker -> game is {"type":"cv","slash","jump","motion","phone","wand"},
+the camera picture {"type":"frame","w","h","jpeg"} (the tracker is the only program that opens the webcam) and, on request, one
+full-size {"type":"snapshot","id","w","h","jpeg"}. Game -> tracker is {"type":"gate","on","target"}, which tools.publish applies
+(Pipeline.control: the game drives the wand while it is here), and {"type":"snapshot","id"} (the scanner wants a picture).
+Pictures are only passed on, never stored, and must be base64 JPEG under a size cap.
 Every message is rebuilt from known fields with types checked and sizes capped, so neither side can push arbitrary data into the
 other. The room code is the only "auth", as for the joystick.
 """
@@ -18,8 +21,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 router = APIRouter()
 ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,15}$")  # wand colours and shape names
-MAX_MSG = 65536  # a full 5 s wand round of three traces is ~10 KB
+JPEG_RE = re.compile(r"^/9j/[A-Za-z0-9+/]*={0,2}$")  # base64 of a JPEG (FF D8 FF ...)
+MAX_FRAME, MAX_SNAPSHOT = 24_000, 200_000  # base64 characters: a 224 px preview is ~6-10 KB, a 512 px snapshot ~40-80 KB
+MAX_MSG = MAX_SNAPSHOT + 1000  # a full 5 s wand round of three traces is ~10 KB
 MAX_COLOURS, MAX_POINTS = 8, 400  # per message / per colour, across its segments
+MAX_SIDE, MAX_ID = 2048, 2**31 - 1
 
 _rooms: Dict[str, Dict[str, set]] = {}  # room -> role -> sockets
 
@@ -88,20 +94,55 @@ def clean_wand(w: object) -> Optional[dict]:
     }
 
 
+def _point(v: object) -> Optional[dict]:
+    if not isinstance(v, dict):
+        return None
+    x, y, r = _unit(v.get("x")), _unit(v.get("y")), _unit(v.get("radius"))
+    return None if None in (x, y, r) else {"x": x, "y": y, "radius": r}
+
+
+def _request_id(v: object) -> Optional[int]:
+    n = _count(v)
+    return n if n is not None and n <= MAX_ID else None
+
+
+def _image(msg: dict, cap: int) -> Optional[dict]:
+    """w, h and a base64 JPEG within `cap` characters, or None."""
+    w, h, jpeg = _count(msg.get("w")), _count(msg.get("h")), msg.get("jpeg")
+    if not w or not h or w > MAX_SIDE or h > MAX_SIDE or not isinstance(jpeg, str) or len(jpeg) > cap or not JPEG_RE.match(jpeg):
+        return None
+    return {"w": w, "h": h, "jpeg": jpeg}
+
+
 def clean_tracker(msg: object) -> Optional[dict]:
-    """A tracker frame for the game, or None. slash/jump are running counts (the game acts when one goes up); motion is the
-    fraction of the picture moving, or null. A malformed wand block becomes null without losing the rest."""
-    if not isinstance(msg, dict) or msg.get("type") != "cv":
+    """A tracker message for the game, or None. "cv": slash/jump are running counts (the game acts when one goes up); motion is
+    the fraction of the picture moving, or null; phone is the marker, or null; a malformed wand block becomes null without
+    losing the rest. "frame" / "snapshot": a camera picture under its cap (a snapshot echoes the game's request id)."""
+    if not isinstance(msg, dict):
+        return None
+    if msg.get("type") == "frame":
+        image = _image(msg, MAX_FRAME)
+        return None if image is None else {"type": "frame", **image}
+    if msg.get("type") == "snapshot":
+        image, request = _image(msg, MAX_SNAPSHOT), _request_id(msg.get("id"))
+        return None if image is None or request is None else {"type": "snapshot", "id": request, **image}
+    if msg.get("type") != "cv":
         return None
     slash, jump = _count(msg.get("slash")), _count(msg.get("jump"))
     if slash is None or jump is None:
         return None
-    return {"type": "cv", "slash": slash, "jump": jump, "motion": _unit(msg.get("motion")), "wand": clean_wand(msg.get("wand"))}
+    return {"type": "cv", "slash": slash, "jump": jump, "motion": _unit(msg.get("motion")), "phone": _point(msg.get("phone")),
+            "wands": _per_colour(msg.get("wands"), _point), "wand": clean_wand(msg.get("wand"))}
 
 
 def clean_control(msg: object) -> Optional[dict]:
-    """A control message for the tracker, or None: start/stop the wand round, optionally naming the shape to draw."""
-    if not isinstance(msg, dict) or msg.get("type") != "gate" or not isinstance(msg.get("on"), bool):
+    """A request for the tracker, or None: start/stop the wand round, optionally naming the shape to draw; or one picture."""
+    if not isinstance(msg, dict):
+        return None
+    if msg.get("type") == "snapshot":
+        request = _request_id(msg.get("id"))
+        return None if request is None else {"type": "snapshot", "id": request}
+    if msg.get("type") != "gate" or not isinstance(msg.get("on"), bool):
         return None
     return {"type": "gate", "on": msg["on"], "target": _name(msg.get("target"))}
 

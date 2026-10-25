@@ -1,15 +1,18 @@
+import base64
 import json
 import queue
 import socket
 import threading
 
+import cv2
+import numpy as np
 import pytest
 from websockets.sync.server import serve
 
-from tests.test_slash import DT, swing
+from tests.test_slash import DT, strip, swing
 from tests.test_tracker import cfg, scene
-from tools.publish import Publisher, ws_url
-from tracker.game import game_message, thin
+from tools.publish import Publisher, listener, ws_url
+from tracker.game import game_message, jpeg_message, thin
 from tracker.pipeline import Pipeline
 
 
@@ -83,11 +86,57 @@ class Relay:
         self.server.shutdown()
 
 
-def test_newest_message_wins():
+def test_newest_message_of_each_kind_wins():
     pub = Publisher("ws://127.0.0.1:1/ws/cv/x?role=tracker")
     pub.offer({"n": 1})
     pub.offer({"n": 2})
-    assert json.loads(pub._take(0)) == {"n": 2} and pub._take(0) is None
+    pub.offer({"f": 1}, "frame")
+    pub.offer({"f": 2}, "frame")
+    assert [json.loads(m) for m in pub._take(0)] == [{"n": 2}, {"f": 2}] and pub._take(0) == []
+
+
+# --- the camera picture -------------------------------------------------------------------
+
+def half_white(w: int = 640, h: int = 480) -> np.ndarray:
+    frame = np.zeros((h, w, 3), np.uint8)
+    frame[:, : w // 2] = 255            # the camera's left half is white
+    return frame
+
+
+def decode(msg: dict) -> np.ndarray:
+    return cv2.imdecode(np.frombuffer(base64.b64decode(msg["jpeg"]), np.uint8), cv2.IMREAD_COLOR)
+
+
+def test_the_preview_is_a_small_mirrored_jpeg():
+    msg = jpeg_message("frame", half_white(), 224, 55, True)
+    assert msg["type"] == "frame" and (msg["w"], msg["h"]) == (224, 168)
+    assert msg["jpeg"].startswith("/9j/") and len(msg["jpeg"]) < 24_000   # the relay's cap for a preview
+    img = decode(msg)
+    assert img.shape[:2] == (168, 224) and img[:, :50].mean() < 40 and img[:, -50:].mean() > 215   # mirrored: white on the right
+    json.dumps(msg)
+
+
+def test_a_snapshot_is_full_size_unmirrored_and_carries_the_request_id():
+    msg = jpeg_message("snapshot", half_white(), 512, 82, False, id=7)
+    assert msg["type"] == "snapshot" and msg["id"] == 7 and (msg["w"], msg["h"]) == (512, 384)
+    img = decode(msg)
+    assert img[:, :80].mean() > 215 and len(msg["jpeg"]) < 200_000       # unmirrored: white on the left; under the relay cap
+
+
+def test_the_game_message_carries_the_phone_marker_and_where_each_wand_is():
+    pipe = Pipeline(cfg())
+    out = pipe.process(strip(scene({"yellow": (320, 200)}), 540, 200), 0.0)
+    msg = game_message(out)
+    assert msg["phone"] == out["phone"] and out["phone"] is not None
+    assert msg["wands"]["yellow"] is not None and msg["wands"]["blue"] is None   # for the game's "wand not seen" hint
+
+
+def test_snapshot_requests_reach_the_camera_loop():
+    controls = queue.Queue()
+    on_message = listener(controls)
+    on_message({"type": "snapshot", "id": 3})
+    on_message({"type": "snapshot", "id": "x"})                         # malformed: ignored
+    assert controls.qsize() == 1 and controls.get_nowait()["id"] == 3
 
 
 def test_it_sends_to_the_relay_and_hands_back_control_messages():

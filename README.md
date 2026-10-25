@@ -244,11 +244,11 @@ To send the tracker to the game, keep the backend (step 1) running and the game 
 
 ```bash
 uv pip install --python .venv/bin/python -r requirements.txt               # once, if your venv predates the link: adds websockets
-.venv/bin/python -m tools.publish --window                                 # backend on :8000, game in room "storybound"; q quits
+.venv/bin/python -m tools.publish                                          # backend on :8000, game in room "storybound"; Ctrl-C stops
 .venv/bin/python -m tools.publish --api http://localhost:8020 --room demo  # another backend or room; open the game with ?room=demo
 ```
 
-The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam. The tracker holds the webcam while it runs, so check that the scanner (**X**) still opens the camera on the demo laptop.
+**Everything shows inside the game.** The tracker has no window of its own (`--window` opens its OpenCV view for debugging) and it is the only program that opens the webcam: it sends the game a small camera picture about 9 times a second, which the wand panel shows with your wand trails and the phone marker on top (plus a setup hint for a solo player: "Yellow wand not seen", "Phone tape not seen" or "Step back a little"), and the scanner (**X**) shows the same picture and scans from a full-size snapshot the tracker sends on request, instead of opening the camera itself. With no tracker running, the scanner opens the camera as before. The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 ## Demo in one command
 
@@ -262,7 +262,7 @@ Once the setup above is done (`backend/.venv`, `frontend/node_modules`, `cv_2/.v
 .\scripts\demo.ps1           # Windows
 ```
 
-It starts the backend (open to the local network, for the phone), the game and the tracker window, then prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--no-tracker` (`-NoTracker` on Windows) to run without the webcam, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--no-tracker` (`-NoTracker` on Windows) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
 
 ## Controls
 
@@ -294,11 +294,11 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 
 | What | Command | Result on `main` |
 |---|---|---|
-| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 44 pass |
-| Frontend unit tests | `cd frontend && npm test` | 81 pass |
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 46 pass |
+| Frontend unit tests | `cd frontend && npm test` | 83 pass |
 | Type-check and build | `cd frontend && npm run build` | passes |
-| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 15 checks, listed as PASS / FAIL. They play the full story, not the demo run |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 243 pass (about 15 s on a Mac; no camera needed) |
+| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 16 checks, listed as PASS / FAIL. They play the full story, not the demo run |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 247 pass (about 15-90 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 

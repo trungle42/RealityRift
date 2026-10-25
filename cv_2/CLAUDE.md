@@ -27,8 +27,8 @@ python -m tools.demo                           # window; q quits, m shows the co
 python -m tools.demo --period 3                # different on/off period
 python -m tools.demo --no-window --frames 90   # headless smoke test, prints fps + per-colour result
 python -m tools.tune                           # click-to-calibrate: sample your objects, get YT_* lines (p)
-python -m tools.publish --window               # send to the game via the backend (--api, --room, --slash-hold)
-python -m pytest                               # 243 tests (~15-35 s), no camera needed
+python -m tools.publish                        # send to the game via the backend (--api, --room, --slash-hold, --window debug)
+python -m pytest                               # 247 tests (~15-90 s), no camera needed
 ```
 
 Env knobs (`tracker/config.py`): `YT_CAMERA, YT_WIDTH, YT_HEIGHT, YT_COLORS` (subset, e.g. `blue,red`),
@@ -68,8 +68,9 @@ tracker/
                traces thinned to 200 points per colour). Pure.
 tools/demo.py  Window + --no-window smoke test + mask view.
 tools/tune.py  Click-to-calibrate window: sample HSV of the object at several places, print suggested YT_* lines.
-tools/publish.py  Camera -> Pipeline -> game_message -> Publisher (newest-wins sender thread, reconnects) -> backend relay; the
-               relay's gate messages are queued by listener() and applied (apply -> Pipeline.control/release) before each frame.
+tools/publish.py  Camera -> Pipeline -> game_message (+ a jpeg_message preview ~9/s) -> Publisher (one newest-wins slot per kind,
+               sender thread, reconnects) -> backend relay; the relay's gate messages and snapshot requests are queued by listener()
+               and handled before each frame (apply -> Pipeline.control/release; a snapshot -> one 512 px jpeg_message).
 tests/         Synthetic frames (grey room, coloured balls on sticks, skin/green/orange distractors); injectable clock.
 ```
 
@@ -234,6 +235,14 @@ a single `object` / `trace`; nothing consumed it, so it was changed without a co
   big triangle, so free choice would name "triangle" halfway through every star. Resting also keeps a wand that is just being waved
   about from casting by accident. Measured on synthetic paths only: 75 px/s (slow for a drawing hand) never counts as resting; 25 px/s
   does. If real corners pause long enough to restart the stroke, lower `wand_pause_s` or `wand_still_dist`.
+- **One camera owner, everything inside the game** (`tracker/game.jpeg_message`, `tools/publish.py`). The user saw "a bunch of random
+  stuff" (an OpenCV window beside the game, and the scanner fighting the tracker for the webcam, which Windows does not allow). So the
+  tracker is headless by default (`--window` is a debug flag) and the only program that opens the camera: it sends a small mirrored
+  JPEG preview (`frame`, 224 px, quality 55, ~9 a second, its own newest-wins slot in `Publisher`) that the game's wand panel and
+  scan screen show, and answers the game's `{type: "snapshot", id}` with one 512 px unmirrored JPEG for the scan. Pictures go
+  base64 through the relay (capped at 24,000 / 200,000 characters, only tracker -> game, never stored) rather than over a separate
+  MJPEG endpoint, so the game keeps one connection and the relay keeps its validation. The scanner falls back to `getUserMedia` when
+  no tracker is connected.
 - **Each colour re-arms on its own** (`wand_rearm_s`=0.8): a completed shape stays `complete` long enough for the game to see it
   (about 20 frames even with skipped frames), then only that colour's trace is erased, so two wands never interrupt each other. Every
   false -> true edge of `complete[colour]` is one cast. A stroke is capped at `wand_trace_points` (~5 s) in game mode.
@@ -349,8 +358,8 @@ across lighting conditions or object types, and blue/red thresholds have never b
 - Aim with the wand (pointing at a foe to choose the spell's target); today spells pick the locked or nearest foe.
 - Try the game link with a live webcam and a person (it was tested with synthetic frames), including the rest-then-draw gesture
   (`wand_pause_s`, `wand_still_dist`), the freeze threshold
-  (`FREEZE_MOTION` = 0.06 in `frontend/src/adventure/cvMath.ts`, not measured for small fidgets) and whether the browser scanner can open
-  the webcam while the tracker holds it (fine on macOS in principle, often exclusive on Windows).
+  (`FREEZE_MOTION` = 0.06 in `frontend/src/adventure/cvMath.ts`, not measured for small fidgets) and the in-game camera picture's
+  latency and quality on a real webcam (the scanner no longer opens the camera while the tracker runs).
 - `tools.tune` prints lines to paste; it could write them to a config file (or `.env`) that `Config.from_env` reads.
 - Lock the webcam's auto exposure / white balance (`CAP_PROP_AUTO_EXPOSURE`, `CAP_PROP_AUTO_WB`; driver-dependent on
   DirectShow, untested here) to stop the whole picture shifting when an object enters.

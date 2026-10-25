@@ -187,7 +187,8 @@ neither side can push arbitrary data into the other.
 
 Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames rather than queue them):
 ```json
-{ "type": "cv", "slash": 3, "jump": 1, "motion": 0.042,
+{ "type": "cv", "slash": 3, "jump": 1, "motion": 0.042, "phone": { "x": 0.18, "y": 0.64, "radius": 0.07 },
+  "wands": { "yellow": { "x": 0.51, "y": 0.40, "radius": 0.03 }, "blue": null, "red": null },
   "wand": { "active": true, "secondsLeft": 3.2, "target": "circle", "next": "triangle",
             "shapes": { "yellow": { "shape": "circle", "score": 0.12 }, "blue": null, "red": null },
             "complete": { "yellow": true, "blue": false, "red": false },
@@ -206,6 +207,27 @@ Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames
   it. It stays true for 0.8 s, then that colour's trace is erased and the wand can draw again: **each false -> true edge is one
   completed shape**. With no game in the room the tracker runs its own demo round (5 s on/off timer, targets cycling, `complete`
   latched for the round), as described in the "Output data" section.
+
+- `phone` is the phone's marker `{x, y, radius}` (0-1, x mirrored, radius a fraction of the width), or `null` when not seen.
+  `wands` is the same per wand colour (`{"yellow": {...} | null, ...}`), for the game's setup hints.
+
+Tracker -> game, the camera picture (the tracker is the only program that opens the webcam; the game shows this in the wand panel
+and on the scan screen), about 9 a second, newest wins:
+```json
+{ "type": "frame", "w": 224, "h": 168, "jpeg": "/9j/4AAQ..." }
+```
+A base64 JPEG, mirrored like a selfie, at most 24,000 base64 characters (a 224 px picture is ~2-10 KB). And, once per request
+below, one full-size unmirrored picture for a scan (at most 200,000 characters; 512 px wide):
+```json
+{ "type": "snapshot", "id": 3, "w": 512, "h": 384, "jpeg": "/9j/4AAQ..." }
+```
+The relay only passes pictures from the tracker to the game, checks they are base64 starting `/9j/` (a JPEG) within the cap, and
+never stores them.
+
+Game -> tracker, a picture for the scanner (`CvInput.snapshot()`, answered by the `snapshot` above with the same `id`):
+```json
+{ "type": "snapshot", "id": 3 }
+```
 
 Game -> tracker:
 ```json

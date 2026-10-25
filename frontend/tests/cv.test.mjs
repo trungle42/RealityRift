@@ -4,13 +4,35 @@ import { test } from 'node:test';
 import ts from 'typescript';
 
 const source = ts.transpileModule(await readFile(new URL('../src/adventure/cvMath.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseCv, newEvents, newlyComplete, bodyMoving, completedShape, wandPrompt, POSE_SHAPE, FREEZE_MOTION, CV_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { parseCv, parsePicture, setupHint, NEAR_WAND, newEvents, newlyComplete, bodyMoving, completedShape, wandPrompt, POSE_SHAPE, FREEZE_MOTION, CV_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD' + 'A'.repeat(64) + '==';
 
 const WAND = { active: true, secondsLeft: 3.2, target: 'circle', next: 'triangle', shapes: { yellow: null }, complete: { yellow: false }, traces: { yellow: [] } };
 const frame = (extra = {}) => ({ type: 'cv', slash: 2, jump: 1, motion: 0.04, wand: WAND, ...extra });
 
-test('a relay frame parses into counts, motion and the wand round', () => {
-  assert.deepEqual(parseCv(frame()), { slash: 2, jump: 1, motion: 0.04, wand: WAND });
+test('a solo player gets one setup hint at a time', () => {
+  const at = { x: 0.5, y: 0.5, radius: 0.03 }, tape = { x: 0.2, y: 0.6, radius: 0.06 };
+  assert.equal(setupHint({ wands: { yellow: at }, phone: tape }), '');
+  assert.equal(setupHint({ wands: { yellow: null }, phone: tape }), 'Yellow wand not seen');
+  assert.equal(setupHint({ wands: { yellow: at }, phone: null }), 'Phone tape not seen');
+  assert.equal(setupHint({ wands: {}, phone: null }), 'Wand and phone tape not seen');
+  assert.equal(setupHint({ wands: { yellow: { ...at, radius: NEAR_WAND + 0.01 } }, phone: tape }), 'Step back a little');
+  assert.equal(setupHint(undefined), '');
+});
+test('a relay frame parses into counts, motion, the phone marker and the wand round', () => {
+  assert.deepEqual(parseCv(frame()), { slash: 2, jump: 1, motion: 0.04, phone: null, wands: {}, wand: WAND });
+  assert.deepEqual(parseCv(frame({ wands: { yellow: { x: 0.5, y: 0.5, radius: 0.04 }, blue: 'x' } })).wands, { yellow: { x: 0.5, y: 0.5, radius: 0.04 }, blue: null });
+  assert.deepEqual(parseCv(frame({ phone: { x: 0.2, y: 0.6, radius: 0.07 } })).phone, { x: 0.2, y: 0.6, radius: 0.07 });
+  for (const phone of ['x', { x: 2, y: 0.5, radius: 0.1 }, { x: 0.5, y: 0.5 }]) assert.equal(parseCv(frame({ phone })).phone, null);
+});
+test('camera pictures parse only as base64 JPEG of their own type', () => {
+  assert.deepEqual(parsePicture({ type: 'frame', w: 224, h: 168, jpeg: JPEG }, 'frame'), { jpeg: JPEG, w: 224, h: 168 });
+  assert.deepEqual(parsePicture({ type: 'snapshot', id: 3, w: 512, h: 384, jpeg: JPEG }, 'snapshot'), { jpeg: JPEG, w: 512, h: 384, id: 3 });
+  for (const bad of [null, { type: 'frame', w: 224, h: 168, jpeg: 'iVBORw0KGgo=' }, { type: 'frame', w: 0, h: 168, jpeg: JPEG }, { type: 'frame', w: 224, h: 168, jpeg: '/9j/"><script>' },
+    { type: 'snapshot', w: 224, h: 168, jpeg: JPEG }, { type: 'cv', w: 224, h: 168, jpeg: JPEG }]) {
+    assert.equal(parsePicture(bad, bad?.type === 'snapshot' ? 'snapshot' : 'frame'), undefined);
+  }
+  assert.equal(parsePicture({ type: 'frame', w: 224, h: 168, jpeg: JPEG }, 'snapshot'), undefined);
 });
 test('motion is null when missing and clamped to 0-1', () => {
   assert.equal(parseCv(frame({ motion: null })).motion, null);

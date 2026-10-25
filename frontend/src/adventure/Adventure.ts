@@ -245,6 +245,7 @@ export class Adventure {
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
     this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
     this.wandHud = new WandHud(this.cv, this.ui.root);
+    this.scanner.setFrameSource(this.cv);   // while the tracker runs, scans use its camera pictures: one program owns the webcam
     // The default is the short run (about a minute): talk to Willow, hold the glade against one wave, then the boss
     // comes for you. `?story=full` plays the whole storyteller-driven tale with camps, trials and Gemini beats.
     if (!this.demo) { this.buildCamps(); await this.loadBeat(this.story.begin(party)); return; }

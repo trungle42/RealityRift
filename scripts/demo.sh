@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Storybound demo in one command (macOS / Linux): the backend (reachable from the phone), the game, and the cv_2 tracker window.
+# Storybound demo in one command (macOS / Linux): the backend (reachable from the phone), the game, and the cv_2 tracker (no
+# window of its own: its camera picture shows inside the game), then the game opens in the default browser.
 # Whatever is already running is left alone, and Ctrl-C stops only what this script started.
 #
-#   ./scripts/demo.sh                                 backend :8000, game :5173, tracker window
-#   ./scripts/demo.sh --no-tracker                    no webcam tracker (keyboard and phone only)
+#   ./scripts/demo.sh                                 backend :8000, game :5173, tracker, browser
+#   ./scripts/demo.sh --no-tracker --no-browser       no webcam tracker / do not open the browser
 #   API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh     other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -13,11 +14,12 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1
+tracker=1 browser=1
 for arg in "$@"; do
   case "$arg" in
     --no-tracker) tracker=0 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    --no-browser) browser=0 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -114,11 +116,16 @@ fi
 echo
 
 if [[ "$start_tracker" == 1 ]]; then
-  echo "Tracker: starting the webcam window (macOS asks for camera access the first time) ..."
-  (cd "$repo_root/cv_2" && exec .venv/bin/python -m tools.publish --window --api "$api") &
+  echo "Tracker: starting; its camera picture shows in the game's wand panel (macOS asks for camera access the first time) ..."
+  (cd "$repo_root/cv_2" && exec .venv/bin/python -m tools.publish --api "$api") &
   tracker_pid=$!
 elif [[ "$tracker" == 1 ]]; then
   echo "Tracker: one is already running, leaving it alone."
+fi
+if [[ "$browser" == 1 ]]; then
+  if command -v open >/dev/null 2>&1; then open "$web/"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$web/" >/dev/null 2>&1 || true
+  fi
 fi
 
 echo "Running. Press Ctrl-C to stop what this script started."
