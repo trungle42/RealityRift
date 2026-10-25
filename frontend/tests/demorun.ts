@@ -141,6 +141,10 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
 
     await check('Phone joystick walks the hero to Willow; tracker slashes and wand shapes are ignored during her briefing', async () => {
       assert(inner.demo?.stage === 'briefing', 'the game did not open in the demo run');
+      // Out of reach (the run opens 5.5 m from Willow): a phone tap says to walk closer instead of doing nothing.
+      const toast = () => document.querySelector('.game-toast')?.textContent ?? '';
+      deliver(inner.phone?.socket, { type: 'action' }); await wait(50);
+      assert(/Walk closer to Willow · \d+ steps/.test(toast()) && !inner.busy && stage() === 'briefing', `an out-of-reach tap did not say to walk closer ("${toast()}")`);
       const from = hero().clone();
       await run(8, () => { stick(0, 1); return Math.hypot(hero().x - from.x, hero().z - from.z) > 2.6; });
       stick(0, 0);
@@ -151,6 +155,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(inner.attackCooldown[0] === 0 && inner.bolts.length === bolts && inner.strikes.length === strikes, 'tracker input acted during the briefing');
       for (let i = 0; i < 80 && stage() === 'briefing'; i++) { tap('Space'); await wait(40); }
       assert(stage() === 'wave' && !inner.busy, 'the briefing did not lead into the wave');
+      tap('KeyE'); await wait(30);
+      assert(toast().startsWith('Not now'), `E during the fight did not say "not now" ("${toast()}")`);
     });
 
     await check('The game asks for one rune at a time: only that shape casts, and every requested spell reaches a shadow', async () => {
