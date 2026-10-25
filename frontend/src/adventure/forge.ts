@@ -1,23 +1,31 @@
 import type { PlayerIndex } from '../contracts';
-import { spellFor, type Ability, type Weapon } from './weapon';
+import type { Ability } from './weapon';
 
 /**
- * Reality Rift wand forging: a shape drawn in the air with a coloured wand (haicil's cv_2 tracker) gives a
- * scanned weapon its power, and in a fight completing a shape unleashes a Rift Surge.
+ * The wand, one of each hero's two weapons (the sword is the other): a shape drawn in the air with a coloured wand
+ * (haicil's cv_2 tracker) casts that shape's spell at once. A held Reality Rift relic only infuses it with an
+ * element and power (`wandSpell` in weapon.ts); the shape alone decides the spell.
  *
- * The game only sees `ShapeSource`: "this wand colour just completed this shape". The CV link feeds it from
- * the tracker's `complete` event (`CvInput` -> `shapeFromWand`); `KeyboardShapes` is the stand-in so every step also
- * works, and can be tested, without a camera. Pure apart from KeyboardShapes' key listener.
+ * The game only sees "this wand colour just completed this shape" (`Adventure.onShape(colour, shape)`). The CV link
+ * feeds it from the tracker's `complete` event (`CvInput` -> `shapeFromWand`); `KeyboardShapes` is a `ShapeSource`
+ * stand-in so every step also works, and can be tested, without a camera. Pure apart from KeyboardShapes' key listener.
  */
 export type WandShape = 'circle' | 'triangle' | 'square' | 'star';
 export type WandColour = 'yellow' | 'blue' | 'red';
 
 export const WAND_SHAPES: readonly WandShape[] = ['circle', 'triangle', 'square', 'star'];
-/** The four tracker presets onto four of the six abilities; bolt and pierce stay Gemini's to give. */
+/** The spell each tracker shape casts. (Bolt is the plain F cast; pierce has no shape.) */
 export const SHAPE_ABILITY: Record<WandShape, Ability> = { circle: 'nova', triangle: 'meteor', square: 'wave', star: 'chain' };
 /** Yellow wand is hero one, blue is hero two. Red stays off: the tracker mistakes it for lips and skin. */
 export const COLOUR_HERO: Partial<Record<WandColour, PlayerIndex>> = { yellow: 0, blue: 1 };
 
+/** Seconds before the same hero can cast the same shape again, so drawing cannot be spammed. Other shapes stay ready. */
+export const SHAPE_COOLDOWN: Record<WandShape, number> = { circle: 2.2, triangle: 3, square: 1.6, star: 1.8 };
+
+/**
+ * A source of completed wand shapes. Contract: call the listener once per finished drawing (never for a live,
+ * still-open stroke), with the colour of the wand that drew it and the shape it matched.
+ */
 export type ShapeListener = (colour: WandColour, shape: WandShape) => void;
 export interface ShapeSource { subscribe(listener: ShapeListener): () => void; dispose(): void }
 
@@ -29,10 +37,12 @@ export function heroFor(colour: WandColour, solo: boolean): PlayerIndex | undefi
   return hero === 1 && solo ? undefined : hero;
 }
 
-/** The weapon, with its ability (and so its spell) set by the drawn shape. Name, element and damage stay. */
-export function reforge(weapon: Weapon, shape: WandShape): Weapon {
-  const artifact = { ...weapon, ability: SHAPE_ABILITY[shape] };
-  return { ...artifact, spell: spellFor(artifact), shape };
+/** Per hero and shape cooldowns, on the game clock (so a paused game does not tick them). */
+export class ShapeCooldowns {
+  private readonly until = new Map<string, number>();
+  left(hero: PlayerIndex, shape: WandShape, now: number): number { return Math.max(0, (this.until.get(`${hero}:${shape}`) ?? -Infinity) - now); }
+  ready(hero: PlayerIndex, shape: WandShape, now: number): boolean { return this.left(hero, shape, now) === 0; }
+  use(hero: PlayerIndex, shape: WandShape, now: number): void { this.until.set(`${hero}:${shape}`, now + SHAPE_COOLDOWN[shape]); }
 }
 
 /**

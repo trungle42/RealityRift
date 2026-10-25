@@ -26,7 +26,7 @@ Storybound is a third-person 3D fairy-tale adventure that runs in the browser. Y
 - **Reality Rift.** Press X, hold up a real object (a bottle, a mug, a pen) and Gemini vision turns it into a magical weapon: a name, an element, a spell shape and a rarity. Bosses take double damage from the element they fear and half from the one they resist, so what you pick up matters.
 - **The riddle door.** A door with carved eyes asks you to show it "a book" or "a bottle or a cup". Gemini checks your webcam photo, and tells you what it saw if you got it wrong.
 - **Your phone is the joystick.** Press H, open the URL on your phone, and drag your thumb to move. No app to install.
-- **Camera-tracked wands, slashes and jumps.** A separate OpenCV tracker follows coloured wands drawing a circle, triangle, square or star, spots a phone swung like a sword, and spots a jump. In the game, the phone slash swings the hero's sword, a real jump makes the hero jump, and moving during the freeze spell breaks it. Wand shapes casting spells come later.
+- **Camera-tracked wands, slashes and jumps.** A separate OpenCV tracker follows coloured wands drawing a circle, triangle, square or star, spots a phone swung like a sword, and spots a jump. In the game, the phone slash swings the hero's sword, a real jump makes the hero jump, and moving during the freeze spell breaks it. `TODO(after merge)`: every hero carries two weapons, a sword and a wand, and drawing a shape with the wand casts that shape's spell (circle nova, triangle meteor, square wave, star chain). A scanned relic infuses both with its element, so a fire relic makes both your spells and your slashes burn the Frost Witch for double.
 
 If the network or Gemini fails, the game keeps going: the story switches to a hand-written script for that scene, a scan returns a stand-in weapon, and the riddle door lets you through.
 
@@ -66,7 +66,7 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 
 ## What's next
 
-- Finish wiring the tracker into the game: wand shapes for the pose seals. (Wand shapes already forge weapons and fire a Rift Surge.) `TODO(after merge)`
+- Finish wiring the tracker into the game: wand shapes for the pose seals. (Wand shapes already cast spells.) `TODO(after merge)`
 - Reality Rift extras: the scanned weapon modelled in the hero's hand, and a clearer hint of what a boss fears. `TODO(after merge)`
 - Our own models for the whole world, so every asset is ours.
 - A hosted version, so a judge can play without cloning the repo.

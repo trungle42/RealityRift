@@ -60,13 +60,14 @@ Press **X** or click the **Scan** button. Hold a real object up to the webcam an
 
 So the object you pick is a real choice: a hot drink tends to come back as fire, which is what the witch fears. Scanning needs the backend. No camera? The scanner lets you choose a photo from disk instead. No key or Gemini down? You get a stand-in weapon (the Moonlit Orb of light or the Frostbound Blade of ice, picked at random) and a note saying so.
 
-In progress (Reality Rift extras on other branches):
+Reality Rift extras:
 
-<!-- TODO(after merge): flip each line below to working once feature/rift-next is on main. -->
-- **Relic card and armory:** the weapon card is framed around your own photo of the object, and every weapon you forge is kept in an armory in this browser (up to 8, never uploaded). Pick one from the scanner to equip it again. `TODO(after merge)`
-- **The story remembers your objects:** forged weapons travel in the story history, so Gemini's narration and the storybook name the real object and what it became (the scripted story adds a "Reality Rift" page). `TODO(after merge)`
-- **Wand forging and Rift Surge:** completing a circle, triangle, square or star with a wand sets the weapon's power (nova, meteor, wave, chain); completing the same shape in a fight fires a Rift Surge. The cv_2 tracker drives it through the CV link (a wand completing the round's target shape); keys 4-7 (yellow wand) and 8, 9, 0, - (blue wand) stand in when no tracker runs. `TODO(after merge)`
-- **Player two forges too:** the yellow wand is hero one and the blue wand hero two; whichever wand shapes the card claims the weapon, and either hero can take it. Each hero casts their own weapon. `TODO(after merge)`
+<!-- TODO(after merge): flip the lines marked below to working once feature/rift-weapons is on main. -->
+- **Relic card and armory (working):** the relic card is framed around your own photo of the object, and every relic you scan is kept in an armory in this browser (up to 8, never uploaded). Pick one from the scanner to equip it again.
+- **The story remembers your objects (working):** relics travel in the story history, so Gemini's narration and the storybook name the real object and what it became (the scripted story adds a "Reality Rift" page).
+- **Two weapons:** every hero carries a **sword** (phone slash, or J / click) and a **wand** in the off hand (draw a shape, or F for a plain bolt). A HUD shows both, the element infusing them and the wand's last shape. `TODO(after merge)`
+- **Draw a shape, cast its spell:** circle = nova, triangle = meteor, square = wave, star = chain, cast the moment the wand closes the shape, even before any scan (arcane, power 1). Each shape has its own short cooldown, and shapes drawn during a trial go to the pose seal instead. The cv_2 tracker drives it through the CV link; keys 4-7 (yellow wand, hero one) and 8, 9, 0, - (blue wand, hero two) stand in when no tracker runs. `TODO(after merge)`
+- **A relic is the power-up:** scanning an object gives a relic that infuses both weapons with its element: wand spells take its colour and element, and sword hits carry it too, so a boss's weakness (x2) and resistance (x0.5) apply to slashes. Rarity and damage set the power (1-3). Either hero can take a relic. `TODO(after merge)`
 
 ### The "show me X" riddle door (working)
 
@@ -94,7 +95,7 @@ It was tuned on one webcam. Expect to re-run `python -m tools.tune` (click your 
 Working (CV to game; tested end to end with synthetic tracker frames, not yet with a live webcam):
 
 - A backend relay (`backend/app/cv.py`) plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. Start it with `python -m tools.publish` in `cv_2/` while the backend runs.
-- Later, not started: **wand shapes cast spells**, and wand shapes for the pose seals.
+- Wand shapes cast spells in the game (see Reality Rift extras). `TODO(after merge)` Wand shapes for the pose seals are being built on the CV branch.
 
 ### Also on `main`
 
@@ -286,12 +287,12 @@ The browser checks drive the real renderer with real key events, so they need a 
 
 **In progress (not on `main` yet)**
 
-- Reality Rift extras: relic card with your photo, armory, story remembering your objects, wand forging with Rift Surge, a weapon for each hero. `TODO(after merge)`
+- Two weapons per hero (sword + wand), drawn shapes casting spells, and relics infusing both weapons with their element. `TODO(after merge)`
 - Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
 
 **Not done**
 
-- Wand shapes casting spells in the game, and wand shapes for the pose seals.
+- Wand shapes for the pose seals (on the CV branch).
 - No hosted version: the game runs locally (frontend and backend on one laptop).
 - cv_2 shape and slash detection has not been validated across different lighting, cameras or people. Slash recall depends on keeping the whole swing in view.
 - The 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); they exist in the backend only.
