@@ -251,7 +251,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <li>Run <code>python -m tools.tune</code>.</li>
   <li>Press <kbd>1</kbd>, <kbd>2</kbd> or <kbd>3</kbd> to choose yellow, blue or red.</li>
   <li><strong>Click your object in several places</strong>: the edge where it disappears, the opposite edge, and the middle (move it between clicks). Each click samples a small patch.</li>
-  <li>Press <kbd>p</kbd>. It prints PowerShell lines such as <code>$env:YT_BLUE_HUE="108-119"</code> that cover every spot you clicked, with a little slack. Paste them into your terminal and start the demo.</li>
+  <li>Press <kbd>p</kbd>. It prints lines such as <code>export YT_BLUE_HUE="108-119"</code> (macOS/Linux) or <code>$env:YT_BLUE_HUE="108-119"</code> (PowerShell on Windows) that cover every spot you clicked, with a little slack. Paste them into the same terminal and start the demo there.</li>
 </ol>
 <p><kbd>c</kbd> forgets the chosen colour's samples, <kbd>m</kbd> toggles the panel showing what the strict detector counts as that colour.</p>
 <h3>Stays on once found</h3>
@@ -361,7 +361,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td><code>tracker/game.py</code></td><td>Builds the small message the game receives from each frame&rsquo;s data.</td></tr>
   <tr><td><code>tools/tune.py</code></td><td>Click-to-calibrate window (see <a href="#tuning">Tuning</a>).</td></tr>
   <tr><td><code>tools/publish.py</code></td><td>Sends the tracker to the game through the backend (see <a href="#game">In the game</a>).</td></tr>
-  <tr><td><code>tests/test_tracker.py</code></td><td>86 tests on synthetic frames with a fake clock: colour detection, tracking, traces, config.</td></tr>
+  <tr><td><code>tests/test_tracker.py</code></td><td>90 tests on synthetic frames with a fake clock: colour detection, tracking, traces, config, calibration output.</td></tr>
   <tr><td><code>tests/test_shapes.py</code></td><td>44 tests: shape recognition on ideal and simulated hand-drawn paths, the shape cycle, the latched "complete" state, and end to end through the pipeline.</td></tr>
   <tr><td><code>tests/test_slash.py</code></td><td>40 tests: the slash detector on slash-shaped and ordinary motion, a short hold not counting one swing twice, and through the pipeline.</td></tr>
   <tr><td><code>tests/test_jump.py</code></td><td>43 tests: the motion sensor on synthetic frames, the jump detector, and the jump/slash interaction.</td></tr>

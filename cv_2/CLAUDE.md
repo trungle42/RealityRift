@@ -26,7 +26,7 @@ python -m tools.demo --period 3                # different on/off period
 python -m tools.demo --no-window --frames 90   # headless smoke test, prints fps + per-colour result
 python -m tools.tune                           # click-to-calibrate: sample your objects, get YT_* lines (p)
 python -m tools.publish --window               # send to the game via the backend (--api, --room, --slash-hold)
-python -m pytest                               # 221 tests (~10-30 s), no camera needed
+python -m pytest                               # 225 tests (~10-30 s), no camera needed
 ```
 
 Env knobs (`tracker/config.py`): `YT_CAMERA, YT_WIDTH, YT_HEIGHT, YT_COLORS` (subset, e.g. `blue,red`),
@@ -45,7 +45,7 @@ tracker/
                acquire (largest blob), relaxed mask to follow (blob nearest the previous position); see Decisions.
                mask() is the strict mask, public so the demo can show it.
   calibrate.py suggest(samples) -> hue ranges/s_min/v_min covering HSV samples (hue is circular: red wraps);
-               env_lines() formats them as PowerShell. Pure, used by tools/tune.py.
+               env_lines() formats them as `export` lines, or PowerShell `$env:` lines on Windows. Pure, used by tools/tune.py.
   track.py     ColorTrack: one colour's detect -> confirm (acquire_frames) -> smooth state (hint, candidate, smoothed point). Used by every
                wand colour and by the phone, so they follow identical rules.
   slash.py     SlashDetector.update(now, point|None, aspect, suppress) -> SlashState(active, seconds_left, count). Pure, time injected.

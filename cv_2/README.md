@@ -91,8 +91,8 @@ python -m tools.tune
 ```
 
 Press `1` / `2` / `3` to pick yellow / blue / red, then **click the object in several places**: the side where it
-disappears, the other side, and the middle. Press `p` to print PowerShell lines covering all the samples
-(`$env:YT_BLUE_HUE=...`, `..._S_MIN`, `..._V_MIN`), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
+disappears, the other side, and the middle. Press `p` to print lines covering all the samples (`export YT_BLUE_HUE=...`,
+`..._S_MIN`, `..._V_MIN` on macOS/Linux; `$env:YT_BLUE_HUE=...` in PowerShell on Windows), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
 the mask panel.
 
 Detection is also forgiving once it has found an object: it is acquired with the strict thresholds and then followed with
