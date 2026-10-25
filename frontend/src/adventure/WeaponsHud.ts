@@ -15,13 +15,20 @@ export class WeaponsHud {
   private names: string[] = [''];
   private readonly relics: (Weapon | undefined)[] = [];
   private readonly last: (WandShape | undefined)[] = [];
+  /** Keeps --weapons-hud-top current as the rows wrap or the window resizes, so toasts and prompts stack above the HUD. */
+  private readonly sizes = new ResizeObserver(() => this.publish());
+  private readonly publish = (): void => {
+    const top = this.root.hidden ? 0 : parseFloat(getComputedStyle(this.root).bottom) + this.root.offsetHeight;
+    if (top > 0) document.documentElement.style.setProperty('--weapons-hud-top', `${Math.round(top)}px`);
+    else document.documentElement.style.removeProperty('--weapons-hud-top');
+  };
 
   constructor(parent: HTMLElement = document.body) {
     this.root.className = 'weapons-hud'; this.root.setAttribute('aria-label', 'Weapons'); this.root.hidden = true;
-    parent.append(this.root);
+    parent.append(this.root); this.sizes.observe(this.root); window.addEventListener('resize', this.publish);
   }
 
-  setHeroes(names: string[]): void { this.names = names.length ? names.slice(0, 2) : ['']; this.root.hidden = false; this.render(); }
+  setHeroes(names: string[]): void { this.names = names.length ? names.slice(0, 2) : ['']; this.root.hidden = false; this.root.classList.toggle('duo', this.names.length > 1); this.render(); this.publish(); }
   setRelic(hero: PlayerIndex, relic: Weapon | undefined): void { this.relics[hero] = relic; this.render(); }
 
   /** A drawn shape was cast: show it and run its cooldown bar. */
@@ -31,7 +38,7 @@ export class WeaponsHud {
     if (bar) bar.style.animation = `wand-cool ${cooldown}s linear forwards`;
   }
 
-  dispose(): void { this.root.remove(); }
+  dispose(): void { this.sizes.disconnect(); window.removeEventListener('resize', this.publish); this.root.remove(); document.documentElement.style.removeProperty('--weapons-hud-top'); }
 
   private render(): void {
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => { const node = document.createElement(tag); if (cls) node.className = cls; if (text) node.textContent = text; return node; };
