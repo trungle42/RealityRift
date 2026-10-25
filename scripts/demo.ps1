@@ -20,7 +20,9 @@ param(
     [switch]$Tune,
     [switch]$Tunnel,
     [string]$Room = '',
-    [string]$Color = '',
+    # string[]: typed in PowerShell, -Color red,blue arrives as an array (a [string] would turn it into "red blue");
+    # through powershell -File it arrives as the one string "red,blue". Both are joined and split on commas below.
+    [string[]]$Color = @(),
     [string]$Name = '',
     [string]$Join = '',
     [int]$ApiPort = 8000,
@@ -60,8 +62,8 @@ if ($Room -notmatch '^[A-Za-z0-9_-]{1,32}$') { throw '-Room must be 1-32 letters
 # Wand colours, one per player in order (player 1's first). The tracker detects only these (YT_COLORS), and the game is told
 # the order (?wand=), so each colour drives its own hero. With more than one person in view a whole-picture jump is ambiguous,
 # so jump detection is off then.
-if (-not $Color) { $Color = if ($env:YT_COLORS) { $env:YT_COLORS } else { 'yellow' } }
-$colorList = @($Color.ToLower().Replace(' ', '').Split(',') | Where-Object { $_ })
+if (-not $Color) { $Color = @($(if ($env:YT_COLORS) { $env:YT_COLORS } else { 'yellow' })) }
+$colorList = @(($Color -join ',').ToLower().Replace(' ', '').Split(',') | Where-Object { $_ })
 if ($colorList.Count -eq 0) { throw '-Color needs at least one colour' }
 foreach ($c in $colorList) { if ($c -notin @('red', 'blue', 'yellow')) { throw "-Color takes red, blue and yellow (got '$c')" } }
 if (@($colorList | Select-Object -Unique).Count -ne $colorList.Count) { throw '-Color lists a colour twice' }
@@ -108,7 +110,7 @@ if ($startBackend -and -not (Test-Path $backendPy)) {
     throw 'backend\.venv is missing. Set it up once: cd backend; py -m venv .venv; .venv\Scripts\pip install -r requirements.txt'
 }
 if ($startWeb) {
-    if (-not (Test-Path $viteJs)) { throw 'frontend\node_modules is missing. Install it once: cd frontend; npm install' }
+    if (-not (Test-Path $viteJs)) { throw 'frontend\node_modules is missing. Install it once: cd frontend; npm.cmd install' }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js (node) is not on PATH. Install Node 20.19+ and reopen the terminal.' }
 }
 $cloudflared = $null
@@ -231,11 +233,12 @@ try {
     Write-Host 'Running. Press Ctrl-C to stop what this script started.'
     $reported = @{}
     while ($true) {
-        foreach ($name in @($started.Keys)) {
-            if ($started[$name].HasExited -and -not $reported[$name]) {
-                $reported[$name] = $true
-                if ($name -eq 'tracker') { Write-Host 'demo: the tracker stopped (its messages are above). The backend and game keep running; Ctrl-C to stop.' }
-                else { Write-Host "demo: the $name stopped. Logs: $logs" }
+        # $key, not $name: PowerShell variables ignore case, so a loop over $name would overwrite the player's -Name.
+        foreach ($key in @($started.Keys)) {
+            if ($started[$key].HasExited -and -not $reported[$key]) {
+                $reported[$key] = $true
+                if ($key -eq 'tracker') { Write-Host 'demo: the tracker stopped (its messages are above). The backend and game keep running; Ctrl-C to stop.' }
+                else { Write-Host "demo: the $key stopped. Logs: $logs" }
             }
         }
         Start-Sleep -Seconds 1
