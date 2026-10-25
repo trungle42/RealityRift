@@ -220,8 +220,10 @@ export class Adventure {
     ];
     let completed = 0;
     const outcomes = await Promise.allSettled(jobs.map((job) => job.finally(() => { completed++; const progress = document.querySelector<HTMLProgressElement>('#loading-progress'); if (progress) progress.value = completed / jobs.length; })));
-    if (outcomes[0].status === 'rejected' || outcomes[1].status === 'rejected') throw new Error('Character artwork could not load');
-    if (outcomes.some((outcome) => outcome.status === 'rejected')) this.ui.toast('Some artwork could not load. The adventure remains playable; refresh to retry.');
+    // Optional art packs (Asset Yard models, Poly Haven) are not in the repo: missing ones fall back to the built-in
+    // stand-in characters and materials, so a fresh clone still plays.
+    const missing = outcomes.filter((outcome) => outcome.status === 'rejected').length;
+    if (missing) console.warn(`${missing} optional art file(s) not found; using built-in stand-ins.`);
   }
 
   private bindInput(): void {
