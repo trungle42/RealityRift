@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+backend/.env
 __pycache__/
 .venv/
 .pytest_cache/
@@ -9,3 +10,10 @@ dist/
 .DS_Store
 *.db
 *.tsbuildinfo
+# Third-party model sources kept local only (see frontend/public/models/README.md)
+frontend/public/models/assetyard/
+frontend/public/models/polyhaven/*/*.jpg
+frontend/public/models/polyhaven/*/*.png
+frontend/public/models/polyhaven/*/*.gltf
+frontend/public/models/polyhaven/*/*.bin
+frontend/public/models/polyhaven/*/textures/

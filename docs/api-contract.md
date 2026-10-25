@@ -1,4 +1,4 @@
-# Storybound API contracts
+# Storybound API contract (Dev 2 → Dev 1 / Dev 3)
 
 Development defaults: backend `http://localhost:8000`, frontend `http://localhost:5173`.
 The service exposes two different story interfaces. The playable engine uses
@@ -110,6 +110,14 @@ Accepts a `StoryState` plus optional `challengeOutcomes`. The state contains
 `{ "event": <StoryEvent>, "source": "gemini" | "fallback" }`.
 `StoryEvent` has one narration string, an environment, a challenge, enemies,
 reward, and boss fields from the legacy catalogs in `backend/app/schemas.py`.
+The legacy catalogs are:
+
+- Environment: `forest | castle | cave`.
+- Challenge: `freeze | pose | vote | object_quest | mirror`, with difficulty 1–3,
+  duration 3–20 seconds, and at most two vote options.
+- Enemies: `shadow_creature | goblin | wolf | witch_minion` (1–5 per enemy).
+- Reward: `heart | star_bonus | artifact_buff | none`.
+- Boss variant: `witch | dragon | shadow_king`; boss health is 1–10.
 
 ### `POST /api/story/next`
 
@@ -128,7 +136,11 @@ This legacy storybook uses pages with `text` and `environment`, and an
 - `POST /api/artifact` accepts `{ "imageBase64": "...", "mimeType": "image/jpeg" }`;
   image data is limited to 3,000,000 characters and MIME type to JPEG, PNG, or
   WebP. Returns `{ "artifact": <Artifact>, "source": "gemini" | "fallback" }`.
-  Artifact catalogs are defined in `backend/app/schemas.py`.
+  Artifact catalogs are defined in `backend/app/schemas.py`: type
+  `staff | spear | sword | mirror | chalice | orb`; element
+  `fire | water | lightning | ice | nature | shadow | light`; ability
+  `wave | bolt | nova | pierce | meteor | chain`; rarity
+  `common | rare | epic | legendary`; damage is 1–100.
 - `GET /api/health` returns `{ "ok": true, "gemini": boolean, "model": string }`.
 - `POST /api/event` records bounded telemetry and returns `{ "ok": boolean }`.
 - `POST /api/score` submits a score and returns `{ "ok": true, "leaderboard": [...] }`.
