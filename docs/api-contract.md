@@ -141,6 +141,10 @@ This legacy storybook uses pages with `text` and `environment`, and an
   `fire | water | lightning | ice | nature | shadow | light`; ability
   `wave | bolt | nova | pierce | meteor | chain`; rarity
   `common | rare | epic | legendary`; damage is 1–100.
+- `POST /api/verify` accepts `{ "imageBase64": "...", "mimeType": "image/jpeg", "object": "a book" }`
+  (same image limits as `/api/artifact`; `object` is 1–60 chars and treated as a name, never as an
+  instruction). Returns `{ "match": boolean, "seen": string, "source": "gemini" | "fallback" }`.
+  Without Gemini it returns `match: true` with `source: "fallback"` so a missing key never strands a player.
 - `GET /api/health` returns `{ "ok": true, "gemini": boolean, "model": string }`.
 - `POST /api/event` records bounded telemetry and returns `{ "ok": boolean }`.
 - `POST /api/score` submits a score and returns `{ "ok": true, "leaderboard": [...] }`.
