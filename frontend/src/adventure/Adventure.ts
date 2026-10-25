@@ -71,6 +71,9 @@ const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
  */
 const JUMP_IFRAMES = 1, JUMP_GUARD_COOLDOWN = 2.5;
 const FLASH_COOLDOWN = 6;
+/** How close E / a phone tap works: Willow (the demo run's briefing) and the golden beacon. Generous, and the prompt and the
+ * quest line say "press" only inside it, so a press never seems to do nothing. */
+const WILLOW_REACH = 5, TARGET_REACH = 4.5;
 /**
  * The demo run's single wave: three shadows close in first and three more arrive a few seconds later, so the fight
  * lasts long enough to show off (about 15-20 s) without dragging.
@@ -532,12 +535,17 @@ export class Adventure {
   }
 
   private async interact(): Promise<void> {
-    if (!this.state || this.busy || this.ui.blocked || this.ended || this.trial || this.encounterKind) return;
-    const p = this.heroes[0].root.position;
-    if (this.demo?.stage === 'briefing') { if (distance(p, this.demo.willow) < 3.6) await this.briefing(); return; }
-    if (this.target && distance(p, this.target) < 3.2) { await this.runBeat(); return; }
+    if (!this.state || this.busy || this.ui.blocked || this.ended || this.trial) return;
+    // A press always answers: in a fight, out of reach, or with nothing around, it says so instead of doing nothing.
+    if (this.encounterKind) { this.ui.toast(this.encounterKind === 'boss' ? 'Not now: the battle is on!' : 'Not now: the shadows are on you!'); return; }
+    const p = this.heroes[0].root.position, steps = (to: Position) => Math.round(distance(p, to));
+    if (this.demo?.stage === 'briefing') {
+      if (distance(p, this.demo.willow) < WILLOW_REACH) await this.briefing(); else this.hint(`Walk closer to Willow · ${steps(this.demo.willow)} steps`);
+      return;
+    }
+    if (this.target && distance(p, this.target) < TARGET_REACH) { await this.runBeat(); return; }
     const object = this.nearest;
-    if (!object) return;
+    if (!object) { this.hint(this.target ? `Walk to the golden beacon · ${steps(this.target)} steps` : 'Nothing to use here'); return; }
     this.keys.clear();
     if (object.kind === 'chest') {
       if (object.used) { this.ui.toast('This treasure is already part of your tale.'); return; }
@@ -943,6 +951,15 @@ export class Adventure {
   /** The keyboard stand-in's two wands (keys 4-7 and 8, 9, 0, -) are hero one's and hero two's, whatever their colours. */
   private keyWand(colour: WandColour): WandColour | undefined { return colour === 'yellow' ? this.seats[0] : colour === 'blue' ? this.seats[1] : undefined; }
 
+  /** A "walk closer" reminder: at most once a second, so holding or mashing the key does not flood the toasts. */
+  private hint(text: string): void {
+    const now = performance.now(); if (now - this.hintAt < 1000) return;
+    this.hintAt = now; this.ui.toast(text);
+  }
+  private hintAt = -Infinity;
+  /** How close the current objective has to be for E / a tap to work (Willow during the briefing, else the beacon). */
+  private get reach(): number { return this.demo?.stage === 'briefing' ? WILLOW_REACH : TARGET_REACH; }
+
   /** "tap your phone" once a phone is connected, else the key. */
   private pressAct(): string { return this.phone?.phoneConnected ? 'tap your phone' : 'press E'; }
 
@@ -1309,9 +1326,13 @@ export class Adventure {
     }
     if (!this.encounterKind && !this.trial) {
       this.nearest = this.world.objects.filter((o) => distance(p, o) < 2.4).sort((a, b) => distance(p, a) - distance(p, b))[0];
-      this.ui.context(this.target && distance(p, this.target) < 3.2 ? this.target.name : this.nearest?.name);
+      this.ui.context(this.target && distance(p, this.target) < this.reach ? this.target.name : this.nearest?.name);
     } else this.ui.context();
-    if (this.target && !this.trial && !this.encounterKind) this.ui.quest(this.target.name, `${Math.round(distance(p, this.target))} steps away · follow the golden beacon`);
+    if (this.target && !this.trial && !this.encounterKind) {
+      // "Press" only when it would work; otherwise how far, and to what (Willow has no beacon over her).
+      const willow = this.demo?.stage === 'briefing', near = distance(p, this.target) < this.reach;
+      this.ui.quest(this.target.name, near ? `${this.pressAct()} to ${willow ? 'speak with Willow' : 'begin'}` : `${Math.round(distance(p, this.target))} steps away · ${willow ? 'walk up to Willow' : 'follow the golden beacon'}`);
+    }
     for (const shard of this.world.shards) {
       if (!shard.taken && distance(p, shard.mesh.position) < 1) {
         shard.taken = true; shard.mesh.visible = false; this.state!.stars[0]++;
