@@ -1,4 +1,4 @@
-# Reality Rift API contract (Dev 2 → Dev 1 / Dev 3)
+# Storybound API contract (Dev 2 → Dev 1 / Dev 3)
 
 Base URL (dev): `http://localhost:8000`. Frontend dev server: `http://localhost:5173`.
 Every endpoint **always returns 200 with a valid body** (`source` says `gemini` or `fallback`).

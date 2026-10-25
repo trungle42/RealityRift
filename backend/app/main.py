@@ -17,7 +17,7 @@ from .schemas import (  # noqa: E402
     GameEvent, ScoreSubmission, StoryEventResponse, StoryState,
 )
 
-app = FastAPI(title="Reality Rift API")
+app = FastAPI(title="Storybound API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),

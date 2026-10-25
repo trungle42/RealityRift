@@ -5,9 +5,9 @@ import type { InputSource } from '../contracts';
 export async function showTitle(_parent: Container, input: InputSource): Promise<void> {
   const screen = document.createElement('section');
   screen.className = 'title-screen';
-  screen.setAttribute('aria-label', 'RealityRift main menu');
+  screen.setAttribute('aria-label', 'Storybound main menu');
   screen.innerHTML = `
-    <div class="title-wordmark"><span class="small-diamond">✧</span> REALITYRIFT <span class="wordmark-line"></span></div>
+    <div class="title-wordmark"><span class="small-diamond">✧</span> STORYBOUND <span class="wordmark-line"></span></div>
     <div class="title-content">
       <div class="eyebrow">A tale waiting to be told</div>
       <h1>Reality<span>Rift</span></h1>

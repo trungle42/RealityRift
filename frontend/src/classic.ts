@@ -28,7 +28,7 @@ async function boot(): Promise<void> {
     resolution: Math.min(window.devicePixelRatio || 1, 2),
   });
   document.getElementById('app')!.appendChild(app.canvas);
-  app.canvas.setAttribute('aria-label', 'RealityRift game world');
+  app.canvas.setAttribute('aria-label', 'Storybound game world');
   app.canvas.tabIndex = 0;
   await loadFonts();
 
@@ -59,7 +59,7 @@ async function boot(): Promise<void> {
 }
 
 void boot().catch((error: unknown) => {
-  console.error('Unable to start RealityRift', error);
+  console.error('Unable to start Storybound', error);
   document.getElementById('loading')?.remove();
   const errorScreen = document.createElement('div');
   errorScreen.className = 'loading-screen';
