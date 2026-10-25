@@ -105,7 +105,7 @@ export class Actor {
       this.mixer.update(dt);
       this.model.visible = this.hurt <= 0 || Math.floor(this.hurt * 12) % 2 === 0;
       const turn = Math.atan2(Math.sin(this.heading - this.root.rotation.y), Math.cos(this.heading - this.root.rotation.y));
-      this.root.rotation.y += turn * Math.min(1, dt * 16);
+      this.root.rotation.y += turn * Math.min(1, dt * 22);
       // Lean into turns and sprints, settle when idle.
       const lean = Math.max(-0.08, Math.min(0.08, -turn * 0.18)) * Math.min(1, this.moving / 5);
       this.model.rotation.z += (lean - this.model.rotation.z) * Math.min(1, dt * 8);

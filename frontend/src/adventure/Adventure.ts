@@ -771,16 +771,11 @@ export class Adventure {
       if (this.dodge[i] > 0) { this.dodge[i] -= dt; direction.copy(this.dodgeDirection[i]); speed = 19; }
       direction.normalize();
       const velocity = this.movementVelocity[i];
-      const wanted = direction.clone().multiplyScalar(speed), current = Math.hypot(velocity.x, velocity.z);
+      const wanted = direction.clone().multiplyScalar(speed);
+      // One blend toward the input velocity: a new direction takes over within ~0.1 s with no orbit,
+      // and a reversal brakes through zero instead of flipping. No arcs, no snaps.
       if (this.dodge[i] > 0) velocity.copy(wanted);
-      else if (speed > 0 && current > 0.8) {
-        // Steer: turn the current motion toward the input at up to 16 rad/s; reversing snaps straight round.
-        const from = Math.atan2(velocity.x, velocity.z), to = Math.atan2(wanted.x, wanted.z);
-        const diff = Math.atan2(Math.sin(to - from), Math.cos(to - from)), step = dt * 16;
-        const angle = Math.abs(diff) > 2.6 ? to : from + clamp(diff, -step, step);
-        const mag = current + (speed - current) * (1 - Math.exp(-dt * 10));
-        velocity.set(Math.sin(angle) * mag, velocity.y, Math.cos(angle) * mag);
-      } else velocity.lerp(wanted, 1 - Math.exp(-dt * (speed ? 12 : 14)));
+      else velocity.lerp(wanted, 1 - Math.exp(-dt * (speed ? 22 : 16)));
       if (this.trial?.type === 'pose') velocity.set(0, 0, 0);
       // Safety net: anything that slips under the terrain is set back on top of it.
       if (p.y < heightAt(p.x, p.z) - 2.5) { p.y = Math.max(heightAt(p.x, p.z), -0.5) + 0.3; this.velocityY[i] = 0; this.fallSpeed[i] = 0; }
