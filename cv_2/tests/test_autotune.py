@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from tracker.autotune import MIN_PIXELS, SKIN_HUE, Sampler, band, centre_box, env_text, hue_edges, object_pixels, overlap, rate, separate
-from tracker.config import ColorSpec, Config, read_env_file
+from tracker.autotune import MIN_PIXELS, SKIN_HUE, Sampler, band, centre_box, env_text, hue_edges, object_pixels, overlap, rate, separate, separate_all
+from tracker.config import ColorSpec, Config, default_colors, read_env_file
 from tracker.detector import ColorDetector, to_hsv
 from tracker.track import ColorTrack
 
@@ -263,3 +263,62 @@ def test_colours_too_close_to_tell_apart_are_flagged():
 def test_the_wand_band_never_reaches_down_into_skin():
     wand, _, _ = tuned_pair(18.5, 2.0, 37, 1.0)
     assert wand["hue"][0][0] >= SKIN_HUE + 1
+
+
+# --- several players on one camera: --colors red,blue,yellow ---------------------------------
+
+def three_wands_and_tape():
+    px = {"red": spread(179.6, 1.5, seed=3) % 180, "blue": spread(109, 2.0, seed=4), "yellow": spread(22.5, 1.5, seed=1),
+          "phone": spread(36.5, 1.0, seed=2)}
+    bands = {n: band(p, default_colors()["red"].s_min if n == "red" else 0) for n, p in px.items()}
+    return separate_all(bands, {n: hue_edges(p) for n, p in px.items()}, Config().track_hue_margin)
+
+
+def test_three_wand_colours_and_the_tape_all_stay_apart_even_while_followed():
+    bands, close = three_wands_and_tape()
+    m = Config().track_hue_margin
+    assert close == []
+    assert len(bands["red"]["hue"]) == 2                                     # red still wraps around 0
+    names = list(bands)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            wide = tuple((lo - m, hi + m) for lo, hi in bands[a]["hue"])
+            assert not overlap(wide, bands[b]["hue"]), (a, b, bands[a]["hue"], bands[b]["hue"])
+    assert bands["yellow"]["hue"][0][0] >= SKIN_HUE + 1
+
+
+def test_two_wands_too_close_in_colour_are_named_in_the_warning():
+    px = {"yellow": spread(26, 1.0, seed=1), "phone": spread(29, 1.0, seed=2)}
+    _, close = separate_all({n: band(p) for n, p in px.items()}, {n: hue_edges(p) for n, p in px.items()}, 4)
+    assert close == [("yellow", "phone")]
+
+
+def test_red_keeps_its_skin_guard_lips_and_skin_are_dropped_and_s_min_stays_high():
+    ball = np.stack([np.r_[np.zeros(800, int), np.full(800, 179)], np.full(1600, 160), np.full(1600, 120)], axis=1)
+    lips = np.stack([np.full(400, 3), np.full(400, 126), np.full(400, 108)], axis=1)       # dev camera: hue 3, S 124-129
+    skin = np.stack([np.full(900, 10), np.full(900, 170), np.full(900, 170)], axis=1)        # skin in warm light: S above 150
+    patch = np.concatenate([ball, lips, skin]).reshape(-1, 1, 3)
+    kept = object_pixels(patch, red=True)
+    assert len(kept) == 1600 and set(kept[:, 0]) <= {0, 179}
+    assert len(object_pixels(patch)) > 1600                                  # the ordinary rule would let skin in
+    assert band(kept, default_colors()["red"].s_min)["s_min"] >= default_colors()["red"].s_min
+
+
+def test_tuning_some_colours_keeps_the_others_from_the_previous_file(tmp_path):
+    previous = {"YT_BLUE_HUE": "100-112", "YT_BLUE_S_MIN": "70", "YT_YELLOW_HUE": "20-25"}
+    text = env_text({"yellow": {"hue": ((19, 27),), "s_min": 90, "v_min": 90}}, keep=previous)
+    (tmp_path / "tuned.env").write_text(text, encoding="utf-8")
+    saved = read_env_file(tmp_path / "tuned.env")
+    assert saved["YT_BLUE_HUE"] == "100-112" and saved["YT_BLUE_S_MIN"] == "70" and saved["YT_YELLOW_HUE"] == "19-27"
+    assert text.count("YT_YELLOW_HUE") == 1
+
+
+def test_autotune_asks_for_each_wand_colour_in_order_then_the_tape(monkeypatch):
+    import tools.autotune as tool
+    assert [s[0] for s in tool.steps(["red", "blue", "yellow"])] == ["red", "blue", "yellow", "phone"]
+    assert tool.steps(["red"])[0][1] == "Hold the RED WAND ball in the box"
+    assert tool.labels(["red", "blue"]) == {"red": "red wand", "blue": "blue wand", "phone": "tape"}
+    assert tool.labels(["yellow"])["yellow"] == "wand"
+    monkeypatch.setattr("sys.argv", ["autotune", "--colors", "red,purple"])
+    with pytest.raises(SystemExit):
+        tool.main()

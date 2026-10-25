@@ -7,6 +7,7 @@
 #   ./scripts/demo.sh --no-tracker --no-browser       no webcam tracker / do not open the browser
 #   ./scripts/demo.sh --tune                          first tune the tracker's colours to this camera and room (no keys)
 #   ./scripts/demo.sh --tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
+#   ./scripts/demo.sh --color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh     other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -16,17 +17,32 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1 browser=1 tune=0 tunnel=0
-for arg in "$@"; do
-  case "$arg" in
+tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --no-tracker) tracker=0 ;;
     --no-browser) browser=0 ;;
     --tune) tune=1 ;;
     --tunnel) tunnel=1 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
-    *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
+    --color|--colors) [[ $# -ge 2 ]] || { echo "--color needs colours, e.g. --color red,blue" >&2; exit 2; }; colors="$2"; shift ;;
+    --color=*|--colors=*) colors="${1#*=}" ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
+  shift
 done
+# Wand colours, one per player in order (player 1's first). The tracker detects only these (YT_COLORS), and the game is told
+# the order (?wand=), so each colour drives its own hero. With more than one person in view a whole-picture jump is ambiguous,
+# so jump detection is off then.
+colors="$(printf '%s' "$colors" | tr 'A-Z' 'a-z' | tr -d ' ')"
+seen=","
+for c in ${colors//,/ }; do
+  case "$c" in red|blue|yellow) ;; *) echo "demo: --color takes red, blue and yellow (got '$c')" >&2; exit 2 ;; esac
+  [[ "$seen" == *",$c,"* ]] && { echo "demo: --color lists $c twice" >&2; exit 2; }
+  seen="$seen$c,"
+done
+[[ -n "${colors//,/}" ]] || { echo "demo: --color needs at least one colour" >&2; exit 2; }
+jump=1; [[ "$colors" == *,* ]] && jump=0
 
 api="http://localhost:$api_port"
 web="http://localhost:$web_port"
@@ -106,7 +122,7 @@ if [[ "$tune" == 1 ]]; then
   fi
   [[ -x "$repo_root/cv_2/.venv/bin/python" ]] || fail "cv_2/.venv is missing, so the colours cannot be tuned. Set it up once: cd cv_2 && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt"
   echo "Colour setup: follow the prompts in the camera window (no keys to press) ..."
-  if ! (cd "$repo_root/cv_2" && .venv/bin/python -m tools.autotune); then
+  if ! (cd "$repo_root/cv_2" && YT_COLORS="$colors" .venv/bin/python -m tools.autotune --colors "$colors"); then
     echo "demo: the colour setup did not finish; starting with the colours from before (cv_2/tuned.env if present, else the built-in ones)."
   fi
 fi
@@ -162,7 +178,7 @@ fi
 lan_ip="$(curl -fsS --max-time 2 "$api/joystick/info" 2>/dev/null | sed -n 's/.*"lan_ip": *"\([^"]*\)".*/\1/p' || true)"
 if curl -fsS --max-time 2 "$api/api/health" 2>/dev/null | grep -Eq '"gemini": ?true'; then story="Gemini storyteller"; else story="scripted story, no Gemini key loaded"; fi
 echo
-query=""; [[ "$room" != storybound ]] && query="?room=$room"
+query="?wand=$colors"; [[ "$room" != storybound ]] && query="?room=$room&wand=$colors"
 echo "  Game:            $web/$query   ($story)"
 if [[ -n "$public_url" ]]; then
   echo "  Phone joystick:  $public_url/joystick$query   (any network; or scan the QR code in the game)"
@@ -178,7 +194,8 @@ echo
 
 if [[ "$start_tracker" == 1 ]]; then
   echo "Tracker: starting; its camera picture shows in the game's wand panel (macOS asks for camera access the first time) ..."
-  (cd "$repo_root/cv_2" && exec .venv/bin/python -m tools.publish --api "$api" --room "$room") &
+  echo "         Colours: $colors (players 1-3 in that order)$([[ "$jump" == 0 ]] && echo '; jump is off with several players in view')"
+  (cd "$repo_root/cv_2" && YT_COLORS="$colors" YT_JUMP="$jump" exec .venv/bin/python -m tools.publish --api "$api" --room "$room") &
   tracker_pid=$!
 elif [[ "$tracker" == 1 ]]; then
   echo "Tracker: one is already running, leaving it alone."

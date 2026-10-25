@@ -109,7 +109,16 @@ variables still win; `YT_TUNED_ENV=0` ignores the file (the tests do) and `YT_TU
 go back to the built-in values. Under 70 % means: closer to the camera, better light, and run it again; under 50 % the new
 colours are not kept (the previous file comes back from `tuned.env.bak`, or the built-in values stay). The wand and tape bands
 are kept at least `track_hue_margin + 1` apart, so neither reaches the other's colour while it is being followed. `../scripts/demo.sh
---tune` runs it before the demo. Only the yellow wand and the tape are tuned (the solo setup); blue and red keep their values.
+--tune` runs it before the demo.
+
+**Several players on one camera:** `python -m tools.autotune --colors red,blue,yellow` (default: `YT_COLORS`, else `yellow`) asks
+for each wand colour in turn ("Hold the RED WAND ball in the box"), then the tape, and checks them all together. Every pair (wands
+and tape) is kept `track_hue_margin + 1` apart, and a pair too close to tell apart is named in a warning. Only the colours tuned
+now are rewritten in `tuned.env`; one tuned earlier keeps its values. **Red** shares hues with skin and lips, so its sampling drops
+hue 3-17 below S 200 and anything under S 130, its saturation floor never goes below the built-in `s_min` (117), its roundness
+test (`min_circ`) stays, and the prompt says to keep the ball away from your face. `../scripts/demo.sh --color red,blue,yellow`
+runs the tracker with `YT_COLORS=red,blue,yellow` (only those colours are detected) and `YT_JUMP=0` (a jump is ambiguous with
+several people in view), opens the game with `?wand=red,blue,yellow` (player 1's colour first), and `--tune` then tunes those colours.
 
 **Most control: measure your own objects by clicking.** Webcam lighting is rarely even (on the dev laptop the brightness differs 2x from one
 side of the frame to the other), so a ball gets washed out or dim toward one edge and a fixed threshold makes it flicker
