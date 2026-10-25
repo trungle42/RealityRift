@@ -40,6 +40,13 @@ def _bool(s: str) -> bool:
     return s.strip().lower() not in ("0", "false", "no", "off")
 
 
+def _jump_mode(s: str) -> str:
+    mode = s.strip().lower()
+    if mode not in ("full", "rise"):
+        raise ValueError(f"YT_JUMP_MODE must be full or rise, not {s!r}")
+    return mode
+
+
 def _hue(s: str) -> tuple[tuple[int, int], ...]:
     """'20-25' or, for a band that wraps around 0 like red, '0-6,174-179'."""
     return tuple((int(a), int(b)) for a, b in (r.split("-") for r in s.split(",")))
@@ -132,6 +139,13 @@ class Config:
     jump_min_ratio: float = 0.5
     jump_max_ratio: float = 2.0
     jump_max_sideways: float = 0.6
+    # YT_JUMP_MODE: "full" (above: up, then down, fires at the landing) or "rise" (an experiment: fires on the way up, see
+    # JumpDetector). Rise mode needs a faster peak (real jumps: median 0.79-1.21, peak ~1.9; ordinary movement 0.39-0.52), must
+    # pass within jump_rise_max_s of the rise starting (a slow stand-up does not), and re-arms after jump_refractory_s.
+    jump_mode: str = "full"
+    jump_rise_peak_speed: float = 1.0
+    jump_rise_max_s: float = 0.35
+    jump_refractory_s: float = 0.8
     # A jump drops the phone with the body and looked like a slash (live: it fired mid-jump). While the whole picture is moving
     # this much (a jump measured 0.41-0.52) and for slash_suppress_hold_s after, slashes are ignored.
     slash_suppress_area: float = 0.35
@@ -205,6 +219,7 @@ class Config:
             colors=colors,
             phone=phone,
             jump=_env("YT_JUMP", d.jump, _bool),
+            jump_mode=_jump_mode(_env("YT_JUMP_MODE", d.jump_mode)),
             min_area_frac=_env("YT_MIN_AREA", d.min_area_frac, float),
             period_s=_env("YT_PERIOD", d.period_s, float),
             mirror=_env("YT_MIRROR", d.mirror, _bool),

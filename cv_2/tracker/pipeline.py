@@ -58,7 +58,9 @@ class Pipeline:
         self.motion = BodyMotion() if cfg.jump else None
         self.jump = JumpDetector(cfg.jump_hold_s, cfg.jump_up_speed, cfg.jump_down_speed, cfg.jump_min_frames,
                                  cfg.jump_min_height, cfg.jump_min_area, cfg.jump_max_air_s, cfg.jump_max_gap_s,
-                                 cfg.jump_min_ratio, cfg.jump_max_ratio, cfg.jump_max_sideways)
+                                 cfg.jump_min_ratio, cfg.jump_max_ratio, cfg.jump_max_sideways, mode=cfg.jump_mode,
+                                 rise_peak_speed=cfg.jump_rise_peak_speed, rise_max_s=cfg.jump_rise_max_s,
+                                 refractory_s=cfg.jump_refractory_s)
         self._body_until = 0.0     # slashes are ignored until then: the whole body was moving (a jump)
         self.slash = SlashDetector(cfg.slash_window_s, cfg.slash_min_drop, cfg.slash_min_speed, cfg.slash_max_sideways,
                                    cfg.slash_down_frac, cfg.slash_gap_s, cfg.slash_hold_s, cfg.slash_min_points,

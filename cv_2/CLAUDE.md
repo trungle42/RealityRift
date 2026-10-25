@@ -153,6 +153,15 @@ a single `object` / `trace`; nothing consumed it, so it was changed without a co
   lookalike up-then-down pairs with area 0.12-0.20 and |vy| 0.39-0.52, and the first-guess thresholds (area 0.04, speed 0.4) fired
   twice on them in 30 s. Any `jump_min_area` from 0.20 to 0.40 gave 5/5 jumps and 0 false triggers at speeds 0.4-0.8; defaults are
   area 0.30 and speed 0.6, mid-gap on both sides. Same method as the slash: log the raw sensor values, replay offline.
+- **Rise mode is an experiment beside it, not a replacement** (`YT_JUMP_MODE=rise`, `demo.sh --jump rise`; default `full`). The user found
+  the landing-time jump 0.5-1 s late. Rise mode fires as soon as the UP run alone passes the same tests (min_frames at up_speed,
+  min_height, min_area 0.30, mostly vertical): on synthetic series 3 frames after take-off, vs the landing (~0.4-0.6 s later) in full
+  mode. With no fall to confirm it, it also needs a peak of `jump_rise_peak_speed`=1.0 (real jumps: median 0.79-1.21, peak ~1.9;
+  lookalikes 0.39-0.52) and must pass within `jump_rise_max_s`=0.35 s of the rise starting (a slow stand-up that only speeds up late
+  never does). It re-arms after `jump_refractory_s`=0.8 s rather than the 2 s hold, and only rises count, so the landing and a quick
+  straighten-up after it never fire twice. **The trade-off:** a fast stand-up or a hop onto tiptoe that moves 30 % of the picture at
+  1+ picture heights/s is indistinguishable from a take-off and will fire; full mode's up-then-down test rejects those. Not yet tuned on
+  a live recording: compare both modes live (the tracker prints its mode at start).
 - **A jump looked like a slash, so slashes are suppressed during whole-body motion.** Live: the landing dropped the phone from y 0.26
   to 0.89 in ~0.2 s and the slash detector fired mid-jump. `Pipeline` now passes `suppress=True` to `SlashDetector.update` while the
   motion area is >= `slash_suppress_area`=0.35 (a jump measured 0.41-0.52) and for `slash_suppress_hold_s`=0.3 s after; suppressed
