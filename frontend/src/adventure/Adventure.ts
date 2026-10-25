@@ -474,7 +474,9 @@ export class Adventure {
         p.y = Math.max(heightAt(p.x, p.z), -0.55) + this.jump[i];
       }
       if (direction.lengthSq()) hero.heading = Math.atan2(direction.x, direction.z);
-      hero.moving = dt > 0 ? Math.hypot(p.x - beforeX, p.z - beforeZ) / dt : 0; hero.body.rotation.z = this.dodge[i] > 0 ? Math.sin(this.dodge[i] / 0.27 * Math.PI) * 0.55 : 0;
+      // Rapier settling on slopes leaves ~0.3 u/s of jitter; below this dead zone a hero counts as standing still
+      // (otherwise idle heroes animate as walking and the stillness challenge can never be passed).
+      const measured = dt > 0 ? Math.hypot(p.x - beforeX, p.z - beforeZ) / dt : 0; hero.moving = measured > 0.7 ? measured : 0; hero.body.rotation.z = this.dodge[i] > 0 ? Math.sin(this.dodge[i] / 0.27 * Math.PI) * 0.55 : 0;
     }
     const p = this.heroes[0].root.position;
     if (this.fairy.visible) this.fairy.position.set(p.x + Math.sin(this.time * 2) * 0.65, p.y + 2.25 + Math.sin(this.time * 3) * 0.14, p.z + Math.cos(this.time * 2) * 0.65);

@@ -92,7 +92,12 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     });
     await check('Spells hit real enemies and history stays isolated', async () => {
       inner.trial = undefined; inner.busy = false;
-      const enemy = inner.enemies.find((e) => e.hp > 0)!; near(enemy.root.position.x, enemy.root.position.z + 4);
+      const enemy = inner.enemies.find((e) => e.hp > 0)!;
+      // Scenery blocks spells (by design), so stand where the real forest leaves a clear line of fire.
+      for (const [ox, oz] of [[0, 4], [4, 0], [-4, 0], [0, -4], [3, 3], [-3, 3], [3, -3], [-3, -3], [0, 6], [6, 0], [-6, 0], [0, -6]]) {
+        near(enemy.root.position.x + ox, enemy.root.position.z + oz); inner.update(0.02);
+        if (inner.closestEnemy(game.heroes[0].root.position, 19) === enemy) break;
+      }
       for (let i = 0; i < 4; i++) { inner.spellCooldown[0] = 0; inner.cast(0); inner.update(0.22); }
       assert(enemy.hp <= 0, 'spell projectiles did not defeat enemy');
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
