@@ -175,7 +175,8 @@ export class Actor {
       const converted = mats.map((mat: T.MeshStandardMaterial) => {
         const copy = mat.clone();
         if (companion && copy.name === 'ranger-emerald') { copy.map = null; copy.color.set(0xb29767); }
-        if (kayKitRig) copy.color.set(0xd5dfb9);
+        // Keep KayKit's authored albedo intact. Multiplying its single atlas by a
+        // pale green tint made the hood and cloak read as one neon-green blob.
         return copy;
       });
       object.material = Array.isArray(object.material) ? converted : converted[0];
