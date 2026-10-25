@@ -7,6 +7,7 @@
 #   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
 #   .\scripts\demo.ps1 -Jump rise                     the tracker fires a jump on the way up, not at the landing (experiment)
 #   .\scripts\demo.ps1 -Tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
+#   .\scripts\demo.ps1 -Domain play.storybound.tech   the same through your own domain: one link that never changes (setup: README)
 #   .\scripts\demo.ps1 -Color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   .\scripts\demo.ps1 -Color blue -Name Rishaan -Join https://<words>.trycloudflare.com -Room abcdef
 #                                                     join a teammate's game: your own backend, game, tracker and phone; your hero in theirs
@@ -20,6 +21,7 @@ param(
     [switch]$NoBrowser,
     [switch]$Tune,
     [switch]$Tunnel,
+    [string]$Domain = '',
     [string]$Room = '',
     # string[]: typed in PowerShell, -Color red,blue arrives as an array (a [string] would turn it into "red blue");
     # through powershell -File it arrives as the one string "red,blue". Both are joined and split on commas below.
@@ -32,6 +34,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Domain) { $Tunnel = [switch]$true }   # -Domain is the tunnel on your own domain
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $api = "http://localhost:$ApiPort"
 $web = "http://localhost:$WebPort"
@@ -150,6 +153,19 @@ if ($Tunnel) {
     $cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
     if (-not $cloudflared) { throw '-Tunnel needs cloudflared. Install it once: winget install --id Cloudflare.cloudflared' }
 }
+# -Domain: a named Cloudflare tunnel on your own domain instead of a random trycloudflare.com link. One-time setup (README):
+# log in, create the tunnel, point the hostname at it. Checked here so a missing step says what to run, before anything starts.
+$tunnelName = if ($env:TUNNEL_NAME) { $env:TUNNEL_NAME } else { 'storybound' }
+if ($Domain) {
+    if ($Domain -notmatch '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$') { throw '-Domain takes a hostname, e.g. play.storybound.tech' }
+    $setup = "cloudflared tunnel login   (pick your domain in the browser), then: cloudflared tunnel create $tunnelName; cloudflared tunnel route dns $tunnelName $Domain"
+    if (-not (Test-Path (Join-Path $env:USERPROFILE '.cloudflared\cert.pem'))) { throw "-Domain needs the one-time Cloudflare setup: $setup" }
+    # Windows PowerShell turns a native command's redirected stderr into errors, which 'Stop' would throw on: relax it here.
+    $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    & $cloudflared tunnel info $tunnelName *> $null; $infoCode = $LASTEXITCODE
+    $ErrorActionPreference = $eap
+    if ($infoCode -ne 0) { throw "No Cloudflare tunnel named $tunnelName yet. One-time setup: $setup" }
+}
 if ($startTracker -and -not (Test-Path $trackerPy)) {
     throw 'cv_2\.venv is missing. Set it up once (see cv_2\README.md; Windows on ARM needs the x86_64 Python), or run with -NoTracker.'
 }
@@ -205,7 +221,8 @@ try {
         if ($code -ne 403) { throw "The backend at $api does not lock down tunnel requests (it runs older code). Stop it, then run .\scripts\demo.ps1 -Tunnel again." }
         Write-Host 'Tunnel: starting cloudflared so phones can join from any network ...'
         $tunnelLog = Join-Path $logs 'tunnel.log'
-        $started['tunnel'] = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$ApiPort", '--no-autoupdate') `
+        $tunnelArgs = if ($Domain) { @('tunnel', '--no-autoupdate', 'run', '--url', "http://127.0.0.1:$ApiPort", $tunnelName) } else { @('tunnel', '--url', "http://127.0.0.1:$ApiPort", '--no-autoupdate') }
+        $started['tunnel'] = Start-Process -FilePath $cloudflared -ArgumentList $tunnelArgs `
             -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $logs 'tunnel.out.log') -RedirectStandardError $tunnelLog
         $deadline = (Get-Date).AddSeconds(40)
         while (-not $publicUrl) {
@@ -213,8 +230,12 @@ try {
             if ((Get-Date) -gt $deadline) { throw "cloudflared printed no tunnel address within 40 s. Log: $tunnelLog" }
             Start-Sleep -Milliseconds 500
             $text = (Get-Content -Raw -ErrorAction SilentlyContinue $tunnelLog) + (Get-Content -Raw -ErrorAction SilentlyContinue (Join-Path $logs 'tunnel.out.log'))
-            $match = [regex]::Match([string]$text, 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com')
-            if ($match.Success) { $publicUrl = $match.Value }
+            if ($Domain) {
+                if ([string]$text -match 'Registered tunnel connection') { $publicUrl = "https://$Domain" }
+            } else {
+                $match = [regex]::Match([string]$text, 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com')
+                if ($match.Success) { $publicUrl = $match.Value }
+            }
         }
         Set-Content -Path $publicUrlFile -Value $publicUrl -Encoding ascii
         $seen = $null

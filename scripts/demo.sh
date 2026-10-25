@@ -8,6 +8,7 @@
 #   ./scripts/demo.sh --tune                          first tune the tracker's colours to this camera and room (no keys)
 #   ./scripts/demo.sh --jump rise                     the tracker fires a jump on the way up, not at the landing (experiment)
 #   ./scripts/demo.sh --tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
+#   ./scripts/demo.sh --domain play.storybound.tech   the same through your own domain: one link that never changes (setup: README)
 #   ./scripts/demo.sh --color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   ./scripts/demo.sh --tunnel --color red --name Trung
 #                                                     host a 3-laptop game: prints the command each teammate runs to join
@@ -22,20 +23,21 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}" name="" join="" join_room="" jump_mode="${YT_JUMP_MODE:-full}"
+tracker=1 browser=1 tune=0 tunnel=0 domain="" colors="${YT_COLORS:-yellow}" name="" join="" join_room="" jump_mode="${YT_JUMP_MODE:-full}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-tracker) tracker=0 ;;
     --no-browser) browser=0 ;;
     --tune) tune=1 ;;
     --tunnel) tunnel=1 ;;
+    --domain) domain="${2:-}"; tunnel=1; shift ;;
     --color|--colors) [[ $# -ge 2 ]] || { echo "--color needs colours, e.g. --color red,blue" >&2; exit 2; }; colors="$2"; shift ;;
     --color=*|--colors=*) colors="${1#*=}" ;;
     --name) name="${2:-}"; shift ;;
     --jump) jump_mode="${2:-}"; shift ;;
     --join) join="${2:-}"; shift ;;
     --room) join_room="${2:-}"; shift ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -144,7 +146,7 @@ if [[ "$tracker" == 1 ]] && pgrep -f -- "-m tools.publish" >/dev/null 2>&1; then
   [[ "${running_room:-storybound}" == "$room" ]] \
     || fail "a tracker is already running in room ${running_room:-storybound}, but this launch uses room $room, so the game would have no camera. Stop that tracker (Ctrl-C in its terminal) and run this again, or run with --no-tracker."
 fi
-if [[ "$tunnel" == 1 ]] && pgrep -f -- "cloudflared tunnel --url http://127.0.0.1:$api_port" >/dev/null 2>&1; then
+if [[ "$tunnel" == 1 ]] && pgrep -f -- "cloudflared tunnel.*--url http://127\.0\.0\.1:$api_port" >/dev/null 2>&1; then
   fail "a tunnel to this backend is already running (another launcher's). Press Ctrl-C in that launcher first."
 fi
 printf 'pid=%s\nroom=%s\ngame=\n' "$$" "$room" >"$lock_file" && locked=1
@@ -159,6 +161,15 @@ if [[ "$tunnel" == 1 ]]; then
   cloudflared="$(command -v cloudflared || true)"
   [[ -z "$cloudflared" && -x /opt/homebrew/bin/cloudflared ]] && cloudflared=/opt/homebrew/bin/cloudflared
   [[ -n "$cloudflared" ]] || fail "--tunnel needs cloudflared. Install it once: brew install cloudflared"
+fi
+# --domain: a named Cloudflare tunnel on your own domain instead of a random trycloudflare.com link. One-time setup (README):
+# log in, create the tunnel, point the hostname at it. Checked here so a missing step says what to run, before anything starts.
+tunnel_name="${TUNNEL_NAME:-storybound}"
+if [[ -n "$domain" ]]; then
+  [[ "$domain" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || fail "--domain takes a hostname, e.g. play.storybound.tech"
+  setup="cloudflared tunnel login   (pick your domain in the browser), then: cloudflared tunnel create $tunnel_name && cloudflared tunnel route dns $tunnel_name $domain"
+  [[ -f "$HOME/.cloudflared/cert.pem" ]] || fail "--domain needs the one-time Cloudflare setup: $setup"
+  "$cloudflared" tunnel info "$tunnel_name" >/dev/null 2>&1 || fail "no Cloudflare tunnel named $tunnel_name yet. One-time setup: $setup"
 fi
 if [[ "$start_tracker" == 1 && ! -x "$repo_root/cv_2/.venv/bin/python" ]]; then
   fail "cv_2/.venv is missing. Set it up once: cd cv_2 && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt (or run with --no-tracker)"
@@ -208,15 +219,26 @@ if [[ "$tunnel" == 1 ]]; then
   [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H 'cf-ray: demo-check' "$api/api/health" || true)" == 403 ]] \
     || fail "the backend at $api does not lock down tunnel requests (it runs older code). Stop it, then run ./scripts/demo.sh --tunnel again."
   echo "Tunnel: starting cloudflared so phones can join from any network ..."
-  "$cloudflared" tunnel --url "http://127.0.0.1:$api_port" --no-autoupdate >"$logs/tunnel.log" 2>&1 &
+  if [[ -n "$domain" ]]; then
+    "$cloudflared" tunnel --no-autoupdate run --url "http://127.0.0.1:$api_port" "$tunnel_name" >"$logs/tunnel.log" 2>&1 &
+  else
+    "$cloudflared" tunnel --url "http://127.0.0.1:$api_port" --no-autoupdate >"$logs/tunnel.log" 2>&1 &
+  fi
   tunnel_pid=$!
   for _ in $(seq 1 80); do
-    public_url="$(grep -Eo 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com' "$logs/tunnel.log" | head -n 1 || true)"
+    if [[ -n "$domain" ]]; then
+      grep -q "Registered tunnel connection" "$logs/tunnel.log" 2>/dev/null && public_url="https://$domain"
+    else
+      public_url="$(grep -Eo 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com' "$logs/tunnel.log" | head -n 1 || true)"
+    fi
     [[ -n "$public_url" ]] && break
     kill -0 "$tunnel_pid" 2>/dev/null || fail "cloudflared stopped while starting. Log: $logs/tunnel.log"
     sleep 0.5
   done
   [[ -n "$public_url" ]] || fail "cloudflared printed no tunnel address within 40 s. Log: $logs/tunnel.log"
+  if [[ -n "$domain" ]] && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$public_url/joystick" || true)" != 200 ]]; then
+    echo "demo: $public_url does not answer yet (DNS for a new domain can take a while; check: cloudflared tunnel route dns $tunnel_name $domain)."
+  fi
   printf '%s\n' "$public_url" >"$public_url_file"
   if ! curl -fsS --max-time 2 "$api/joystick/info" 2>/dev/null | grep -Fq "$public_url"; then
     echo "demo: the backend at $api does not see the tunnel address (started from another folder?): the game's QR code shows"

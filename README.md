@@ -295,6 +295,21 @@ heroes in their world. The host's backend is the meeting point, reached through 
 **Host** (macOS): `./scripts/demo.sh --tunnel --color red --name Trung` (Windows: `.\scripts\demo.ps1 -Tunnel -Color red -Name Trung`).
 It prints the room code and one line per teammate, with the link and room filled in. Send each teammate their line.
 
+**A link that never changes (optional, `storybound.tech`).** `--tunnel` gets a new random `trycloudflare.com` link each launch.
+With the domain on Cloudflare (added to a free Cloudflare account, its nameservers switched at the registrar, status "Active"),
+set up a named tunnel once on the host:
+
+```bash
+cloudflared tunnel login                                   # pick storybound.tech in the browser
+cloudflared tunnel create storybound
+cloudflared tunnel route dns storybound play.storybound.tech
+```
+
+Then host with `./scripts/demo.sh --domain play.storybound.tech --color red --name Trung` (Windows: `-Domain play.storybound.tech`).
+It runs that tunnel instead of a random one, so the phone link, the QR code and the teammates' `--join https://play.storybound.tech`
+stay the same every launch; only the room code is new each time (it is still the guard). The same lockdown applies: through the
+domain only the phone page and the phone and presence sockets answer. If a step is missing, the launcher says which command to run.
+
 **Teammate on Windows, once** (about 10 minutes). Install [Git](https://git-scm.com/download/win), [Node.js 20.19+ LTS](https://nodejs.org),
 [Python 3.12](https://www.python.org/downloads/) (on an ARM laptop take the x86-64 installer) and [uv](https://docs.astral.sh/uv/)
 (`winget install astral-sh.uv`). Close and reopen PowerShell so they are on the PATH, then:
