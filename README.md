@@ -283,18 +283,20 @@ It prints the room code and one line per teammate, with the link and room filled
 
 **Teammate on Windows, once** (about 10 minutes). Install [Git](https://git-scm.com/download/win), [Node.js 20.19+ LTS](https://nodejs.org),
 [Python 3.12](https://www.python.org/downloads/) (on an ARM laptop take the x86-64 installer) and [uv](https://docs.astral.sh/uv/)
-(`winget install astral-sh.uv`), then in PowerShell:
+(`winget install astral-sh.uv`). Close and reopen PowerShell so they are on the PATH, then:
 
 ```powershell
 git clone https://github.com/trungle42/Storybound.git
 cd Storybound
-.\scripts\install-art-pack.ps1 C:\Users\you\Downloads\storybound-art-pack.zip     # the zip from Trung or Rishaan (optional)
+powershell -ExecutionPolicy Bypass -File .\scripts\install-art-pack.ps1 C:\Users\you\Downloads\storybound-art-pack.zip   # optional: the zip from Trung or Rishaan
 cd backend;  py -3 -m venv .venv;  .venv\Scripts\pip install -r requirements.txt;  cd ..
-cd frontend; npm install;  cd ..
+cd frontend; npm.cmd install;  cd ..
 cd cv_2;     uv venv --python cpython-3.12-windows-x86_64-none .venv;  uv pip install --python .venv\Scripts\python.exe -r requirements.txt;  cd ..
 ```
 
-No Gemini key is needed on a teammate's laptop (the story falls back to the scripted one).
+No Gemini key is needed on a teammate's laptop (the story falls back to the scripted one). Two Windows traps this avoids:
+running a `.ps1` directly is blocked by Windows' default script policy (hence `powershell -ExecutionPolicy Bypass -File ...`,
+which applies to that one run and changes no setting), and so is `npm`'s own `npm.ps1` (hence `npm.cmd`).
 
 **Each time**, paste the line the host sent (it looks like this):
 
@@ -303,8 +305,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\demo.ps1 -Color blue -Name Ri
 ```
 
 It starts your backend, game and tracker (your colour only) and opens your game already connected to the others (`?presence=` the
-host's link). Scan the QR code with your phone as usual. If the venue Wi-Fi blocks your phone, add `-Tunnel` (your phone then uses
-your own tunnel; the room stays the host's). macOS teammates run the same with `./scripts/demo.sh --color blue --name Rishaan --join
+host's link). Scan the QR code with your phone as usual. The first time, Windows asks whether Python may use the network: allow it
+on private networks, or the phone cannot reach your laptop. If the venue Wi-Fi blocks your phone anyway, add `-Tunnel` (your phone
+then uses your own tunnel; the room stays the host's; install it once with `winget install --id Cloudflare.cloudflared`). Paste
+the host's line as it is; if you type a link that contains `&` yourself, put it in quotes, since PowerShell treats `&` as an operator. macOS teammates run the same with `./scripts/demo.sh --color blue --name Rishaan --join
 <link> --room <code>`. `-ExecutionPolicy Bypass` applies to that one run only; it changes no setting.
 
 What crosses the internet: each hero's position, animation and health, and cosmetic spell / slash effects, through
