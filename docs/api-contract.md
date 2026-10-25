@@ -1,4 +1,4 @@
-# Reality Rift API contracts
+# Storybound API contracts
 
 Development defaults: backend `http://localhost:8000`, frontend `http://localhost:5173`.
 The service exposes two different story interfaces. The playable engine uses
