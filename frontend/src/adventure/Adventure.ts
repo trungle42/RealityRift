@@ -369,7 +369,7 @@ export class Adventure {
   private async loadModels(): Promise<void> {
     // Our own baked models ship KTX2 textures, which stay compressed in GPU memory (transcoder in public/basis).
     const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(this.renderer);
-    const loader = new GLTFLoader().setKTX2Loader(ktx2), textures = new T.TextureLoader();
+    const loader = new GLTFLoader().setKTX2Loader(ktx2);
     const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb')]).then(([asset, combat]) => { if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat.animations.filter((clip) => ['sword_idle', 'sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name))); });
     const companion = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => { this.queen = asset; if (!this.disposed) this.heroes[1].useModel(clone(asset.scene), asset.animations, false); });
     const jobs = [
@@ -378,19 +378,19 @@ export class Adventure {
       loader.loadAsync('/models/evermere-oak.glb').then((asset) => { if (!this.disposed) this.world.useTreeModel(asset.scene); }),
       loader.loadAsync('/models/evermere-moonwell.glb').then((asset) => { if (!this.disposed) this.world.useMoonwellModel(asset.scene); }),
       loader.loadAsync('/models/forest/tree.glb').then((asset) => { if (!this.disposed) this.world.useDetailedTrees(asset.scene); }),
-      Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.gltf'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.gltf')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
+      Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.glb'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.glb')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
       loader.loadAsync('/models/evermere-waystone.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/evermere-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
       Promise.all([ranger, companion, loader.loadAsync('/models/evermere-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); }); }),
       loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
-      Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => textures.loadAsync(`/models/polyhaven/${name}.jpg`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
+      Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => ktx2.loadAsync(`/models/polyhaven/${name}.ktx2`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
     ];
     let completed = 0;
     const outcomes = await Promise.allSettled(jobs.map((job) => job.finally(() => { completed++; const progress = document.querySelector<HTMLProgressElement>('#loading-progress'); if (progress) progress.value = completed / jobs.length; })));
     ktx2.dispose();
-    // Optional art packs (Asset Yard models, Poly Haven) are not in the repo: missing ones fall back to the built-in
-    // stand-in characters and materials, so a fresh clone still plays.
+    // The optional Asset Yard character pack is not in the repo: missing models fall back to the built-in
+    // stand-in characters, so a fresh clone still plays.
     const missing = outcomes.filter((outcome) => outcome.status === 'rejected').length;
     if (missing) console.warn(`${missing} optional art file(s) not found; using built-in stand-ins.`);
   }
