@@ -147,10 +147,11 @@ export class Actor {
       this.model.rotation.z += (lean - this.model.rotation.z) * Math.min(1, dt * 8);
       // Rotate around the hips, not the feet, and lower the pivot slightly as the
       // tucked body passes through the middle of the forward roll. A hard sprint pitches the body forward a touch.
-      const tumble = this.modelPivot ?? this.model;
-      const pitch = this.roll >= 0 ? this.roll * Math.PI * 2 : T.MathUtils.clamp((this.speed - 5) * 0.025, 0, 0.09);
-      tumble.rotation.x = this.roll >= 0 ? pitch : tumble.rotation.x + (pitch - tumble.rotation.x) * Math.min(1, dt * 6);
-      const dip = this.roll >= 0 ? Math.sin(this.roll * Math.PI) * 0.18 : 0;
+      // A model with its own roll clip already tumbles; spinning it as well made it flip twice.
+      const tumble = this.modelPivot ?? this.model, tumbling = this.roll >= 0 && !this.actions.has('roll');
+      const pitch = tumbling ? this.roll * Math.PI * 2 : this.roll >= 0 ? 0 : T.MathUtils.clamp((this.speed - 5) * 0.025, 0, 0.09);
+      tumble.rotation.x = tumbling || this.roll >= 0 ? pitch : tumble.rotation.x + (pitch - tumble.rotation.x) * Math.min(1, dt * 6);
+      const dip = tumbling ? Math.sin(this.roll * Math.PI) * 0.18 : 0;
       if (this.modelPivot) this.modelPivot.position.y = this.modelPivotBaseY - dip;
       else this.model.position.y = this.modelBaseY - dip;
       return;
