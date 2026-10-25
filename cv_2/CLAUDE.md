@@ -208,7 +208,17 @@ a single `object` / `trace`; nothing consumed it, so it was changed without a co
   shape stays live and disappears when the stroke opens, so the player can still redo it within the round; latching any closed shape
   would freeze a bad attempt. The latch stores a result the recogniser really produced, so it is not a prior.
 - **The detected shape does not look at the target.** The target is only the prompt; the overlay marks "OK" when they match. Using the
-  target as a prior would make the display agree with the prompt whatever was drawn.
+  target as a prior would make the display agree with the prompt whatever was drawn. (Timer mode and free draw still work this way.)
+- **Exception, game mode with a requested rune: a requested STAR is forgiven by a small margin** (`shapes.PREFER_MARGIN`,
+  `classify(prefer=target)`, used only by `Pipeline._recognise_game` when the game named a target). Live bug: "when i draw star, it can
+  and sometimes will register as triangle", and in combat the game accepts only the requested shape, so the cast did nothing. A closed
+  stroke now counts as the requested shape when that shape's distance is within the margin of the best match (and within
+  `shape_max_dist`); the live label then shows the requested shape. Measured on the seeded simulator (600 per shape): star 89.3 % -> 96.2 %
+  at 0.05 (its misses read as square 6 %, triangle 1 %, unknown 3 %; the unknowns stay unknown), with 0 % of circles and triangles and
+  0.2 % of squares accepted as a star; 0.08 would let ~5 % of circles and squares through. Circle, triangle and square are already
+  99.5-100 % and any margin lets circle and square swallow each other (60 % at 0.05), so their margin is 0: asking for them changes
+  nothing. Extra star templates (notch 0.45, a rounded pentagram, rounded outlines) were tried: at most +1.7 points of plain recall, and
+  rounded outlines made the margin unsafe (77 % of circles accepted), so the templates are unchanged.
 - **Accuracy** was measured on a seeded simulator of human drawing (vertices +-8 %, wobble, corner rounding, +-18 % stretch, any
   rotation/start/direction, overshoot to -6..+10 %): circle/triangle/square ~99-100 %, star ~88-89 % (misses are inner notches
   deep enough that it reads as a square or circle, and a heavily rounded pentagram). **It has not been tried with a real hand and

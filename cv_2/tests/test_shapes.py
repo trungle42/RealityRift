@@ -120,6 +120,53 @@ def test_hand_drawn_shapes_are_never_confused_circle_with_square_or_triangle():
     assert mix <= 3
 
 
+# --- leniency toward the requested rune (game mode: classify(prefer=target)) ----------------------
+
+def game_recognizer() -> S.ShapeRecognizer:
+    c = Config()
+    return S.ShapeRecognizer(c.shape_closure, c.shape_min_size, max_dist=c.shape_max_dist)
+
+
+def test_a_requested_star_forgives_the_sloppy_stars_that_read_as_square_or_triangle():
+    """Live bug: "when i draw star, it can and sometimes will register as triangle". On the simulator the plain reading
+    names 85-90 % of stars; asked for a star, 94-97 % (four seeds of 300). The forgiven ones are exactly the near-misses read as square or triangle."""
+    rng, rec = np.random.default_rng(2024), game_recognizer()
+    drawn = [hand_drawn("star", rng) for _ in range(300)]
+    plain = [rec.classify(p, ASPECT) for p in drawn]
+    asked = [rec.classify(p, ASPECT, prefer="star") for p in drawn]
+    rate = lambda got: sum(r is not None and r.shape == "star" for r in got) / len(got)  # noqa: E731
+    assert rate(asked) >= 0.93 and rate(asked) - rate(plain) >= 0.05, (rate(plain), rate(asked))     # this seed: 85 % -> 94 %
+    forgiven = [p.shape for p, a in zip(plain, asked) if a and a.shape == "star" and not (p and p.shape == "star")]
+    assert forgiven and set(forgiven) <= {"square", "triangle"}, forgiven
+
+
+@pytest.mark.parametrize("other", ["circle", "triangle", "square"])
+def test_another_shape_drawn_while_a_star_is_requested_does_not_count_as_a_star(other):
+    rng, rec = np.random.default_rng(5), game_recognizer()
+    assert rec.classify(loop(other), ASPECT, prefer="star").shape == other          # a clean one: never
+    got = [rec.classify(hand_drawn(other, rng), ASPECT, prefer="star") for _ in range(200)]
+    assert sum(r is not None and r.shape == "star" for r in got) <= 0.02 * len(got)  # a sloppy one: at most 2 % (simulator 0-0.2 %)
+
+
+@pytest.mark.parametrize("target", ["circle", "triangle", "square"])
+def test_only_the_star_is_forgiven_the_other_runes_read_exactly_as_before(target):
+    """Circle, triangle and square are already recognised 99.5-100 %, and any margin would let circle and square swallow
+    each other, so asking for them changes nothing."""
+    rng, rec = np.random.default_rng(9), game_recognizer()
+    for shape in S.SHAPES:
+        for _ in range(40):
+            p = hand_drawn(shape, rng)
+            assert rec.classify(p, ASPECT, prefer=target) == rec.classify(p, ASPECT)
+
+
+def test_with_no_request_there_is_no_leniency():
+    rng, rec = np.random.default_rng(3), game_recognizer()
+    for _ in range(100):
+        p = hand_drawn("star", rng)
+        assert rec.classify(p, ASPECT, prefer=None) == rec.classify(p, ASPECT)
+    assert rec.classify(loop("star")[:30], ASPECT, prefer="star") is None             # still not named until it closes
+
+
 def test_an_unfinished_stroke_is_not_named():
     assert result(loop("circle")[:55]) is None
     assert result(loop("square")[:50]) is None

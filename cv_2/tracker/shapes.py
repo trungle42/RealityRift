@@ -8,6 +8,13 @@ import numpy as np
 SHAPES = ("circle", "triangle", "square", "star")
 POINTS = 64     # samples on the resampled loop
 HARMONICS = 8   # highest Fourier harmonic compared; above this a hand-drawn line is mostly noise
+# Leniency toward the shape the game asked for (classify(prefer=...), game mode only): a closed stroke counts as the requested
+# shape when that shape is within this distance of the best match (and within max_dist). Measured on the seeded hand-drawing
+# simulator (tests/test_shapes.py hand_drawn, 600 per shape): a requested star goes from 89 % to 96 % recognised at 0.05 (its
+# misses read as square or triangle), with no circle or triangle and 0.2 % of squares accepted as a star; 0.08 would let in
+# ~5 % of circles and squares. Circle, triangle and square are already recognised 99.5-100 %, and any margin lets circle and
+# square swallow each other (60 % at 0.05), so they get none.
+PREFER_MARGIN = {"star": 0.05}
 
 
 @dataclass(frozen=True)
@@ -95,9 +102,10 @@ class ShapeRecognizer:
         self.closure, self.min_size, self.min_points, self.max_dist = closure, min_size, min_points, max_dist
         self._ref = [(name, _descriptor(t)) for name, ts in _templates().items() for t in ts]
 
-    def classify(self, points, aspect: float = 1.0) -> ShapeResult | None:
+    def classify(self, points, aspect: float = 1.0, prefer: str | None = None) -> ShapeResult | None:
         """points: the path in order, as normalised (x, y); aspect = frame width / height, so a circle drawn on a
-        4:3 frame is round here instead of 4:3 squashed."""
+        4:3 frame is round here instead of 4:3 squashed. prefer: the shape the game asked for, read as that shape when it is
+        within PREFER_MARGIN of the best match (see there); None (no request) is the plain nearest preset."""
         p = np.asarray(points, float).reshape(-1, 2) * (aspect, 1.0)
         if len(p) < self.min_points:
             return None
@@ -105,5 +113,11 @@ class ShapeRecognizer:
         if np.hypot(*np.ptp(p, axis=0)) < self.min_size or math.hypot(*(p[-1] - p[0])) > self.closure * length:
             return None
         d = _descriptor(_resample(p))
-        best_name, best = min(((n, float(np.linalg.norm(d - r))) for n, r in self._ref), key=lambda t: t[1])
+        dist: dict[str, float] = {}
+        for n, r in self._ref:
+            dist[n] = min(dist.get(n, math.inf), float(np.linalg.norm(d - r)))
+        best_name = min(dist, key=dist.__getitem__)
+        best = dist[best_name]
+        if prefer in dist and dist[prefer] <= min(best + PREFER_MARGIN.get(prefer, 0.0), self.max_dist):
+            return ShapeResult(prefer, round(dist[prefer], 3))
         return ShapeResult(best_name if best <= self.max_dist else None, round(best, 3))
