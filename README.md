@@ -194,6 +194,7 @@ Handy switches:
 | `?story=full` | The whole storyteller-driven tale: camps, freeze, vote, pose seals, riddle door, Gemini beats, storybook |
 | `?story=scripted` | Use the scripted story instead of Gemini. It only matters for the full tale, and it replaces `full`, so for an offline full run use `OFFLINE=1` on the backend or `VITE_STORY=scripted` |
 | `?players=2` | Second human player on the arrow keys |
+| `?runes=free` | Any wand shape casts its spell in combat, as before rune requests (no "Draw a …" prompt); cooldowns still apply. Handy when live tracking is weak. With the launcher: open `http://localhost:5173/?runes=free` |
 | `?room=NAME` | Phone joystick room (match it on the phone URL) |
 | `?mode=classic` | The old 2.5D campaign |
 | `VITE_API_URL=...` (env) | Point the game at a different backend (default `http://localhost:8000`) |
