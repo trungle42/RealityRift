@@ -209,7 +209,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       try {
         near(0, 34); fairyGame.onSeat(2, true);
         assert(pip.active && pip.root.visible, 'slot 2 joining did not bring Pip in');
-        const from = pip.root.position.clone(); await holdFor(0.3);
+        // Step the game here (0.3 s at 60 Hz) rather than waiting for frames, so this passes with the pane hidden.
+        const from = pip.root.position.clone(); for (let i = 0; i < 18; i++) { inner.time += 1 / 60; inner.update(1 / 60); }
         assert(pip.root.position.z < from.z - 1, 'the slot-2 stick did not fly Pip forward');
         const ground = heightAt(pip.root.position.x, pip.root.position.z);
         assert(pip.root.position.y - ground >= 1.49 && pip.root.position.y - ground <= 2.51, 'Pip left its hover band');
@@ -406,6 +407,9 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
           assert(!(plain.image instanceof HTMLCanvasElement), 'the plain companion was dyed');
           assert(crimson.flipY === plain.flipY && crimson.colorSpace === plain.colorSpace, 'the dyed map changed flipY or colour space');
           assert(mapOf(peer('1').actor.root) !== mapOf(peer('3').actor.root), 'crimson and gold share one dyed map');
+          // Dyed pixels are cached per look: the local royal hero and the remote royal one (separate loads) share one Source.
+          assert(mapOf(blue.heroes[0].root)?.source === mapOf(peer('2').actor.root)?.source, 'the royal look was dyed twice (once per load)');
+          assert(mapOf(peer('1').actor.root)?.source !== mapOf(peer('3').actor.root)?.source, 'crimson and gold share dyed pixels');
         }
       } finally { history.replaceState(null, '', url); window.WebSocket = RealSocket; delete (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE; blue.dispose(); }
     });

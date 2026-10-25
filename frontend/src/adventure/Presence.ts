@@ -2,7 +2,7 @@ import * as T from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { Actor } from './Actor';
-import { avatarFor, dressAvatar, tintStandIn, type Avatar, type AvatarModels } from './avatars';
+import { avatarFor, dressAvatar, dyeMs, predye, tintStandIn, type Avatar, type AvatarModels } from './avatars';
 import type { Fx } from './Fx';
 import { WandModel } from './WandModel';
 import { ELEMENT_COLOR, type Element } from './weapon';
@@ -127,8 +127,8 @@ export class Presence {
     this.list.className = 'presence-list';
     Object.assign(this.list.style, { position: 'absolute', top: '232px', right: '18px', padding: '6px 10px', borderRadius: '6px', background: 'var(--game-panel, #19372fd9)', color: 'var(--game-text, #faf5e1)', font: '13px Georgia, serif', pointerEvents: 'none', zIndex: '3' });
     options.hud.append(this.list); this.renderList();
-    // Dev builds only: the 3-laptop harness asserts on window.__storybound.presence (avatars, fxCount, lastFx).
-    if (import.meta.env.DEV) { const w = window as unknown as { __storybound?: Record<string, unknown> }; w.__storybound = { ...w.__storybound, presence: this }; }
+    // Dev builds only: the 3-laptop harness asserts on window.__storybound.presence (avatars, fxCount, lastFx) and dyeMs.
+    if (import.meta.env.DEV) { const w = window as unknown as { __storybound?: Record<string, unknown> }; w.__storybound = { ...w.__storybound, presence: this, dyeMs }; }
     void this.loadModels();
     this.connect();
   }
@@ -243,6 +243,7 @@ export class Presence {
       const [ranger, combat, maiden, sword] = await Promise.all(['assetyard/ashfen-ranger', 'assetyard/hollow-warden', 'assetyard/vale-shieldmaiden', 'evermere-sword'].map((name) => loader.loadAsync(`/models/${name}.glb`)));
       if (this.closed) return;
       this.models = { ranger, combat, maiden, sword }; this.peers.forEach((remote) => remote.dress(this.models!));
+      predye(this.models);   // dye the three looks now, at idle time, not when a teammate joins mid-game
     } catch { /* no art pack: remote heroes keep the built-in stand-in body */ }
   }
 }

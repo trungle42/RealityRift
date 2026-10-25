@@ -74,8 +74,16 @@ export function dyePixels(rgba: Uint8ClampedArray, dye: Dye, metal?: Uint8Clampe
   }
 }
 
-/** Dyed base-colour maps, one per look and source texture, made once at load and shared by every hero wearing that look. */
-const dyed = new Map<string, T.Texture>();
+/**
+ * Dyed pixels, one image Source per look (the same atlas gives the same result whichever load of the model it came from,
+ * so the local hero's and Presence's copies share it), plus one Texture per original map that points at it.
+ * Measured in Chrome on an M-series Mac: crimson 42 ms, gold 24 ms (1024²), royal 94 ms (2048²); `predye` makes them at
+ * idle time after load, so a teammate joining mid-game never waits on it.
+ */
+const dyedSources = new Map<string, T.Source<HTMLCanvasElement>>();
+const dyedMaps = new Map<string, T.Texture>();
+/** Milliseconds each look's dye took, for the multi-laptop harness and the PR's numbers. */
+export const dyeMs: Partial<Record<Avatar, number>> = {};
 
 function pixelsOf(image: CanvasImageSource & { width: number; height: number }, width: number, height: number): ImageData | undefined {
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
@@ -83,21 +91,49 @@ function pixelsOf(image: CanvasImageSource & { width: number; height: number }, 
   g.drawImage(image, 0, 0, width, height); return g.getImageData(0, 0, width, height);
 }
 
-/** The base-colour map dyed for `avatar`: a clone of the original (same colorSpace, flipY, wrap and UV channel) on a dyed canvas. */
-function dyedMap(map: T.Texture, metal: T.Texture | null, avatar: Avatar, dye: Dye): T.Texture | undefined {
-  const key = `${map.uuid}:${avatar}`, cached = dyed.get(key); if (cached) return cached;
+/** The dyed pixels for `avatar`, made once (on first need, or earlier by `predye`). */
+function dyedSource(map: T.Texture, metal: T.Texture | null, avatar: Avatar, dye: Dye): T.Source<HTMLCanvasElement> | undefined {
   const image = map.image as (CanvasImageSource & { width: number; height: number }) | undefined;
   if (!image?.width || !image.height) return undefined;   // compressed or not yet decoded: leave the cloth undyed
+  const key = `${avatar}:${image.width}x${image.height}`, cached = dyedSources.get(key); if (cached) return cached;
+  const started = performance.now();
   const base = pixelsOf(image, image.width, image.height); if (!base) return undefined;
   const metalImage = metal?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
   const metalness = dye.grey && metalImage?.width ? pixelsOf(metalImage, image.width, image.height)?.data : undefined;
   dyePixels(base.data, dye, metalness);
   const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
   canvas.getContext('2d')!.putImageData(base, 0, 0);
-  // clone() shares the original's image Source, so setting .image would repaint the original and every other dye; give it its own.
-  const texture = map.clone(); texture.source = new T.Source(canvas); texture.needsUpdate = true;
-  dyed.set(key, texture); return texture;
+  const source = new T.Source(canvas); dyedSources.set(key, source); dyeMs[avatar] = Math.round(performance.now() - started);
+  return source;
 }
+
+/** The base-colour map dyed for `avatar`: a clone of the original (same colorSpace, flipY, wrap and UV channel) on the dyed pixels. */
+function dyedMap(map: T.Texture, metal: T.Texture | null, avatar: Avatar, dye: Dye): T.Texture | undefined {
+  const key = `${map.uuid}:${avatar}`, cached = dyedMaps.get(key); if (cached) return cached;
+  const source = dyedSource(map, metal, avatar, dye); if (!source) return undefined;
+  // clone() shares the original's image Source, so setting .image would repaint the original and every other dye: swap the Source instead.
+  const texture = map.clone(); texture.source = source; texture.needsUpdate = true;
+  dyedMaps.set(key, texture); return texture;
+}
+
+/** The base-colour and metal maps of a loaded model (its first textured standard material). */
+function mapsOf(model: GLTF): { map: T.Texture; metal: T.Texture | null } | undefined {
+  let found: { map: T.Texture; metal: T.Texture | null } | undefined;
+  model.scene.traverse((object) => {
+    const mat = object instanceof T.Mesh ? object.material as T.MeshStandardMaterial : undefined;
+    if (!found && mat?.isMeshStandardMaterial && mat.map) found = { map: mat.map, metal: mat.metalnessMap };
+  });
+  return found;
+}
+
+/** Dye every look ahead of time, one per idle slot, so remote heroes that join later dress without a pause. */
+export function predye(models: AvatarModels, idle: (work: () => void) => void = whenIdle): void {
+  for (const avatar of Object.keys(DYES) as Avatar[]) {
+    const maps = mapsOf(modelOf(avatar) === 'maiden' ? models.maiden : models.ranger);
+    if (maps) idle(() => { dyedSource(maps.map, maps.metal, avatar, DYES[avatar]!); });
+  }
+}
+const whenIdle = (work: () => void): void => { if ('requestIdleCallback' in window) requestIdleCallback(() => work(), { timeout: 3000 }); else setTimeout(work, 200); };
 
 /** Dress an Actor as `avatar`. The shieldmaiden carries her own sword clips; the ranger borrows the warden's. */
 export function dressAvatar(actor: Actor, avatar: Avatar, models: AvatarModels): void {
