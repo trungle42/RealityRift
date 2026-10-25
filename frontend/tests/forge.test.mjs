@@ -26,6 +26,10 @@ test('yellow is hero one, blue hero two (not in solo), red never', () => {
   assert.equal(F.heroFor('red', false), undefined);
 });
 
+test('only tracker colours are wand colours', () => {
+  assert.deepEqual(['yellow', 'blue', 'red', 'green', ''].map(F.colourOf), ['yellow', 'blue', 'red', undefined, undefined]);
+});
+
 test('a completed wand reports its shape; incomplete or malformed wand state is ignored', () => {
   const wand = (over) => ({ active: true, target: 'square', complete: { yellow: true, blue: false }, shapes: { yellow: { shape: 'square', score: 0.1 }, blue: null }, ...over });
   assert.equal(F.shapeFromWand('yellow', wand()), 'square');

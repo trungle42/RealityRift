@@ -65,7 +65,7 @@ In progress (Reality Rift extras on other branches):
 <!-- TODO(after merge): flip each line below to working once feature/rift-next is on main. -->
 - **Relic card and armory:** the weapon card is framed around your own photo of the object, and every weapon you forge is kept in an armory in this browser (up to 8, never uploaded). Pick one from the scanner to equip it again. `TODO(after merge)`
 - **The story remembers your objects:** forged weapons travel in the story history, so Gemini's narration and the storybook name the real object and what it became (the scripted story adds a "Reality Rift" page). `TODO(after merge)`
-- **Wand forging and Rift Surge:** completing a circle, triangle, square or star with a wand sets the weapon's power (nova, meteor, wave, chain); completing the same shape in a fight fires a Rift Surge. Keys 4-7 (yellow wand) and 8, 9, 0, - (blue wand) stand in for the tracker; the tracker drives it once the CV link is on `main`. `TODO(after merge)`
+- **Wand forging and Rift Surge:** completing a circle, triangle, square or star with a wand sets the weapon's power (nova, meteor, wave, chain); completing the same shape in a fight fires a Rift Surge. The cv_2 tracker drives it through the CV link (a wand completing the round's target shape); keys 4-7 (yellow wand) and 8, 9, 0, - (blue wand) stand in when no tracker runs. `TODO(after merge)`
 - **Player two forges too:** the yellow wand is hero one and the blue wand hero two; whichever wand shapes the card claims the weapon, and either hero can take it. Each hero casts their own weapon. `TODO(after merge)`
 
 ### The "show me X" riddle door (working)

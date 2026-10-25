@@ -6,7 +6,7 @@ import { spellFor, type Ability, type Weapon } from './weapon';
  * scanned weapon its power, and in a fight completing a shape unleashes a Rift Surge.
  *
  * The game only sees `ShapeSource`: "this wand colour just completed this shape". The CV link feeds it from
- * the tracker's `complete` event (see `shapeFromWand`); `KeyboardShapes` is the stand-in so every step also
+ * the tracker's `complete` event (`CvInput` -> `shapeFromWand`); `KeyboardShapes` is the stand-in so every step also
  * works, and can be tested, without a camera. Pure apart from KeyboardShapes' key listener.
  */
 export type WandShape = 'circle' | 'triangle' | 'square' | 'star';
@@ -22,6 +22,7 @@ export type ShapeListener = (colour: WandColour, shape: WandShape) => void;
 export interface ShapeSource { subscribe(listener: ShapeListener): () => void; dispose(): void }
 
 const isShape = (value: unknown): value is WandShape => (WAND_SHAPES as readonly unknown[]).includes(value);
+export const colourOf = (value: string): WandColour | undefined => (['yellow', 'blue', 'red'] as const).find((c) => c === value);
 
 export function heroFor(colour: WandColour, solo: boolean): PlayerIndex | undefined {
   const hero = COLOUR_HERO[colour];

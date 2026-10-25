@@ -16,7 +16,7 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { heroFor, KeyboardShapes, reforge, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { colourOf, heroFor, KeyboardShapes, reforge, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
 import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
@@ -96,7 +96,7 @@ export class Adventure {
   private readonly wheel = document.createElement('div');
   /** Reality Rift: each hero's scanned weapon (if any), which shapes their spell. */
   private readonly weapons: (Weapon | undefined)[] = [];
-  /** Wand shapes: keys 4-7 / 8-0,- now; the CV tracker's completed shapes once that link lands. */
+  /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
   private readonly shapes: ShapeSource = new KeyboardShapes();
   private readonly strikes: Strike[] = [];
   private readonly scanner = new Scanner((weapon, hero) => this.equip(weapon, hero));
@@ -217,7 +217,7 @@ export class Adventure {
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
-    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); } });
+    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
     this.buildCamps();
     await this.loadBeat(this.story.begin(party));
   }
