@@ -190,6 +190,8 @@
 .relic-card.legendary::after, .relic-card.epic::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(115deg, transparent 35%, #ffffff30 50%, transparent 65%) 0 0 / 250% 100%; animation: relic-shine 3.2s ease-in-out infinite; }
 @keyframes relic-reveal { from { opacity: 0; transform: perspective(700px) rotateY(-70deg) scale(0.85); } }
 @keyframes relic-shine { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.rift-panel .shaped { margin: 0; font-size: 15px; color: var(--rift); letter-spacing: 0.04em; text-transform: none; }
+.rift-panel .hint { margin: 0; font-size: 14px; color: var(--game-muted); font-style: italic; }
 .rift-panel .saved { margin: 0; font-size: 13px; color: var(--game-muted); letter-spacing: 0.06em; }
 .rift-panel .armory-label { margin: 10px 0 0; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--game-muted); }
 .rift-panel .armory { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 520px; }

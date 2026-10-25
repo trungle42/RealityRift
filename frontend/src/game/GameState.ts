@@ -35,6 +35,8 @@ export class GameState {
 
   /** Reality Rift: remember a forged weapon for the storyteller (the backend accepts the last 8). */
   forge(relic: ForgedRelic): void {
+    const same = this.relics.findIndex((r) => r.hero === relic.hero && r.name === relic.name);
+    if (same >= 0) this.relics.splice(same, 1);
     this.relics.push(relic);
     if (this.relics.length > 8) this.relics.shift();
   }
