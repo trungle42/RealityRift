@@ -43,6 +43,8 @@ export class Actor {
   private readonly actions = new Map<string, T.AnimationAction>();
   private activeAction?: T.AnimationAction;
   private detailedRig = false;
+  private grip?: T.Group;
+  private readonly glowing = new Set<T.Material>();
 
   constructor(companion = false) {
     this.color = companion ? 0xdca967 : 0x4f9174;
@@ -242,7 +244,23 @@ export class Actor {
     weapon.scale.setScalar(scale / modelScale);
     weapon.position.copy(hilt).multiplyScalar(-scale / modelScale);
     const grip = new T.Group(); grip.add(weapon); grip.rotation.z = -Math.PI / 2;
-    grip.position.y = 0.04 / modelScale; hand.add(grip);
+    grip.position.y = 0.04 / modelScale; hand.add(grip); this.grip = grip;
     weapon.traverse((part) => { if (part instanceof T.Mesh) part.castShadow = true; });
+  }
+
+  /** Tint the sword with the equipped weapon's element so a scanned weapon is visible in the hand. */
+  glowWeapon(color: number | undefined): void {
+    if (!this.grip) return;
+    this.grip.traverse((part) => {
+      if (!(part instanceof T.Mesh)) return;
+      const mats = Array.isArray(part.material) ? part.material : [part.material];
+      const next = mats.map((mat: T.Material) => {
+        const copy = this.glowing.has(mat) ? mat : mat.clone(); this.glowing.add(copy);
+        const standard = copy as T.MeshStandardMaterial;
+        if (standard.emissive) { standard.emissive.set(color ?? 0x000000); standard.emissiveIntensity = color === undefined ? 0 : 1.1; }
+        return copy;
+      });
+      part.material = Array.isArray(part.material) ? next : next[0];
+    });
   }
 }
