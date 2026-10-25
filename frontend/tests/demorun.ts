@@ -23,8 +23,8 @@ interface Foe { root: T.Group; hp: number; maxHp: number; windup: number; cooldo
 interface Inner {
   demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; foes: number }; enemies: Foe[]; time: number; busy: boolean; ended: boolean; invulnerable: number;
   update(dt: number): void; resolveHits(): void; startWave(): void; hurt(defer?: boolean): void; spellCooldown: number[];
-  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number }; runesTwo: { target?: WandShape; rng: () => number };
-  seats: readonly string[]; companionFree: boolean; onSeat(slot: PlayerSlot, joined: boolean): void; onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void; closingLine(victory: boolean): string;
+  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number; next(now: number): void }; runesTwo: { target?: WandShape; rng: () => number };
+  seats: readonly string[]; companionFree: boolean; freeRunes: boolean; onSeat(slot: PlayerSlot, joined: boolean): void; onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void; closingLine(victory: boolean): string;
   state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[]; party: { name: string }[] }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
   strikes: unknown[]; bolts: unknown[]; weapons: ({ element: string } | undefined)[]; attackCooldown: number[]; encounterKind?: string;
   scanner: { open: boolean; captureFromFile(f: File): Promise<void> }; phone?: { socket?: WebSocket; read(): { mag: number } }; cv?: { socket?: WebSocket };
@@ -125,6 +125,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
    */
   const fightMorwen = async (limit = 150, sword = false) => {
     const witch = boss()!; const open = () => witch.windup <= 0 && witch.cooldown > 0;
+    // The same rune order for every timed fight, whatever the checks before it drew.
+    let seed = 4242; inner.runes.rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647; inner.runes.next(inner.time);
     await run(limit, () => {
       if (!boss()) return true;
       if (dist(witch) > 2.2) stickToward(witch); else stick(0, 0);
@@ -172,6 +174,39 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(!missed.length, `requested spells that never reached a shadow: ${missed.join(', ')}`);
     });
 
+    await check('While the wand recovers the tracker stops tracing: a shape drawn then does not cast, and the gate comes back on', async () => {
+      const cv = inner.cv as unknown as { wanted: { on: boolean; target: string | null }; sendGate(): void };
+      const sent: string[] = [], realSend = cv.sendGate.bind(cv);
+      cv.sendGate = () => { sent.push(`${cv.wanted.on}:${cv.wanted.target}`); realSend(); };
+      try {
+        await run(8, () => castable(wave()));
+        const first = asked();
+        assert(cv.wanted.on && cv.wanted.target === first, `the tracker is not asked for ${first} while the wand is ready (${JSON.stringify(cv.wanted)})`);
+        draw(first); await run(0.05);
+        assert(!cv.wanted.on, 'the tracker kept tracing while the wand recovers');
+        const next = asked(), quiet = { bolts: inner.bolts.length, strikes: inner.strikes.length, hits: hits.length };
+        draw(next); await run(0.3);   // drawn anyway (a real tracker would not even complete it now)
+        assert(inner.bolts.length === quiet.bolts && inner.strikes.length === quiet.strikes && hits.length === quiet.hits && asked() === next, 'a shape drawn during the recovery cast');
+        await run(4, () => inner.wandCooldowns.ready(0, next, inner.time));
+        await run(0.05);
+        assert(cv.wanted.on && cv.wanted.target === next, `the tracker did not come back on for ${next} (${JSON.stringify(cv.wanted)})`);
+        assert(sent.length <= 3, `the gate was sent ${sent.length} times for one off/on cycle: ${sent.join(', ')}`);
+      } finally { cv.sendGate = realSend; }
+    });
+
+    await check('?runes=free: any shape casts in combat (no request, no prompt), and the wand recovery still holds', async () => {
+      inner.freeRunes = true;
+      try {
+        await run(0.05);
+        assert(!inner.runes.target && document.querySelector('.rune-request')?.hasAttribute('hidden'), 'a rune was still requested with ?runes=free');
+        await run(4, () => inner.wandCooldowns.ready(0, 'star', inner.time) && inner.wandCooldowns.ready(0, 'square', inner.time));
+        const before = inner.bolts.length; draw('star');
+        assert(inner.bolts.length === before + 1, 'with ?runes=free a star did not cast');
+        draw('square');
+        assert(inner.bolts.length === before + 1, 'the wand recovery did not hold the next shape');
+      } finally { inner.freeRunes = false; }
+    });
+
     await check('A phone slash swings the sword and kills a shadow', async () => {
       await run(8, () => wave().some((e) => dist(e) < 2.4));
       const foe = wave().sort((a, b) => dist(a) - dist(b))[0]; assert(foe && dist(foe) < 2.6, 'no shadow came within sword reach');
@@ -203,8 +238,9 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         // Alive again: shadows move, wind up or tick their attack cooldown (one standing in melee range only does the last two).
         const foes = wave(), before = foes.map((e) => ({ p: e.root.position.clone(), w: e.windup, c: e.cooldown })); await run(0.6);
         assert(foes.some((e, i) => e.hp <= 0 || e.root.position.distanceTo(before[i].p) > 0.05 || e.windup !== before[i].w || e.cooldown !== before[i].c), 'the wave did not resume after the scan');
-        await run(8, () => castable(wave()));
-        const from = hits.length; draw(asked()); await run(1.3);
+        // A meteor or wave can miss a moving shadow; a couple of tries, as a player would.
+        const from = hits.length;
+        for (let i = 0; i < 3 && !hits.slice(from).some((h) => h.element === 'fire' && h.taken > 0); i++) { await run(8, () => castable(wave())); draw(asked()); await run(1.3); }
         assert(hits.slice(from).some((h) => h.element === 'fire' && h.taken > 0), 'a wand spell after the scan did not burn with fire');
       } finally { window.fetch = realFetch; localStorage.removeItem('storybound.armory.v1'); }
     });

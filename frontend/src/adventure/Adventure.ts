@@ -17,7 +17,7 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { colourOf, KeyboardShapes, RuneCaller, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, wandSeats, wandSlot, type ShapeSource, type WandColour, type WandSeats, type WandShape } from './forge';
+import { colourOf, KeyboardShapes, RuneCaller, WAND_SHAPES, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, wandSeats, wandSlot, type ShapeSource, type WandColour, type WandSeats, type WandShape } from './forge';
 import { listenPlayers, stickOf, type PhoneButton, type PlayerSlot } from './players';
 import { WandModel } from './WandModel';
 import { WeaponsHud } from './WeaponsHud';
@@ -134,6 +134,8 @@ export class Adventure {
   /** In combat the game asks each playing hero for one rune at a time; only that shape casts. */
   private readonly runes = new RuneCaller();
   private readonly runesTwo = new RuneCaller();
+  /** `?runes=free`: any shape casts in combat, as before rune requests (no prompt, no "Not that rune"); cooldowns still apply. */
+  private freeRunes = new URLSearchParams(location.search).get('runes') === 'free';
   /** Hero two gets its own rune requests while a person plays it (phone or `?players=2`). */
   private get twoAsks(): boolean { return !this.solo && (this.seated || this.duo); }
   private readonly hud = new WeaponsHud();
@@ -951,15 +953,26 @@ export class Adventure {
   private updateRunes(): void {
     if (this.trial) return;
     if (!this.encounterKind || this.ended) { this.endRunes(); return; }
-    const rune = this.runes.update(this.time);
-    this.hud.rune(rune, this.wandCooldowns.left(0, rune, this.time));
+    if (this.freeRunes) {
+      // No requests: any shape casts. The tracker still stops tracing while every playing wand is recovering.
+      this.endRunes();
+      const recovering = (hero: PlayerIndex) => WAND_SHAPES.every((shape) => !this.wandCooldowns.ready(hero, shape, this.time));
+      this.cv?.gate(!(recovering(0) && (!this.twoAsks || recovering(1))));
+      return;
+    }
+    const rune = this.runes.update(this.time), wait = this.wandCooldowns.left(0, rune, this.time);
+    this.hud.rune(rune, wait);
+    // While the wand recovers the tracker stops tracing (gate off clears the stroke), so a shape drawn during the cooldown
+    // cannot half-complete and the wand panel shows no trail. The gate is one switch for the whole camera, so with two
+    // players it goes off only while both are recovering; otherwise a recovering player's shapes are simply not cast
+    // (onShape's cooldown check) and their prompt counts down. CvInput.gate sends only changes.
     if (this.twoAsks) {
       // Two different requests: the tracker completes any shape and each hero's own request decides what casts.
-      const two = this.runesTwo.update(this.time);
-      this.cv?.gate(true); this.hud.rune(two, this.wandCooldowns.left(1, two, this.time), 1);
+      const two = this.runesTwo.update(this.time), waitTwo = this.wandCooldowns.left(1, two, this.time);
+      this.cv?.gate(wait <= 0 || waitTwo <= 0); this.hud.rune(two, waitTwo, 1);
     } else {
       if (this.runesTwo.target) { this.runesTwo.clear(); this.hud.rune(undefined, 0, 1); }
-      this.cv?.gate(true, rune);
+      if (wait > 0) this.cv?.gate(false); else this.cv?.gate(true, rune);
     }
   }
 
