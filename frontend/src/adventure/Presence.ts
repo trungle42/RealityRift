@@ -107,6 +107,9 @@ export class Presence {
   private joined = 0;
   private models?: HeroModels;
   private readonly ghosts: Ghost[] = [];
+  /** Remote effects played so far, per kind, and the latest one (for the multi-laptop test harness). */
+  readonly fxCount = { cast: 0, slash: 0 };
+  lastFx?: FxEvent & { id: string };
   private readonly list = document.createElement('div');
 
   /** A Presence if this page asks for one, else undefined (normal single-laptop play). */
@@ -119,8 +122,15 @@ export class Presence {
     this.list.className = 'presence-list';
     Object.assign(this.list.style, { position: 'absolute', top: '232px', right: '18px', padding: '6px 10px', borderRadius: '6px', background: 'var(--game-panel, #19372fd9)', color: 'var(--game-text, #faf5e1)', font: '13px Georgia, serif', pointerEvents: 'none', zIndex: '3' });
     options.hud.append(this.list); this.renderList();
+    // Dev builds only: the 3-laptop harness asserts on window.__storybound.presence (avatars, fxCount, lastFx).
+    if (import.meta.env.DEV) { const w = window as unknown as { __storybound?: Record<string, unknown> }; w.__storybound = { ...w.__storybound, presence: this }; }
     void this.loadModels();
     this.connect();
+  }
+
+  /** Every remote player's hero by relay id: their name, wand colour and the root drawn in the world. */
+  get avatars(): Map<string, { name: string; colour: string; root: T.Object3D }> {
+    return new Map([...this.peers].map(([id, remote]) => [id, { name: remote.peer.name, colour: remote.peer.colour, root: remote.actor.root }]));
   }
 
   /** Is this laptop the room's host? (The first to join; step 2 will let only the host spawn and simulate enemies.) */
@@ -152,6 +162,7 @@ export class Presence {
   dispose(): void {
     this.closed = true; clearTimeout(this.timer); this.socket?.close();
     this.peers.forEach((remote) => remote.dispose()); this.peers.clear(); this.list.remove();
+    const w = window as unknown as { __storybound?: { presence?: unknown } }; if (w.__storybound?.presence === this) delete w.__storybound.presence;
   }
 
   /** One relay message (public so a test can feed it without a socket). */
@@ -178,7 +189,7 @@ export class Presence {
   private play(remote: RemoteHero, fx: FxEvent): void {
     const { fx: effects } = this.options, at = new T.Vector3(fx.x, fx.y, fx.z), dir = new T.Vector3(fx.dx, 0, fx.dz);
     const color = fx.element && fx.element in ELEMENT_COLOR ? ELEMENT_COLOR[fx.element as Element] : remote.color, heading = Math.atan2(fx.dx, fx.dz);
-    remote.oneShot(fx.kind);
+    remote.oneShot(fx.kind); this.fxCount[fx.kind]++; this.lastFx = { ...fx, id: remote.peer.id };
     if (fx.kind === 'slash') { effects.slash(at.clone().add(new T.Vector3(0, 1.1, 0)), heading, color); return; }
     const hand = at.clone().add(new T.Vector3(0, 1.25, 0));
     effects.motes(hand, color, 12, 0.35, 1.2, 0.26, 0.5); effects.flash(hand, color, 9, 0.2);
