@@ -14,13 +14,18 @@ Open `http://localhost:5173/?story=scripted` for fully local play. The default s
 
 ## Play
 
-WASD moves the ranger relative to the camera. Click the world to capture the mouse for mouse-look (left click strikes, Esc frees the mouse); without the mouse captured, drag the world to orbit the camera. The wheel zooms, and C/V also rotate it. Shift sprints, Space jumps, E interacts, J strikes with the sword, F casts, and M opens the map and journal (Esc does too when the mouse is free).
+WASD moves the ranger relative to the camera. Click the world to capture the mouse for mouse-look (left click strikes, Esc frees the mouse); without the mouse captured, drag the world to orbit the camera. The wheel zooms, and C/V also rotate it. Shift sprints, Space jumps, E interacts, J (or a left click) strikes with the sword, F casts a plain bolt, and M opens the map and journal (Esc does too when the mouse is free).
 
 - **Q rolls:** about 4.5 m, 1 s of invulnerability from the start, 4 s cooldown.
 - **R flash-steps:** a short dash that costs stamina, with a 6 s cooldown. Dodging at the last moment of an enemy attack slows time for a flurry rush.
 - **Z or Tab** (or right click) locks on to the nearest foe and releases it again.
-- **X scans an object** (Reality Rift, also the Scan button): hold a real object to the webcam and the backend turns it into your spell. See the main [README](../README.md).
+- **4 5 6 7 draw wand shapes** for hero one: circle casts a nova, triangle a meteor, square a wave, star a chain. This is the keyboard stand-in for drawing the shape in the air with a coloured wand in front of the camera tracker. **8 9 0 -** do the same for hero two (`?players=2` only). Each shape has its own cooldown (1.6-3 s), and a shape drawn during a freeze or pose challenge does not cast.
+- **X scans an object** (Reality Rift, also the Scan button): hold a real object to the webcam and the backend turns it into a relic that infuses both weapons with its element. See the main [README](../README.md).
 - **H** shows the URL for the phone joystick; the backend must run with `--host 0.0.0.0` for a phone to reach it.
+
+Each hero has two weapons: the sword (J, click, or a camera-tracked phone slash) and a wand (a drawn shape, or F for a plain bolt). A row at the bottom of the screen shows both and the relic they hold. A relic's element decides the colour of the spells and the sword and the boss multipliers (x2 against the element a boss fears, x0.5 against the one it resists), for slashes as well as spells. The sword and wand models in the hero's hands come with the private art pack.
+
+With the cv_2 tracker running (`python -m tools.publish`), the camera also drives the game: a phone slash strikes, a real jump leaps, moving in front of the camera breaks the freeze spell, and a pose seal opens when you draw its rune with a wand (triangle for arms up, square for the T-pose, circle for the crouch). A small wand panel at the bottom left shows the tracker's view while it is connected. Setup is in the main README.
 
 The default is solo play: one hero, and the companion follows and casts automatically. Add `?players=2` for a second human: arrow keys move that player, `/` casts and Right Shift rolls. In solo play the arrow keys also move your hero, and `/` and Right Shift cast and roll for you.
 
@@ -40,7 +45,7 @@ It exports rigged ranger and spellweaver models, named animation clips, carved r
 
 - `npm test`: existing campaign/rules tests plus 3D collision, camera obstruction, terrain, actual landmark reachability, and embedded GLB skeleton/animation checks.
 - `npm run build`: strict TypeScript check and production bundle for both editions.
-- `/tests/adventure.html?story=scripted`: rendered 3D input, rewards, dialogue, story transitions, choices, pose seals, spells, boss ward, solo defense, and ending checks.
+- `/tests/adventure.html?story=scripted`: 15 rendered checks covering 3D input, rewards, dialogue, story transitions, choices, pose seals, the scanner and the riddle door, the two weapons (shape spells, cooldowns, relic infusion), spells, boss ward, solo defense, and ending checks.
 - `/tests/campaign.html` and `/tests/playthrough.html`: Rishaan's original rendered regression harnesses.
 
-The development harnesses are excluded from the production bundle. Live Gemini and body/phone tracking are outside this offline validation pass.
+The development harnesses are excluded from the production bundle. Live Gemini and a live webcam are outside this offline validation pass; the camera link is tested with synthetic tracker frames, not yet with a live webcam.
