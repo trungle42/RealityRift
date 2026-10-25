@@ -1,6 +1,6 @@
 # Devpost draft: Storybound
 
-Draft text for the HackTX 2026 Devpost page. Edit it into the team's own voice before pasting. Everything below describes what is on `main`, except lines marked `TODO(after merge)`: those cover work that is not on `main` yet (per-player avatar skins, the phone link on `play.storybound.tech`). Flip or delete them when it lands, and cut anything that did not make it.
+Draft text for the HackTX 2026 Devpost page. Edit it into the team's own voice before pasting. Everything below describes what is on `main`.
 
 Before submitting: add the demo video link, tick the prizes you are entering on Devpost (see "Prize tracks" for the ones that need a condition met first), and make sure the GitHub repo is public.
 
@@ -76,7 +76,6 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 - Aim spells by pointing the wand, not just by drawing it.
 - Test the camera link with more people, cameras and lighting, and tune the shape and slash thresholds on real hands.
 - Our own models for the whole world, so every asset is ours (and the hero's sword and wand show without the private art pack).
-- Per-player avatar skins, so the other laptops' heroes look as different as their players. `TODO(after merge)`: remove this tag when it lands.
 - A hosted version, so a judge can play without cloning the repo.
 - More bosses and more elements, so more kinds of objects matter.
 
@@ -91,7 +90,6 @@ The first three rows come from the HackTX prize list the team saw; check the exa
 | Track | Why it fits |
 |---|---|
 | **MLH Best Use of Gemini API** (main target) | Gemini writes every story beat and the storybook (structured output, with a scripted fallback for each beat), turns a photo into a relic through `/api/artifact`, and judges the riddle-door photo through `/api/verify`. **Tick this prize on Devpost.** |
-| **MLH Best Domain Name from .Tech** | **storybound.tech** is registered, through HackTX's free MLH .Tech offer (the registration is still being completed). Check on the Devpost prize page what the domain must point at (we had noted the Devpost page, the video or the repo) and point it there. The game's phone link is planned to run on `play.storybound.tech`: `TODO(after merge)`, it depends on PR #51 and the Cloudflare setup, so claim it only once it works. |
 | **Cursor track** | Only if true: enter it only if teammates really built parts of the project with Cursor and can say which. Describe exactly what was built with it, and claim nothing more. `TODO(if true)`: write that sentence here, or delete this row. |
 | Best overall (guess) | One complete game, from start screen to personalised storybook, with the phone, camera and AI all working together. |
 | Best game or most creative hack (guess) | A 3D adventure where your real objects become spells. |
@@ -101,5 +99,4 @@ The first three rows come from the HackTX prize list the team saw; check the exa
 
 - Code: https://github.com/trungle42/Storybound
 - Demo video: _add the link_
-- Domain: storybound.tech (registered through MLH's .Tech offer)
 - Try it: no hosted version yet; follow the README, "Setup from a fresh clone".
