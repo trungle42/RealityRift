@@ -29,6 +29,8 @@ import type { PhoneCommand } from './phoneMath';
 import { CvInput } from './CvInput';
 import { Fairy } from './Fairy';
 import { Presence } from './Presence';
+import { avatarFor, dressAvatar, GOLD, localColour, modelOf, tintStandIn } from './avatars';
+import { peerColor } from './presenceMath';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
 import { Cinematics } from './Cinematics';
@@ -412,10 +414,17 @@ export class Adventure {
     // Our own baked models ship KTX2 textures, which stay compressed in GPU memory (transcoder in public/basis).
     const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(this.renderer);
     const loader = new GLTFLoader().setKTX2Loader(ktx2);
-    const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb')]).then(([asset, combat]) => { if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat.animations.filter((clip) => ['sword_idle', 'sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name))); });
-    const companion = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => { this.queen = asset; if (!this.disposed) this.heroes[1].useModel(clone(asset.scene), asset.animations, false); });
+    // Each player's look follows their wand colour (avatars.ts): crimson ranger, royal-blue shieldmaiden, ochre-gold ranger.
+    // The companion / hero two takes the other model, so the two heroes never look alike.
+    const colour = localColour(location.search), look = avatarFor(colour);
+    if (colour) tintStandIn(this.heroes[0], peerColor(colour));
+    const shieldmaiden = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => (this.queen = asset));   // also the frost witch
+    const heroes = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb'), shieldmaiden]).then(([ranger, combat, maiden]) => {
+      if (this.disposed) return;
+      dressAvatar(this.heroes[0], look, { ranger, combat, maiden }); dressAvatar(this.heroes[1], modelOf(look) === 'maiden' ? 'ranger' : 'maiden', { ranger, combat, maiden });
+    });
     const jobs = [
-      ranger, companion,
+      heroes,
       loader.loadAsync('/models/evermere-arch.glb').then((asset) => { if (!this.disposed) this.world.useArchModel(asset.scene); }),
       loader.loadAsync('/models/evermere-oak.glb').then((asset) => { if (!this.disposed) this.world.useTreeModel(asset.scene); }),
       loader.loadAsync('/models/evermere-moonwell.glb').then((asset) => { if (!this.disposed) this.world.useMoonwellModel(asset.scene); }),
@@ -423,7 +432,7 @@ export class Adventure {
       Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.glb'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.glb')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
       loader.loadAsync('/models/evermere-waystone.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/evermere-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
-      Promise.all([ranger, companion, loader.loadAsync('/models/evermere-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); }); }),
+      Promise.all([heroes, loader.loadAsync('/models/evermere-sword.glb')]).then(([, asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); if (i === 0 && look === 'gold') hero.glowWeapon(GOLD); }); }),
       loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => ktx2.loadAsync(`/models/polyhaven/${name}.ktx2`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),

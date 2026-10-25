@@ -1,17 +1,16 @@
 import * as T from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
-import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { Actor } from './Actor';
+import { avatarFor, dressAvatar, tintStandIn, type Avatar, type AvatarModels } from './avatars';
 import type { Fx } from './Fx';
 import { WandModel } from './WandModel';
 import { ELEMENT_COLOR, type Element } from './weapon';
 import { animOf, parsePresence, peerColor, presenceConfig, SEND_RATE, SnapshotBuffer, wrapAngle, type Anim, type FxEvent, type HeroState, type LocalHero, type Peer } from './presenceMath';
 
 const ROLL_LENGTH = 0.55;
-const COMBAT_CLIPS = ['sword_idle', 'sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'];
 
-interface HeroModels { ranger: GLTF; combat: GLTF; maiden: GLTF; sword: GLTF }
+interface HeroModels extends AvatarModels { sword: GLTF }
 
 /**
  * Another player's hero, drawn from their laptop's state: purely visual (no physics body, cannot be hit, never blocks
@@ -29,9 +28,13 @@ export class RemoteHero {
   private rollFrom = -1;
   private placed = false;
 
-  constructor(readonly peer: Peer, scene: T.Scene, private readonly maiden: boolean) {
+  /** Their look, from their wand colour: red ranger, blue shieldmaiden, yellow gold ranger (avatars.ts). */
+  readonly avatar: Avatar;
+
+  constructor(readonly peer: Peer, scene: T.Scene) {
     this.color = peerColor(peer.colour);
-    this.actor = new Actor(maiden);
+    this.avatar = avatarFor(peer.colour);
+    this.actor = new Actor(this.avatar === 'maiden'); tintStandIn(this.actor, this.color);
     this.wand.setColor(this.color);
     this.tag = nameTag(peer.name, this.color); this.tag.position.y = 2.45; this.actor.root.add(this.tag);
     this.ring = new T.Mesh(new T.RingGeometry(0.48, 0.6, 32), new T.MeshBasicMaterial({ color: this.color, transparent: true, opacity: 0.6, depthWrite: false, side: T.DoubleSide }));
@@ -41,10 +44,8 @@ export class RemoteHero {
 
   /** Swap the stand-in body for the real hero model once it has loaded. */
   dress(models: HeroModels): void {
-    if (this.maiden) this.actor.useModel(clone(models.maiden.scene), models.maiden.animations, false);
-    else this.actor.useModel(clone(models.ranger.scene), models.ranger.animations, false, models.combat.animations.filter((clip) => COMBAT_CLIPS.includes(clip.name)));
+    dressAvatar(this.actor, this.avatar, models);
     this.actor.holdWeapon(models.sword.scene); this.actor.holdWand(this.wand.root); this.actor.glowWeapon(this.color);
-    tintCloth(this.actor.root, this.color);
   }
 
   push(state: HeroState, now: number): void { this.buffer.push(state, now); }
@@ -109,7 +110,6 @@ export class Presence {
    * so in a throttled or background tab a summed clock falls behind and remote heroes would freeze in the past.
    */
   private readonly clock = (): number => performance.now() / 1000;
-  private joined = 0;
   private models?: HeroModels;
   private readonly ghosts: Ghost[] = [];
   /** Remote effects played so far, per kind, and the latest one (for the multi-laptop test harness). */
@@ -182,7 +182,7 @@ export class Presence {
 
   private add(peer: Peer): void {
     if (this.peers.has(peer.id)) return;
-    const remote = new RemoteHero(peer, this.options.scene, this.joined++ % 2 === 0);
+    const remote = new RemoteHero(peer, this.options.scene);
     if (this.models) remote.dress(this.models);
     this.peers.set(peer.id, remote);
   }
@@ -240,7 +240,7 @@ export class Presence {
   private async loadModels(): Promise<void> {
     try {
       const loader = new GLTFLoader().setKTX2Loader(new KTX2Loader().setTranscoderPath('/basis/').detectSupport(this.options.renderer));
-      const [ranger, combat, maiden, sword] = await Promise.all(['ashfen-ranger', 'hollow-warden', 'vale-shieldmaiden', 'arming-sword'].map((name) => loader.loadAsync(`/models/assetyard/${name}.glb`)));
+      const [ranger, combat, maiden, sword] = await Promise.all(['assetyard/ashfen-ranger', 'assetyard/hollow-warden', 'assetyard/vale-shieldmaiden', 'evermere-sword'].map((name) => loader.loadAsync(`/models/${name}.glb`)));
       if (this.closed) return;
       this.models = { ranger, combat, maiden, sword }; this.peers.forEach((remote) => remote.dress(this.models!));
     } catch { /* no art pack: remote heroes keep the built-in stand-in body */ }
@@ -261,18 +261,4 @@ function nameTag(name: string, color: number): T.Sprite {
   const sprite = new T.Sprite(new T.SpriteMaterial({ map: new T.CanvasTexture(canvas), depthWrite: false, transparent: true }));
   sprite.scale.set(1.6, 0.4, 1); sprite.renderOrder = 10;
   return sprite;
-}
-
-/** Tint the cloak / cape / hood materials (by name) toward the player's colour; models without such names keep theirs. */
-function tintCloth(root: T.Object3D, color: number): void {
-  const tint = new T.Color(color);
-  root.traverse((o) => {
-    if (!(o instanceof T.Mesh)) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    o.material = mats.map((mat: T.Material) => {
-      if (!/cloak|cape|hood|scarf|tabard|trim/i.test(`${o.name} ${mat.name}`) || !('color' in mat)) return mat;
-      const copy = mat.clone() as T.MeshStandardMaterial; copy.color.lerp(tint, 0.6); return copy;
-    });
-    if (mats.length === 1) o.material = (o.material as T.Material[])[0];
-  });
 }
