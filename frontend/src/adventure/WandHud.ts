@@ -3,6 +3,8 @@ import { completedShape, newlyComplete, wandPrompt } from './cvMath';
 
 const COLOURS: Record<string, string> = { yellow: '#ffd54a', blue: '#62b0ff', red: '#ff6b6b' };
 const WIDTH = 208, HEIGHT = 156;   // a 4:3 window onto the camera picture, mirrored like a selfie (the tracker mirrors x)
+/** Above the weapons HUD (bottom centre, its top ~182 px up), so the two never overlap however narrow the window is. */
+const BOTTOM = 196;
 const FLASH_SECONDS = 1.2;
 
 /**
@@ -21,7 +23,7 @@ export class WandHud {
 
   constructor(private readonly cv: CvInput, parent: HTMLElement) {
     Object.assign(this.root.style, {
-      position: 'fixed', left: '16px', bottom: '72px', width: `${WIDTH}px`, padding: '8px', display: 'none', pointerEvents: 'none',
+      position: 'fixed', left: '16px', bottom: `${BOTTOM}px`, width: `${WIDTH}px`, padding: '8px', display: 'none', pointerEvents: 'none',
       background: 'var(--game-panel, #19372ff2)', border: '1px solid var(--game-line, #c5d3bd55)', borderRadius: '4px',
       color: 'var(--game-text, #faf5e1)', font: '13px Georgia, serif', zIndex: '15',
     });
