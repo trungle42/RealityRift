@@ -10,7 +10,7 @@ import type { GameState } from '../src/game/GameState';
 (window as unknown as { RIFT_PLAYERS: number }).RIFT_PLAYERS = 2;
 
 interface Internals {
-  state: GameState; beat: StoryBeat; busy: boolean; ended: boolean; yaw: number; stamina: number;
+  state: GameState; beat: StoryBeat; busy: boolean; ended: boolean; yaw: number; stamina: number; time: number;
   trial?: { elapsed: number }; target?: { x: number; z: number }; invulnerable: number;
   enemies: { root: T.Group; hp: number; windup: number; cooldown: number; encounter: boolean; boss?: unknown; attack: string }[];
   narrator: { enabled: boolean }; sound: boolean;
@@ -50,7 +50,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await start;
     inner.narrator.enabled = false; inner.sound = false;
     await check('Keyboard movement changes world position; camera follows', async () => {
-      const before = game.heroes[0].root.position.clone(); key('KeyW'); await wait(220); key('KeyW', false);
+      // Hold for game time, not wall time, so a throttled background page still gets enough frames.
+      const before = game.heroes[0].root.position.clone(), from = inner.time; key('KeyW'); await until(() => inner.time - from > 0.22, 'game clock stalled'); key('KeyW', false);
       assert(game.heroes[0].root.position.distanceTo(before) > 0.4, 'hero did not walk');
       assert(game.camera.position.distanceTo(game.heroes[0].root.position) < 20, 'camera lost the hero');
     });

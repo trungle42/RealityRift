@@ -771,11 +771,11 @@ export class Adventure {
       if (this.dodge[i] > 0) { this.dodge[i] -= dt; direction.copy(this.dodgeDirection[i]); speed = 19; }
       direction.normalize();
       const velocity = this.movementVelocity[i];
-      const wanted = direction.clone().multiplyScalar(speed);
-      // One blend toward the input velocity: a new direction takes over within ~0.1 s with no orbit,
-      // and a reversal brakes through zero instead of flipping. No arcs, no snaps.
-      if (this.dodge[i] > 0) velocity.copy(wanted);
-      else velocity.lerp(wanted, 1 - Math.exp(-dt * (speed ? 22 : 16)));
+      // Direction follows the input immediately (no turning arc); only the speed ramps briefly.
+      const current = Math.hypot(velocity.x, velocity.z);
+      if (this.dodge[i] > 0) velocity.copy(direction).multiplyScalar(speed);
+      else if (speed > 0) velocity.copy(direction).multiplyScalar(current + (speed - current) * (1 - Math.exp(-dt * 20)));
+      else velocity.multiplyScalar(Math.exp(-dt * 20));
       if (this.trial?.type === 'pose') velocity.set(0, 0, 0);
       // Safety net: anything that slips under the terrain is set back on top of it.
       if (p.y < heightAt(p.x, p.z) - 2.5) { p.y = Math.max(heightAt(p.x, p.z), -0.5) + 0.3; this.velocityY[i] = 0; this.fallSpeed[i] = 0; }
