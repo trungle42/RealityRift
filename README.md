@@ -95,12 +95,12 @@ After you pass the Chapter III pose gate, a second door with carved eyes wakes u
 
 ### Phone joystick (working)
 
-Press **H** in the game. A toast shows a URL like `http://192.168.x.x:8000/joystick`. Open it on a phone, then drag your thumb anywhere on the screen to move; push past the ring to sprint. The stick moves the first hero whenever no movement key is held, and the game toasts when the phone connects.
+**No keyboard needed:** the start screen shows a QR code of the phone page; scan it, and the start screen says "Phone connected · Tap your phone to begin". On the phone, drag anywhere to move (push past the ring to sprint) and **tap** (a quick touch without dragging) for whatever Enter / E would do: start, talk to Willow, read on, accept the quest, take the photo and the relic in the scanner, play again. **Scan** (top right) opens the Reality Rift scanner and **Roll** (top left) rolls. With the tracker running, the lime-taped phone's slash is the sword and the wand draws spells, so the whole demo run plays with just the phone and the wand. The keyboard still works (**H** shows the phone URL as a toast). The stick moves the first hero whenever no movement key is held.
 
 - The backend must be started with `--host 0.0.0.0` (see [Run everything](#run-everything-from-a-fresh-clone)). Without it, the backend only answers on the laptop itself and the phone cannot reach it.
 - The phone and the laptop must be on the same network. Many venue Wi-Fi networks block device-to-device traffic, so the safe plan is: turn on the phone's hotspot and join the laptop to it.
 - Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
-- Only `{type: "move", x, y, sprint}` is forwarded, with numbers clamped to the unit circle. The room code is the only access control, which is fine for a demo.
+- Only `{type: "move", x, y, sprint}` (numbers clamped to the unit circle) and the buttons `{type: "action" | "scan" | "roll"}` are forwarded, phone to game only. Phones join from anywhere on the network; the game side must be this laptop's own page (loopback and the game's Origin, the same rule as the camera relay), so another machine or site cannot read or spoof the controls.
 
 ### cv_2: webcam colour tracker (working; wands, slash, jump and motion connected to the game)
 
@@ -294,8 +294,9 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 
 | What | Command | Result on `main` |
 |---|---|---|
-| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 46 pass |
-| Frontend unit tests | `cd frontend && npm test` | 83 pass |
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 54 pass |
+| Frontend unit tests | `cd frontend && npm test` | 87 pass |
+| Phone-only run | `npm run dev`, open `http://localhost:5173/tests/phonerun.html`, click **Run phone-only checks** | 4 checks: start, Willow and the wave, a scan and a roll with phone messages only |
 | Type-check and build | `cd frontend && npm run build` | passes |
 | In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 16 checks, listed as PASS / FAIL. They play the full story, not the demo run |
 | cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 247 pass (about 15-90 s on a Mac; no camera needed) |
