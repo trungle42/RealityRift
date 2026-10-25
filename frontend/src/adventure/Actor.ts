@@ -32,8 +32,11 @@ export class Actor {
   private playedSerial = -1;
   /** Seconds of hit-reaction animation remaining. */
   stagger = 0;
+  /** Roll progress 0..1 while rolling, -1 otherwise: the body tucks and tumbles one full turn forward. */
+  roll = -1;
   readonly color: number;
   private model?: T.Object3D;
+  private modelBaseY = 0;
   private mixer?: T.AnimationMixer;
   private readonly actions = new Map<string, T.AnimationAction>();
   private activeAction?: T.AnimationAction;
@@ -90,7 +93,7 @@ export class Actor {
     this.stagger = Math.max(0, this.stagger - dt);
     if (this.model && this.mixer) {
       const attackName = this.attack > 0 ? (this.actions.has(this.attackClip) ? this.attackClip : 'strike') : '';
-      const name = this.pose || (this.stagger > 0 && this.actions.has('stagger_back') ? 'stagger_back' : attackName || (this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle'));
+      const name = (this.roll >= 0 && this.actions.has('crouch') ? 'crouch' : '') || this.pose || (this.stagger > 0 && this.actions.has('stagger_back') ? 'stagger_back' : attackName || (this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle'));
       const action = this.actions.get(name);
       // A new swing restarts its clip even when chaining the same attack (combo steps).
       if (action && (action !== this.activeAction || (attackName && this.attackSerial !== this.playedSerial))) {
@@ -109,6 +112,9 @@ export class Actor {
       // Lean into turns and sprints, settle when idle.
       const lean = Math.max(-0.08, Math.min(0.08, -turn * 0.18)) * Math.min(1, this.moving / 5);
       this.model.rotation.z += (lean - this.model.rotation.z) * Math.min(1, dt * 8);
+      // Tumble about the hips, dipping low through the middle so the head stays near the ground.
+      this.model.rotation.x = this.roll >= 0 ? this.roll * Math.PI * 2 : 0;
+      this.model.position.y = this.modelBaseY - (this.roll >= 0 ? Math.sin(this.roll * Math.PI) * 0.45 : 0);
       return;
     }
     const stride = Math.sin(time * (this.moving > 6 ? 13 : 9)) * Math.min(1, this.moving / 3);
@@ -122,6 +128,7 @@ export class Actor {
     if (this.pose === 'arms-up') { this.leftArm.rotation.z = 2.7; this.rightArm.rotation.z = -2.7; }
     if (this.pose === 't-pose') { this.leftArm.rotation.z = 1.5; this.rightArm.rotation.z = -1.5; }
     this.body.position.y = this.pose === 'crouch' ? -0.5 : Math.abs(stride) * 0.07 + Math.sin(time * 2.5) * 0.015;
+    this.body.rotation.x = this.roll >= 0 ? this.roll * Math.PI * 2 : 0;
     this.cloak.rotation.x = -0.15 - Math.min(0.45, this.moving * 0.035) + Math.sin(time * 4) * 0.03;
     this.root.rotation.y += Math.atan2(Math.sin(this.heading - this.root.rotation.y), Math.cos(this.heading - this.root.rotation.y)) * Math.min(1, dt * 14);
     this.body.visible = this.hurt <= 0 || Math.floor(this.hurt * 12) % 2 === 0;
@@ -134,7 +141,7 @@ export class Actor {
       const box = new T.Box3().setFromObject(model), size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
       const scale = 1.9 / size.y; model.scale.setScalar(scale); model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
     }
-    this.root.add(model);
+    this.root.add(model); this.modelBaseY = model.position.y;
     model.traverse((object) => {
       if (!(object instanceof T.Mesh)) return;
       object.castShadow = true; object.receiveShadow = true;

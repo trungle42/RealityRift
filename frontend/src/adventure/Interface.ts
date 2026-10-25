@@ -30,6 +30,7 @@ export class Interface {
   onAttack = () => {};
   onSpell = () => {};
   onDodge = () => {};
+  onFlash = () => {};
   onMap = () => {};
   onSound = () => {};
   onNarrate = (_text: string) => {};
@@ -50,7 +51,7 @@ export class Interface {
       <div class="game-context"><button class="game-interact" hidden><kbd>E</kbd><span>Interact</span></button></div>
       <section class="game-dialogue" hidden aria-live="polite"><span class="dialogue-speaker"></span><p></p><button>Continue <kbd>↵</kbd></button></section>
       <footer class="game-footer"><div class="game-move-hint"><kbd>W A S D</kbd><span>Move</span><span class="hint-divider">·</span><span>Mouse to look</span></div>
-        <div class="game-actions"><button data-action="attack" aria-label="Sword strike, J">${icons.sword}<kbd>J</kbd><span>Strike</span></button><button data-action="spell" aria-label="Cast spell, F">${icons.spell}<kbd>F</kbd><span>Spell</span></button><button data-action="dodge" aria-label="Dodge, Q"><span class="dodge-icon">↝</span><kbd>Q</kbd><span>Dodge</span></button></div>
+        <div class="game-actions"><button data-action="attack" aria-label="Sword strike, J">${icons.sword}<kbd>J</kbd><span>Strike</span></button><button data-action="spell" aria-label="Cast spell, F">${icons.spell}<kbd>F</kbd><span>Spell</span></button><button data-action="dodge" aria-label="Roll, Q"><span class="dodge-icon">↻</span><kbd>Q</kbd><span>Roll</span></button><button data-action="flash" aria-label="Flash step, R"><span class="dodge-icon">↝</span><kbd>R</kbd><span>Flash</span></button></div>
         <div class="game-tools"><button class="sound-button" aria-label="Toggle sound" aria-pressed="true">♪</button><button class="journal-button" aria-label="Journal and controls">${icons.map}<kbd>M</kbd></button></div></footer>
       <div class="game-toast" role="status" aria-live="polite"></div>
       <div class="game-touch"><button data-key="KeyW" aria-label="Move forward">↑</button><div><button data-key="KeyA" aria-label="Move left">←</button><button data-key="KeyS" aria-label="Move back">↓</button><button data-key="KeyD" aria-label="Move right">→</button></div></div>
@@ -68,6 +69,7 @@ export class Interface {
     this.root.querySelector<HTMLButtonElement>('[data-action="attack"]')!.onclick = () => this.onAttack();
     this.root.querySelector<HTMLButtonElement>('[data-action="spell"]')!.onclick = () => this.onSpell();
     this.root.querySelector<HTMLButtonElement>('[data-action="dodge"]')!.onclick = () => this.onDodge();
+    this.root.querySelector<HTMLButtonElement>('[data-action="flash"]')!.onclick = () => this.onFlash();
     this.root.querySelector<HTMLButtonElement>('.journal-button')!.onclick = () => this.onMap();
     this.root.querySelector<HTMLButtonElement>('.game-map-button')!.onclick = () => this.onMap();
     this.root.querySelector<HTMLButtonElement>('.sound-button')!.onclick = () => this.onSound();
@@ -115,6 +117,13 @@ export class Interface {
   quest(name: string, detail: string): void { this.root.querySelector('.game-quest h2')!.textContent = name; this.root.querySelector('.game-quest p')!.textContent = detail; }
   context(name?: string): void { this.prompt.hidden = !name; if (name) this.prompt.querySelector('span')!.textContent = name; }
   toast(text: string): void { this.notice.textContent = text; this.notice.classList.add('visible'); clearTimeout(this.toastTimer); this.toastTimer = window.setTimeout(() => this.notice.classList.remove('visible'), 4000); }
+  /** Remaining cooldown as 0..1; the button shows a dark sweep that empties as it recharges. */
+  cooldowns(roll: number, flash: number): void {
+    for (const [action, left] of [['dodge', roll], ['flash', flash]] as const) {
+      const button = this.root.querySelector<HTMLButtonElement>(`[data-action="${action}"]`); if (!button) continue;
+      button.style.setProperty('--cd', String(left)); button.classList.toggle('cooling', left > 0);
+    }
+  }
   damage(): void { const node = this.root.querySelector('.game-damage')!; node.classList.remove('hurt'); void node.getBoundingClientRect(); node.classList.add('hurt'); }
   sound(enabled: boolean): void { const button = this.root.querySelector('.sound-button')!; button.setAttribute('aria-pressed', String(enabled)); button.textContent = enabled ? '♪' : '♫̸'; }
 
@@ -161,7 +170,7 @@ export class Interface {
     const title = document.createElement('h2'); title.textContent = 'The kingdom of Evermere';
     const map = document.createElement('canvas'); map.width = 660; map.height = 460; map.className = 'journal-worldmap';
     const current = document.createElement('p'); current.textContent = this.root.querySelector('.game-quest h2')!.textContent;
-    const controls = document.createElement('p'); controls.className = 'journal-controls'; controls.textContent = 'WASD move · Shift sprint · Space jump · Drag / C,V look · Scroll zoom · E interact · J strike · F spell · Q dodge · M journal. Rune poses: hold 1 to raise your arms, 2 to spread your arms, 3 to crouch. Player two: arrows move, / spell, I/O/P poses. Your companion follows and assists when not controlled.';
+    const controls = document.createElement('p'); controls.className = 'journal-controls'; controls.textContent = 'WASD move · Shift sprint · Space jump · Drag / C,V look · Scroll zoom · E interact · J strike · F spell · Q roll · R flash step · M journal. Rune poses: hold 1 to raise your arms, 2 to spread your arms, 3 to crouch. Player two: arrows move, / spell, I/O/P poses. Your companion follows and assists when not controlled.';
     const rewards = document.createElement('p'); rewards.textContent = `Relics: ${state.rewards.map((r) => r.name).join(', ') || 'Your story is still unfolding.'}`;
     const close = document.createElement('button'); close.className = 'adventure-primary'; close.textContent = 'Return to the world'; close.onclick = () => { this.modal.close(); this.mapOpen = false; };
     this.modal.append(label, title, map, current, rewards, controls, close); this.mapOpen = true; this.modal.showModal();

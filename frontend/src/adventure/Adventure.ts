@@ -42,6 +42,9 @@ const COMBO = [
   { clip: 'sword_slash_overhead', length: 0.4, hit: 0.16, damage: 2, reach: 3.0, arc: 1.6, tilt: 1.25, color: 0xfff6d6 },
   { clip: 'sword_thrust', length: 0.5, hit: 0.2, damage: 3, reach: 3.5, arc: 0.9, tilt: 0.05, color: 0xffe39a },
 ];
+/** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
+const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
+const FLASH_COOLDOWN = 6;
 interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex }
 interface Spark { mesh: T.Mesh; velocity: T.Vector3; life: number; max: number }
 interface Trial { type: 'freeze' | 'pose'; elapsed: number; duration: number; moved: number; held: number; poseIndex: number; poses: PoseId[]; secondsPerPose: number; before: number }
@@ -106,6 +109,11 @@ export class Adventure {
   private velocityY = [0, 0];
   private dodge = [0, 0];
   private readonly dodgeDirection = [new T.Vector3(), new T.Vector3()];
+  /** Roll (Q): a tumbling dodge with invincibility frames. Flash step (R) is the old blink-dash, now a cooldown ability. */
+  private rollTime = [0, 0];
+  private rollIframes = [0, 0];
+  private rollCooldown = [0, 0];
+  private flashCooldown = [0, 0];
   private readonly movementVelocity = [new T.Vector3(), new T.Vector3()];
   private physics?: Physics;
   private monster?: GLTF;
@@ -187,7 +195,7 @@ export class Adventure {
     const party = await this.ui.start(this.solo);
     this.state = new GameState(party); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
-    this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q dodge · Z lock on · Esc frees the mouse');
+    this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     this.buildCamps();
     await this.loadBeat(this.story.begin(party));
   }
@@ -238,6 +246,7 @@ export class Adventure {
       if (event.code === 'KeyF') this.cast(0);
       if (event.code === 'Slash') this.cast(this.solo ? 0 : 1);
       if (event.code === 'KeyQ') this.roll(0);
+      if (event.code === 'KeyR') this.flashStep(0);
       if (event.code === 'ShiftRight') this.roll(this.solo ? 0 : 1);
       if (event.code === 'Space') this.leap(0);
       if (event.code === 'KeyZ' || event.code === 'Tab') this.toggleLock();
@@ -271,7 +280,7 @@ export class Adventure {
     }, options);
     canvas.addEventListener('pointercancel', () => { this.drag = undefined; }, options);
     canvas.addEventListener('wheel', (event) => { event.preventDefault(); this.zoom = clamp(this.zoom + event.deltaY * 0.008, 4.5, 19); }, { ...options, passive: false });
-    this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onMap = () => this.openJournal();
+    this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onFlash = () => this.flashStep(0); this.ui.onMap = () => this.openJournal();
     this.ui.onSound = () => { this.sound = !this.sound; this.sfx.setMuted(!this.sound); this.narrator.enabled = this.sound; if (!this.sound) this.narrator.stop(); this.ui.sound(this.sound); };
     this.ui.onNarrate = (text) => this.narrator.speak(text); this.ui.onSilence = () => this.narrator.stop();
     this.ui.root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((button) => {
@@ -353,7 +362,7 @@ export class Adventure {
         const angle = i / beat.encounter.count * Math.PI * 2;
         this.spawnEnemy(this.heroes[0].root.position.x + Math.sin(angle) * 6, this.heroes[0].root.position.z + Math.cos(angle) * 6, undefined, true);
       }
-      this.ui.quest('Drive back the gathering shadows', 'J strike · F cast · Q dodge the red warning');
+      this.ui.quest('Drive back the gathering shadows', 'J strike · F cast · Q roll through the red warning');
     } else if (beat.boss) {
       this.encounterBefore = this.state!.hearts; this.encounterKind = 'boss';
       // The guardian rises in the middle of its arena, a few strides beyond the hero.
@@ -586,16 +595,29 @@ export class Adventure {
     if (player === 0) this.sfx.cast();
   }
 
+  /** Toward the held direction, else away from a locked foe, else forward. */
+  private evadeDirection(player: PlayerIndex): T.Vector3 {
+    const hero = this.heroes[player], p = hero.root.position, held = this.movementVelocity[player].clone().setY(0);
+    if (held.lengthSq() > 1) return held.normalize();
+    if (player === 0 && this.lock) return p.clone().sub(this.lock.root.position).setY(0).normalize();
+    return new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading));
+  }
+
   private roll(player: PlayerIndex): void {
-    if (!this.canAct() || this.stamina < 0.18 || this.dodge[player] > 0 || this.trial) return;
-    this.dodge[player] = 0.27; this.stamina -= 0.18;
+    if (!this.canAct() || this.rollTime[player] > 0 || this.dodge[player] > 0 || this.rollCooldown[player] > 0 || this.trial) return;
+    this.rollTime[player] = ROLL.length; this.rollIframes[player] = ROLL.iframes; this.rollCooldown[player] = ROLL.cooldown;
+    this.invulnerable = Math.max(this.invulnerable, ROLL.iframes);
+    this.dodgeDirection[player].copy(this.evadeDirection(player));
+    const p = this.heroes[player].root.position;
+    this.fx.puff(p, pathDistance(p.x, p.z) < 2.3 ? 0xcdbf9b : 0x8a8a5a, 7, 1.6, 0.5, 0.55); this.sfx.dodge();
+  }
+
+  private flashStep(player: PlayerIndex): void {
+    if (!this.canAct() || this.stamina < 0.18 || this.dodge[player] > 0 || this.rollTime[player] > 0 || this.flashCooldown[player] > 0 || this.trial) return;
+    this.dodge[player] = 0.27; this.stamina -= 0.18; this.flashCooldown[player] = FLASH_COOLDOWN;
     const hero = this.heroes[player], p = hero.root.position;
-    // Dodge toward the held direction (or away from a locked foe), like a sidestep / backflip.
-    const held = this.movementVelocity[player].clone().setY(0);
-    if (held.lengthSq() > 1) this.dodgeDirection[player].copy(held.normalize());
-    else if (player === 0 && this.lock) this.dodgeDirection[player].copy(p.clone().sub(this.lock.root.position).setY(0).normalize());
-    else this.dodgeDirection[player].set(Math.sin(hero.heading), 0, Math.cos(hero.heading));
-    this.fx.puff(p, pathDistance(p.x, p.z) < 2.3 ? 0xcdbf9b : 0x8a8a5a, 9, 2.2, 0.55, 0.6); this.sfx.dodge();
+    this.dodgeDirection[player].copy(this.evadeDirection(player));
+    this.fx.puff(p, 0xbfe8ff, 9, 2.2, 0.55, 0.6); this.fx.motes(p.clone().add(new T.Vector3(0, 1, 0)), 0xd8f2ff, 18, 0.6, 1.2, 0.25, 0.5); this.sfx.dodge();
     // Perfect dodge: slipping a strike at the last moment slows time for a flurry rush.
     if (player === 0 && this.flurry <= 0) {
       const threat = this.enemies.find((e) => e.hp > 0 && e.windup > 0 && e.windup < 0.42 && distance(e.root.position, p) < (e.boss ? 8.5 : 3.4));
@@ -697,7 +719,7 @@ export class Adventure {
       if (!paused) this.update(dt);
       this.updateCamera(real);
       this.ui.update(this.state, this.stamina);
-      this.updateWheel();
+      this.updateWheel(); this.ui.cooldowns(this.rollCooldown[0] / ROLL.cooldown, this.flashCooldown[0] / FLASH_COOLDOWN);
       this.mapTimer += real;
       if (this.mapTimer > 0.12) { this.mapTimer = 0; this.ui.drawMap(this.heroes[0].root.position, this.active[this.active.length - 1].root.position, this.target, this.world.objects, this.yaw); }
       this.fx.ambience(paused ? 0 : real, this.heroes[0].root.position, this.region === 'forest');
@@ -768,12 +790,16 @@ export class Adventure {
       if (this.trial?.type === 'pose') speed = 0;
       if (hero.pose === 'crouch') speed *= 0.5;
       if (heightAt(p.x, p.z) < -0.4) speed *= 0.56;
+      this.rollIframes[i] = Math.max(0, this.rollIframes[i] - dt); this.rollCooldown[i] = Math.max(0, this.rollCooldown[i] - dt); this.flashCooldown[i] = Math.max(0, this.flashCooldown[i] - dt);
+      const rolling = this.rollTime[i] > 0;
+      if (rolling) { this.rollTime[i] -= dt; direction.copy(this.dodgeDirection[i]); speed = ROLL.speed; }
+      hero.roll = rolling ? 1 - Math.max(0, this.rollTime[i]) / ROLL.length : -1;
       if (this.dodge[i] > 0) { this.dodge[i] -= dt; direction.copy(this.dodgeDirection[i]); speed = 19; }
       direction.normalize();
       const velocity = this.movementVelocity[i];
       // Direction follows the input immediately (no turning arc); only the speed ramps briefly.
       const current = Math.hypot(velocity.x, velocity.z);
-      if (this.dodge[i] > 0) velocity.copy(direction).multiplyScalar(speed);
+      if (this.dodge[i] > 0 || rolling) velocity.copy(direction).multiplyScalar(speed);
       else if (speed > 0) velocity.copy(direction).multiplyScalar(current + (speed - current) * (1 - Math.exp(-dt * 20)));
       else velocity.multiplyScalar(Math.exp(-dt * 20));
       if (this.trial?.type === 'pose') velocity.set(0, 0, 0);
@@ -796,7 +822,7 @@ export class Adventure {
         if (!this.jump[i]) this.velocityY[i] = Math.max(0, this.velocityY[i]);
         p.y = Math.max(heightAt(p.x, p.z), -0.55) + this.jump[i];
       }
-      const focused = i === 0 && this.lock && this.lock.hp > 0 && this.dodge[0] <= 0 ? this.lock : undefined;
+      const focused = i === 0 && this.lock && this.lock.hp > 0 && this.dodge[0] <= 0 && !rolling ? this.lock : undefined;
       if (focused) hero.heading = Math.atan2(focused.root.position.x - p.x, focused.root.position.z - p.z);
       else if (direction.lengthSq() && this.attackCooldown[i] <= 0) hero.heading = Math.atan2(direction.x, direction.z);
       // Rapier settling on slopes leaves ~0.3 u/s of jitter; below this dead zone a hero counts as standing still
@@ -905,7 +931,7 @@ export class Adventure {
           if (!enemy.boss) { const lunge = target.root.position.clone().sub(p).setY(0); if (lunge.lengthSq() > 0.01) enemy.knock.add(lunge.normalize().multiplyScalar(7)); }
           this.burst(p.clone().add(new T.Vector3(0, 0.2, 0)), enemy.boss ? 0xa4d8df : 0xf7b69a, 17);
           this.fx.shockwave(p, enemy.boss ? 0xa4d8df : 0xff9a7a, enemy.boss ? 8 : 2.6, 0.4); this.sfx.land(!!enemy.boss); if (enemy.boss) this.rig.addTrauma(0.35);
-          const victim = this.active.findIndex((hero, i) => distance(p, hero.root.position) < (enemy.boss ? 8 : 2.6) && this.dodge[i] <= 0 && this.jump[i] < 0.7 && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1, 0)), hero.root.position.clone().add(new T.Vector3(0, 1, 0))) === undefined && (enemy.attack === 'frost-gaze' ? hero.moving > 0.1 : enemy.attack === 'shadow-wave' ? hero.pose !== 'crouch' : true));
+          const victim = this.active.findIndex((hero, i) => distance(p, hero.root.position) < (enemy.boss ? 8 : 2.6) && this.dodge[i] <= 0 && this.rollIframes[i] <= 0 && this.jump[i] < 0.7 && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1, 0)), hero.root.position.clone().add(new T.Vector3(0, 1, 0))) === undefined && (enemy.attack === 'frost-gaze' ? hero.moving > 0.1 : enemy.attack === 'shadow-wave' ? hero.pose !== 'crouch' : true));
           if (victim >= 0) this.hurt();
         }
       } else {
