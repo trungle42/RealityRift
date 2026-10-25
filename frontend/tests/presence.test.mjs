@@ -14,6 +14,8 @@ test('relay messages are parsed exactly as the contract says; numeric ids become
   assert.equal(P.parsePresence({ type: 'welcome', id: 1, peers: [], started: true }).started, true);
   assert.deepEqual(P.parsePresence({ type: 'start', id: 2 }), { type: 'start', id: '2' });
   assert.deepEqual(P.parsePresence({ type: 'hit', id: 0, enemy: 'e3', damage: 2 }), { type: 'hit', id: '0', enemy: 'e3', damage: 2 });
+  assert.deepEqual(P.parsePresence({ type: 'foes', id: 0, f: [['e0', 1, 2, 0.5, 1, 2], ['e1', 3, 4, 0, 0, 9]] }).foes, [{ id: 'e0', x: 1, z: 2, h: 0.5, w: true, a: 2 }, { id: 'e1', x: 3, z: 4, h: 0, w: false, a: 0 }]);
+  assert.equal(P.parsePresence({ type: 'foes', id: 0, f: [['e0', 'x', 2, 0, 0, 0]] }), undefined);
   for (const bad of [{ type: 'hit', id: 0, enemy: 'E<3', damage: 2 }, { type: 'hit', id: 0, enemy: 'e3', damage: -1 }, { type: 'hit', id: 0, enemy: 'e3' }, { type: 'start' }]) assert.equal(P.parsePresence(bad), undefined, JSON.stringify(bad));
   assert.deepEqual(P.parsePresence({ type: 'peer', state: 'left', id: 2, name: 'haicil', colour: 'yellow' }), { type: 'peer', state: 'left', peer: { id: '2', name: 'haicil', colour: 'yellow' } });
   assert.deepEqual(P.parsePresence({ type: 'state', id: 0, x: 1, y: 2, z: 3, heading: 0.5, speed: 4, anim: 'run', hp: 3 }), { type: 'state', id: '0', state: { x: 1, y: 2, z: 3, heading: 0.5, speed: 4, anim: 'run', hp: 3 } });

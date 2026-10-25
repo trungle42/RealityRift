@@ -146,6 +146,17 @@ def test_hits_on_shared_foes_reach_the_others_cleaned(client):
         assert json.loads(a.receive_text()) == {"type": "hit", "enemy": "e6", "damage": 100.0, "id": 1}
 
 
+def test_the_hosts_foes_reach_the_others_cleaned(client):
+    with client.websocket_connect(url("p11", "A", "red")) as a, client.websocket_connect(url("p11", "B", "blue")) as b:
+        a.receive_text(); b.receive_text(); a.receive_text()
+        for bad in ({"type": "foes", "f": "x"}, {"type": "foes", "f": [["<b>", 1, 2, 0, 0, 0]]}, {"type": "foes", "f": [["e0", 1, 2, 0, 2, 0]]},
+                    {"type": "foes", "f": [["e0", 1, 2, 0, True, 0]]}, {"type": "foes", "f": [["e0", 1, 2, 0, 0, 0]] * 13}):
+            a.send_text(json.dumps(bad))
+        a.send_text(json.dumps({"type": "foes", "f": [["e0", 1e9, -2.5, 7.0, 1, 2], ["e6", 3, 4, 0.5, 0, 1]]}))
+        got = json.loads(b.receive_text())
+        assert got == {"type": "foes", "f": [["e0", 5000.0, -2.5, round(math.atan2(math.sin(7.0), math.cos(7.0)), 3), 1, 2], ["e6", 3.0, 4.0, 0.5, 0, 1]], "id": 0}
+
+
 @pytest.mark.parametrize("bad", ["/ws/presence/p5?name=&colour=red", "/ws/presence/p5?name=Trung&colour=green",
                                  "/ws/presence/p5?name=<script>&colour=red", "/ws/presence/p5?name=" + "x" * 17 + "&colour=red",
                                  "/ws/presence/bad room!?name=A&colour=red"])

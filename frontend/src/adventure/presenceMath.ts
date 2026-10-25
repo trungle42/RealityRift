@@ -30,7 +30,13 @@ export type PresenceMessage =
   | { type: 'full' }
   | { type: 'replaced' }
   | { type: 'start'; id: string }
-  | { type: 'hit'; id: string; enemy: string; damage: number };
+  | { type: 'hit'; id: string; enemy: string; damage: number }
+  | { type: 'foes'; id: string; foes: FoeSnap[] };
+
+/** One encounter foe as the host sees it: shared id, where it stands, its heading, winding up or not, which attack. */
+export interface FoeSnap { id: string; x: number; z: number; h: number; w: boolean; a: number }
+/** Attack names by the code the foes message carries. */
+export const FOE_ATTACKS = ['strike', 'frost-gaze', 'shadow-wave'] as const;
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const text = (v: unknown, max = 24): string | undefined => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : undefined);
@@ -55,6 +61,15 @@ export function parsePresence(raw: unknown): PresenceMessage | undefined {
   if (m.type === 'peer' && (m.state === 'joined' || m.state === 'left')) { const peer = peerOf(m); return peer && { type: 'peer', state: m.state, peer }; }
   const id = idOf(m.id); if (id === undefined) return undefined;
   if (m.type === 'start') return { type: 'start', id };
+  if (m.type === 'foes') {
+    if (!Array.isArray(m.f)) return undefined;
+    const foes: FoeSnap[] = [];
+    for (const e of m.f.slice(0, 12)) {
+      if (!Array.isArray(e) || typeof e[0] !== 'string' || !/^[a-z0-9:_-]{1,16}$/.test(e[0]) || ![e[1], e[2], e[3]].every(finite)) return undefined;
+      foes.push({ id: e[0], x: e[1], z: e[2], h: e[3], w: e[4] === 1, a: [0, 1, 2].includes(e[5]) ? e[5] : 0 });
+    }
+    return { type: 'foes', id, foes };
+  }
   if (m.type === 'hit') {
     if (typeof m.enemy !== 'string' || !/^[a-z0-9:_-]{1,16}$/.test(m.enemy) || !finite(m.damage) || m.damage < 0) return undefined;
     return { type: 'hit', id, enemy: m.enemy, damage: Math.min(100, m.damage) };

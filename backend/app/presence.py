@@ -13,7 +13,9 @@ over that player's slot: the old connection gets {"type":"replaced"} and a close
 Fighting together: {"type":"start"} from any game starts the run on the others (once per room; the welcome says
 "started" so a late or reloaded game starts at once), and {"type":"hit",enemy,damage} shares one player's damage to an
 encounter foe (the wave and the boss spawn in the same order on every laptop, so their ids match), so everyone wears
-down the same horde and the same boss. The tunnel's random room code is the only "auth", as for the phone joystick.
+down the same horde and the same boss. The host (the room's first player) runs the encounter foes and sends
+{"type":"foes","f":[[enemy,x,z,heading,windup 0|1,attack 0|1|2],...]} ten times a second; the others draw those foes
+where the host's are, so everyone sees the same monsters in the same places. The tunnel's random room code is the only "auth", as for the phone joystick.
 """
 from __future__ import annotations
 
@@ -35,7 +37,8 @@ FX = ("cast", "slash")
 ABILITIES = ("wave", "bolt", "nova", "pierce", "meteor", "chain")      # schemas.Ability
 ELEMENTS = ("fire", "water", "lightning", "ice", "nature", "shadow", "light")   # schemas.Element
 ENEMY_RE = re.compile(r"^[a-z0-9:_-]{1,16}$")
-MAX_PEERS, MAX_MSG, RATE = 3, 512, 30
+MAX_PEERS, MAX_MSG, RATE = 3, 512, 60
+MAX_FOES = 12
 MAX_DAMAGE = 100.0
 WORLD, LOW, HIGH = 5000.0, -100.0, 1000.0
 
@@ -61,6 +64,19 @@ def clean_presence(msg: object) -> Optional[dict]:
         return None
     if msg.get("type") == "start":
         return {"type": "start"}
+    if msg.get("type") == "foes":
+        raw = msg.get("f")
+        if not isinstance(raw, list) or len(raw) > MAX_FOES:
+            return None
+        foes = []
+        for e in raw:
+            if not (isinstance(e, list) and len(e) == 6 and isinstance(e[0], str) and ENEMY_RE.match(e[0])):
+                return None
+            x, z, h = _num(e[1], -WORLD, WORLD), _num(e[2], -WORLD, WORLD), _heading(e[3])
+            if None in (x, z, h) or isinstance(e[4], bool) or isinstance(e[5], bool) or e[4] not in (0, 1) or e[5] not in (0, 1, 2):
+                return None
+            foes.append([e[0], x, z, h, int(e[4]), int(e[5])])
+        return {"type": "foes", "f": foes}
     if msg.get("type") == "hit":
         damage = _num(msg.get("damage"), 0, MAX_DAMAGE)
         enemy = msg.get("enemy")
