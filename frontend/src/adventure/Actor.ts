@@ -37,6 +37,8 @@ export class Actor {
   readonly color: number;
   private model?: T.Object3D;
   private modelBaseY = 0;
+  private modelPivot?: T.Group;
+  private modelPivotBaseY = 0;
   private mixer?: T.AnimationMixer;
   private readonly actions = new Map<string, T.AnimationAction>();
   private activeAction?: T.AnimationAction;
@@ -93,17 +95,17 @@ export class Actor {
     this.stagger = Math.max(0, this.stagger - dt);
     if (this.model && this.mixer) {
       const attackName = this.attack > 0 ? (this.actions.has(this.attackClip) ? this.attackClip : 'strike') : '';
-      const name = (this.roll >= 0 && this.actions.has('crouch') ? 'crouch' : '') || this.pose || (this.stagger > 0 && this.actions.has('stagger_back') ? 'stagger_back' : attackName || (this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle'));
+      const name = (this.roll >= 0 && this.actions.has('roll') ? 'roll' : '') || (this.roll >= 0 && this.actions.has('crouch') ? 'crouch' : '') || this.pose || (this.stagger > 0 && this.actions.has('stagger_back') ? 'stagger_back' : attackName || (this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle'));
       const action = this.actions.get(name);
       // A new swing restarts its clip even when chaining the same attack (combo steps).
       if (action && (action !== this.activeAction || (attackName && this.attackSerial !== this.playedSerial))) {
-        const blend = attackName ? 0.06 : name === 'stagger_back' ? 0.05 : 0.18;
+        const blend = attackName || name === 'roll' ? 0.05 : name === 'stagger_back' ? 0.05 : 0.18;
         if (action === this.activeAction) action.reset(); else { this.activeAction?.fadeOut(blend); action.reset().fadeIn(blend).play(); }
-        if (attackName || name === 'stagger_back') { action.setLoop(T.LoopOnce, 1); action.clampWhenFinished = true; }
+        if (attackName || name === 'stagger_back' || name === 'roll') { action.setLoop(T.LoopOnce, 1); action.clampWhenFinished = true; }
         this.activeAction = action; this.playedSerial = this.attackSerial;
       }
       const clip = action?.getClip().duration ?? 1;
-      this.mixer.timeScale = attackName ? clip / Math.max(0.2, this.attackLength) : name === 'stagger_back' ? clip / 0.45
+      this.mixer.timeScale = attackName ? clip / Math.max(0.2, this.attackLength) : name === 'roll' ? clip / 0.55 : name === 'stagger_back' ? clip / 0.45
         : name === 'walk' ? Math.max(0.65, Math.min(1.6, this.moving / (this.detailedRig ? 3.4 : 4.7))) : name === 'run' ? Math.max(0.8, this.moving / 7) : 1;
       this.mixer.update(dt);
       this.model.visible = this.hurt <= 0 || Math.floor(this.hurt * 12) % 2 === 0;
@@ -112,9 +114,14 @@ export class Actor {
       // Lean into turns and sprints, settle when idle.
       const lean = Math.max(-0.08, Math.min(0.08, -turn * 0.18)) * Math.min(1, this.moving / 5);
       this.model.rotation.z += (lean - this.model.rotation.z) * Math.min(1, dt * 8);
-      // Tumble about the hips, dipping low through the middle so the head stays near the ground.
-      this.model.rotation.x = this.roll >= 0 ? this.roll * Math.PI * 2 : 0;
-      this.model.position.y = this.modelBaseY - (this.roll >= 0 ? Math.sin(this.roll * Math.PI) * 0.45 : 0);
+      // Rotate around the hips, not the feet, and lower the pivot slightly as the
+      // tucked body passes through the middle of the forward roll.
+      const tumble = this.modelPivot ?? this.model;
+      if (tumble) {
+        tumble.rotation.x = this.roll >= 0 ? this.roll * Math.PI * 2 : 0;
+        if (this.modelPivot) this.modelPivot.position.y = this.modelPivotBaseY - (this.roll >= 0 ? Math.sin(this.roll * Math.PI) * 0.18 : 0);
+        else this.model.position.y = this.modelBaseY - (this.roll >= 0 ? Math.sin(this.roll * Math.PI) * 0.18 : 0);
+      }
       return;
     }
     const stride = Math.sin(time * (this.moving > 6 ? 13 : 9)) * Math.min(1, this.moving / 3);
@@ -141,7 +148,17 @@ export class Actor {
       const box = new T.Box3().setFromObject(model), size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
       const scale = 1.9 / size.y; model.scale.setScalar(scale); model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
     }
-    this.root.add(model); this.modelBaseY = model.position.y;
+    if (this.detailedRig) {
+      model.updateWorldMatrix(true, true);
+      const hips = model.getObjectByName('Hips');
+      const pivotY = hips?.getWorldPosition(new T.Vector3()).y ?? 0.95;
+      this.modelPivot = new T.Group(); this.modelPivot.position.y = pivotY;
+      model.position.y -= pivotY;
+      this.modelPivot.add(model); this.root.add(this.modelPivot);
+      this.modelPivotBaseY = pivotY;
+    } else {
+      this.root.add(model); this.modelBaseY = model.position.y;
+    }
     model.traverse((object) => {
       if (!(object instanceof T.Mesh)) return;
       object.castShadow = true; object.receiveShadow = true;
@@ -180,6 +197,16 @@ export class Actor {
       const q = parent.clone().invert().multiply(new T.Quaternion().setFromAxisAngle(axis, angle)).multiply(parent).multiply(bone.quaternion);
       return new T.QuaternionKeyframeTrack(`${name}.quaternion`, [0, 1], [...q.toArray(), ...q.toArray()]);
     };
+    const rotationFrames = (name: string, axis: T.Vector3, angles: number[]): T.KeyframeTrack | undefined => {
+      const bone = model.getObjectByName(name); if (!bone) return undefined;
+      const parent = bone.parent!.getWorldQuaternion(new T.Quaternion());
+      const inverseParent = parent.clone().invert();
+      const times = [0, 0.12, 0.42, 0.55];
+      const values = angles.flatMap((angle) => inverseParent.clone()
+        .multiply(new T.Quaternion().setFromAxisAngle(axis, angle))
+        .multiply(parent).multiply(bone.quaternion).toArray());
+      return new T.QuaternionKeyframeTrack(`${name}.quaternion`, times, values);
+    };
     for (const [name, angle] of [['arms-up', 2.7], ['t-pose', 1.5]] as const) {
       const tracks = [rotation('LeftArm', forward, -angle), rotation('RightArm', forward, angle)].filter((track): track is T.KeyframeTrack => !!track);
       this.actions.set(name, this.mixer!.clipAction(new T.AnimationClip(name, 1, tracks)));
@@ -187,15 +214,35 @@ export class Actor {
     const tracks = [rotation('LeftUpLeg', side, -1.1), rotation('RightUpLeg', side, -1.1), rotation('LeftLeg', side, 1.85), rotation('RightLeg', side, 1.85)].filter((track): track is T.KeyframeTrack => !!track);
     const hips = model.getObjectByName('Hips');
     if (hips) { const p = hips.position.clone(); p.y -= 0.3 / model.scale.y; tracks.push(new T.VectorKeyframeTrack('Hips.position', [0, 1], [...p.toArray(), ...p.toArray()])); }
-    this.actions.set('crouch', this.mixer!.clipAction(new T.AnimationClip('crouch', 1, tracks))); idle?.stop();
+    this.actions.set('crouch', this.mixer!.clipAction(new T.AnimationClip('crouch', 1, tracks)));
+
+    const rollTracks = [
+      rotationFrames('LeftUpLeg', side, [0, -1.25, -1.4, 0]),
+      rotationFrames('RightUpLeg', side, [0, -1.25, -1.4, 0]),
+      rotationFrames('LeftLeg', side, [0, 1.85, 2.05, 0]),
+      rotationFrames('RightLeg', side, [0, 1.85, 2.05, 0]),
+      rotationFrames('LeftArm', side, [0, -0.55, -0.75, 0]),
+      rotationFrames('RightArm', side, [0, -0.55, -0.75, 0]),
+      rotationFrames('LeftForeArm', side, [0, 1.1, 1.4, 0]),
+      rotationFrames('RightForeArm', side, [0, 1.1, 1.4, 0]),
+    ].filter((track): track is T.KeyframeTrack => !!track);
+    this.actions.set('roll', this.mixer!.clipAction(new T.AnimationClip('roll', 0.55, rollTracks)));
+    idle?.stop();
   }
 
   holdWeapon(source: T.Object3D): void {
     const hand = this.model?.getObjectByName('RightHand'); if (!hand) return;
     const weapon = source.clone(true), box = new T.Box3().setFromObject(weapon), size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
     const scale = 0.85 / Math.max(size.x, size.y, size.z);
-    weapon.scale.setScalar(scale / (this.model?.scale.y ?? 1)); weapon.position.copy(center).multiplyScalar(-scale);
-    const grip = new T.Group(); grip.add(weapon); grip.rotation.z = Math.PI / 2; grip.position.y = 0.08 / (this.model?.scale.y ?? 1); hand.add(grip);
+    const modelScale = this.model?.scale.y ?? 1;
+    // This sword's grip is near the positive-X end of its mesh. Anchor that point
+    // at the hand and rotate the blade upward; centering its bounds pivots at the
+    // blade midpoint and leaves the hilt floating away from the fingers.
+    const hilt = new T.Vector3(center.x + size.x * 0.33, center.y, center.z);
+    weapon.scale.setScalar(scale / modelScale);
+    weapon.position.copy(hilt).multiplyScalar(-scale / modelScale);
+    const grip = new T.Group(); grip.add(weapon); grip.rotation.z = -Math.PI / 2;
+    grip.position.y = 0.04 / modelScale; hand.add(grip);
     weapon.traverse((part) => { if (part instanceof T.Mesh) part.castShadow = true; });
   }
 }

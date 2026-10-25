@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import ts from 'typescript';
-import { AnimationMixer, Group, Quaternion, Scene, Vector3 } from 'three';
+import { AnimationMixer, Bone, BoxGeometry, Group, Mesh, MeshBasicMaterial, Quaternion, Scene, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const cache = new Map();
@@ -22,6 +22,7 @@ const { cameraReach, encounterSpawn, heightAt, moveOnGround, objectiveFor, PATHS
 const { World } = await import(await moduleUrl(new URL('../src/adventure/World.ts', import.meta.url)));
 const { ScriptedStory } = await import(await moduleUrl(new URL('../src/story/ScriptedStory.ts', import.meta.url)));
 const { GameState } = await import(await moduleUrl(new URL('../src/game/GameState.ts', import.meta.url)));
+const { Actor } = await import(await moduleUrl(new URL('../src/adventure/Actor.ts', import.meta.url)));
 const world = new World(new Scene());
 world.useArchModel(new Group());
 
@@ -62,6 +63,29 @@ test('exported pose animations visibly raise arms and lower the crouching body',
   play('t-pose'); assert.ok(Math.abs(direction().x) > 0.85 && Math.abs(direction().y) < 0.2, 'T-pose must spread the arms');
   play('arms-up'); assert.ok(direction().y > 0.8, 'arms-up must raise the hands');
   play('crouch'); assert.ok(root.getWorldPosition(new Vector3()).y < restHeight - 0.2, 'crouch must lower the body');
+});
+
+test('roll animation folds both knees and tucks the forearms', () => {
+  const model = new Group();
+  model.add(new Mesh(new BoxGeometry(0.8, 2, 0.5), new MeshBasicMaterial()));
+  const bone = (name, parent, y = 0) => { const item = new Bone(); item.name = name; item.position.y = y; parent.add(item); return item; };
+  const hips = bone('Hips', model, 0.9), spine = bone('Spine', hips, 0.2);
+  const leftArm = bone('LeftArm', spine, 0.3), rightArm = bone('RightArm', spine, 0.3);
+  bone('LeftForeArm', leftArm, -0.2); bone('RightForeArm', rightArm, -0.2);
+  const leftUpLeg = bone('LeftUpLeg', hips), rightUpLeg = bone('RightUpLeg', hips);
+  bone('LeftLeg', leftUpLeg, -0.35); bone('RightLeg', rightUpLeg, -0.35);
+
+  const actor = new Actor(); actor.useModel(model, [], false);
+  const roll = actor.actions.get('roll');
+  assert.ok(roll, 'the articulated rig needs a dedicated roll animation');
+  const tracks = new Map(roll.getClip().tracks.map((track) => [track.name, track]));
+  for (const name of ['LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'RightLeg', 'LeftForeArm', 'RightForeArm']) {
+    const track = tracks.get(`${name}.quaternion`);
+    assert.ok(track, `${name} must animate during the roll`);
+    const rest = new Quaternion().fromArray(track.values, 0);
+    const tuck = new Quaternion().fromArray(track.values, 4);
+    assert.ok(Math.abs(rest.dot(tuck)) < 0.98, `${name} must move into the tucked pose`);
+  }
 });
 
 test('3D movement respects tree trunks and boundaries during long frames and dodges', () => {
