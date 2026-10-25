@@ -27,6 +27,7 @@ import { PhoneInput } from './PhoneInput';
 import { phoneAction, showPhonePairing } from './phoneActions';
 import type { PhoneCommand } from './phoneMath';
 import { CvInput } from './CvInput';
+import { Fairy } from './Fairy';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
 import { Cinematics } from './Cinematics';
@@ -121,6 +122,8 @@ export class Adventure {
    * own module (not a hero: PlayerIndex stays 0 | 1); left unset, slot 2 is ignored. (`fairy` is the ally's 3D model.)
    */
   pip?: { cast(shape: WandShape): void; button?(kind: PhoneButton): void; seat?(joined: boolean): void };
+  /** The same Pip as `pip`, typed as the Fairy so the game can fly and dispose it (Fairy.ts). */
+  private pipFairy?: Fairy;
   /** Heroes actually in play: just the ranger in solo. */
   private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
@@ -266,6 +269,12 @@ export class Adventure {
     // The phone joins on the start screen (QR code) and can start, steer and act for the whole demo run without a keyboard.
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone connected: drag to move · tap to act · Scan opens the rift' : 'Phone disconnected'), undefined, (command) => this.onPhone(command));
     listenPlayers(this.phone, { joined: (slot) => this.onSeat(slot, true), left: (slot) => this.onSeat(slot, false), button: (kind, slot) => this.onPlayerButton(kind, slot) });
+    this.pip = this.pipFairy = new Fairy(this.scene, {
+      now: () => this.time, hero: () => this.heroes[0].root.position, canAct: () => this.canAct() && !this.trial && !this.scanner.open,
+      target: (from) => this.closestEnemy(from, 19), bolt: (start, direction, spell) => this.launchBolt(start, direction, 0, spell),
+      strike: (at, spell) => { const pos = new T.Vector3(at.x, heightAt(at.x, at.z), at.z); this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color: spell.color, element: spell.element, player: 0 }); this.fx.shockwave(pos, spell.color, spell.radius, Math.max(0.3, spell.delay), 0.12); },
+      sparkle: (at, color, size) => this.fx.trail(at, color, size), toast: (text) => this.ui.toast(text),
+    }, this.phone);
     const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
     const party = await starting;
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.hud.setWands(this.seats); this.shapes.subscribe((colour, shape) => { const wand = this.keyWand(colour); if (wand) this.onShape(wand, shape); }); if (this.seated) this.seatHeroTwo(); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
@@ -1154,6 +1163,7 @@ export class Adventure {
   private update(dt: number): void {
     this.invulnerable = Math.max(0, this.invulnerable - dt);
     this.updateRunes();
+    this.pipFairy?.update(dt, this.time, heightAt);
     this.stamina = Math.min(1, this.stamina + dt * 0.16);
     if (this.keys.has('KeyC')) this.yaw += dt * 1.4;
     if (this.keys.has('KeyV')) this.yaw -= dt * 1.4;
@@ -1453,7 +1463,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.pipFairy?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();
