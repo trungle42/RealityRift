@@ -20,6 +20,7 @@ import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Elem
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
 import { CvInput } from './CvInput';
+import { Cinematics } from './Cinematics';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
 
@@ -52,6 +53,14 @@ const COMBO = [
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
 const FLASH_COOLDOWN = 6;
+/**
+ * The demo run's single wave: three shadows close in first and three more arrive a few seconds later, so the fight
+ * lasts long enough to show off (about 15-20 s) without dragging.
+ */
+const WAVE = [{ radius: 8, angle: -0.5 }, { radius: 8.8, angle: 0 }, { radius: 9.6, angle: 0.5 }, { radius: 15, angle: -0.8 }, { radius: 16.5, angle: 0.15 }, { radius: 18, angle: 0.9 }];
+const WAVE_HP = 5;
+/** `?story=full` (or window.RIFT_FULL_STORY, for the in-browser checks) plays the whole storyteller-driven tale instead of the short demo run. */
+const fullStory = () => (window as unknown as { RIFT_FULL_STORY?: boolean }).RIFT_FULL_STORY === true || new URLSearchParams(location.search).get('story') === 'full';
 interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex; color: number; element?: Element; damage: number; pierce: number; chain: number; chainRadius: number; hit: Set<Enemy> }
 /** A delayed area strike (meteor): telegraphed on the ground, lands after `delay`. */
 interface Strike { at: number; delay: number; pos: T.Vector3; radius: number; damage: number; color: number; element?: Element; player: PlayerIndex }
@@ -144,6 +153,9 @@ export class Adventure {
   private encounterBefore = 3;
   private encounterKind?: 'encounter' | 'boss';
   private bossWon = false;
+  private readonly cinema = new Cinematics();
+  /** The short demo run: brief with Willow, hold the glade against one wave, then face the boss. */
+  private demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; started: number; foes: number; willow: Position };
   private time = 0;
   private previous = 0;
   private disposed = false;
@@ -203,6 +215,11 @@ export class Adventure {
     const physics = await Physics.create(this.world.collisionSurfaces(), this.world.treeSolids);
     if (this.disposed) { physics.dispose(); return; }
     this.physics = physics;
+    // The run opens a few strides in front of Willow on the forest path, facing her.
+    const willow = this.world.objects.find((o) => o.id === 'forest:lore') ?? { x: 0.5, z: -2 };
+    const spot = { x: willow.x, z: willow.z + 5.5 };
+    this.heroes.forEach((hero, i) => { const x = spot.x + (i ? 1.6 : 0), z = spot.z + (i ? 1 : 0); hero.root.position.set(x, heightAt(x, z) + 0.2, z); hero.heading = Math.PI; hero.root.rotation.y = Math.PI; });
+    if (!fullStory()) this.demo = { stage: 'briefing', started: 0, foes: 0, willow: { x: willow.x, z: willow.z } };
     if (this.solo) { this.heroes[1].root.position.set(500, 0, 500); this.heroes[1].root.visible = false; }
     this.heroes.forEach((hero) => physics.addCharacter(hero.root.position));
     // Scenery between the camera and the hero dissolves instead of blocking the view.
@@ -215,8 +232,107 @@ export class Adventure {
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
     this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); } });
-    this.buildCamps();
-    await this.loadBeat(this.story.begin(party));
+    // The default is the short run (about a minute): talk to Willow, hold the glade against one wave, then the boss
+    // comes for you. `?story=full` plays the whole storyteller-driven tale with camps, trials and Gemini beats.
+    if (!this.demo) { this.buildCamps(); await this.loadBeat(this.story.begin(party)); return; }
+    // Wall-clock time: the game clock pauses during dialogue, but the run's time should include the briefing.
+    this.demo.started = performance.now();
+    this.yaw = 0; this.rig.snap(this.heroes[0].root.position);
+    // No golden beacon here: it would stand right on top of Willow. The quest line and the E prompt lead the way.
+    this.target = { ...this.demo.willow, name: 'Speak with Willow' }; this.world.marker.visible = false;
+    this.ui.quest('Speak with Willow', 'She waits just ahead on the path · walk up and press E');
+    this.ui.discover('The Whispering Wood');
+  }
+
+  /** Willow explains the quest: what was stolen, who took it, and why the heroes must fight. */
+  private async briefing(): Promise<void> {
+    if (!this.demo || this.demo.stage !== 'briefing' || !this.state) return;
+    this.busy = true; this.keys.clear(); this.ui.context(); this.world.marker.visible = false; this.target = undefined;
+    if (document.pointerLockElement) document.exitPointerLock();
+    const hero = this.state.party[0].name;
+    await this.cinema.briefing({ name: 'Willow', title: 'Waykeeper of the Whispering Wood', portrait: '/art/prop-lore.webp' }, [
+      `${hero}! Thank the old roots you came. Listen closely — we have very little time.`,
+      'Morwen the Frost Witch has stolen the last warm spring of Evermere. Without it, the rivers freeze, the fields die, and winter never ends.',
+      'Her shadow horde is marching on this glade to break the waystone. Hold them back, and Morwen will have to face you herself.',
+      'When she comes, roll away from her frost and strike while her ward is down. Break her spell, and the spring flows home.',
+    ], {
+      title: 'The Last Warm Spring',
+      summary: 'Defend the Whispering Wood and win back the stolen spring.',
+      objectives: ['Defeat the shadow horde', 'Face Morwen the Frost Witch', 'Restore the last warm spring'],
+    });
+    this.busy = false;
+    if (!this.ended) this.startWave();
+  }
+
+  /** One wave: the horde pours out of the treeline in front of the hero. */
+  private startWave(): void {
+    const demo = this.demo!, p = this.heroes[0].root.position;
+    demo.stage = 'wave'; demo.foes = 0;
+    this.encounterBefore = this.state!.hearts; this.encounterKind = 'encounter';
+    this.ui.quest('Defeat the shadow horde', `Shadows defeated 0 / ${WAVE.length} · J strike · F spell · Q roll`);
+    this.ui.toast('They are coming! J to strike · F to cast · Q to roll · Z to lock on');
+    this.sfx.warn(); this.rig.addTrauma(0.25);
+    // Fan the horde across the view (the camera looks down -Z here). All spawn now, so the wave can't be "cleared"
+    // early; the far group simply takes a few seconds longer to arrive.
+    for (const { radius, angle } of WAVE) {
+      this.spawnEnemy(p.x + Math.sin(Math.PI + angle) * radius, p.z + Math.cos(Math.PI + angle) * radius, undefined, true);
+      const foe = this.enemies[this.enemies.length - 1]; if (foe) foe.hp = foe.maxHp = WAVE_HP;
+    }
+  }
+
+  /** The wave is broken: Morwen arrives and strides in along the path. */
+  private async startBoss(): Promise<void> {
+    const demo = this.demo!; demo.stage = 'boss';
+    // Willow's blessing: the horde is broken, so the heroes face the witch at full strength.
+    const healed = this.state!.hearts < 3;
+    while (this.state!.hearts < 3 && this.state!.gainHeart()) { /* refill */ }
+    const at = this.heroes[0].root.position.clone().add(new T.Vector3(0, 1, 0));
+    this.fx.motes(at, 0xc9ffe0, 40, 0.8, 2.6, 0.3, 1.6); this.fx.shockwave(this.heroes[0].root.position, 0x9ff0d0, 4, 0.8);
+    this.ui.quest('Face Morwen the Frost Witch', 'Roll from her frost · strike while her ward is down');
+    this.ui.toast(healed ? 'Willow’s blessing restores your hearts · the air turns to ice…' : 'The air turns to ice…'); this.sfx.freeze();
+    await new Promise((resolve) => window.setTimeout(resolve, 1400));
+    if (this.ended || this.disposed) return;
+    const p = this.heroes[0].root.position;
+    // Tuned so the fight takes three or four dodge-then-strike cycles (about 25 s), not one lucky window.
+    const boss: BossSpec = { kind: 'frost-witch', name: 'Morwen the Frost Witch', maxHp: 28, attacks: ['frost-gaze', 'shadow-wave'], telegraphSec: 1.8, vulnerableSec: 3.2 };
+    this.encounterBefore = this.state!.hearts; this.encounterKind = 'boss';
+    // She appears on open ground with nothing between her and the hero, preferring the direction the camera already
+    // faces, so she visibly strides into view instead of getting stuck behind a signpost or tree.
+    const facing = Math.atan2(-Math.sin(this.rig.viewYaw), -Math.cos(this.rig.viewYaw)), eye = new T.Vector3(p.x, p.y + 1.2, p.z);
+    let spot = { x: p.x, z: p.z - 13 }, best = -Infinity;
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, x = p.x + Math.sin(a) * 13, z = p.z + Math.cos(a) * 13;
+      const open = encounterSpawn({ x, z }, p, this.world.solids);
+      if (Math.hypot(open.x - x, open.z - z) > 0.5 || heightAt(x, z) < -0.3) continue;
+      if (this.physics?.wallDistance(eye, new T.Vector3(x, heightAt(x, z) + 1.2, z)) !== undefined) continue;
+      const score = Math.cos(a - facing); if (score > best) { best = score; spot = { x, z }; }
+    }
+    this.spawnEnemy(spot.x, spot.z, boss, true); this.sfx.roar(); this.rig.addTrauma(0.6);
+    const spawned = this.enemies[this.enemies.length - 1];
+    if (spawned) {
+      this.fx.shockwave(spawned.root.position, 0x9fc6ff, 10, 1.2, 0.1); this.fx.sparks(spawned.root.position.clone().add(new T.Vector3(0, 1.5, 0)), 0x9fc6ff, 60, 9, 0.3, 1.2, 2);
+      spawned.cooldown = 3; this.lock = spawned; this.sfx.lockOn();
+    }
+    this.cinema.bossIntro('Morwen', 'The Frost Witch');
+  }
+
+  /** Quest complete (or the hero fell): celebrate, then show the run's result. */
+  private async endDemo(victory: boolean): Promise<void> {
+    const demo = this.demo!; if (demo.stage === 'done') return;
+    demo.stage = 'done'; this.ended = true; this.busy = true; this.keys.clear(); this.ui.boss(); this.ui.context();
+    const seconds = (performance.now() - demo.started) / 1000;
+    if (victory) {
+      this.ui.quest('The spring flows again', 'Evermere is warm once more');
+      const p = this.heroes[0].root.position.clone().add(new T.Vector3(0, 1, 0));
+      this.fx.motes(p, 0xffe7a6, 90, 2, 4, 0.35, 2.4); this.fx.shockwave(this.heroes[0].root.position, 0xffe2a0, 12, 1.4); this.fx.flash(p, 0xffd88a, 30, 1.2);
+      this.sfx.success();
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, victory ? 2600 : 1400));
+    if (document.pointerLockElement) document.exitPointerLock();
+    await this.cinema.result({
+      victory, seconds, foes: demo.foes + (victory ? 1 : 0), hearts: this.state!.hearts, stars: this.state!.stars[0] + this.state!.stars[1], hero: this.state!.party[0].name,
+      closing: victory ? '“You did more than win a battle. You gave Evermere its spring back.” — Willow' : '“Rise, hero. The frost has not won — not yet.” — Willow',
+    });
   }
 
   private async loadModels(): Promise<void> {
@@ -306,6 +422,7 @@ export class Adventure {
     this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onScan = () => void this.openScan(); this.ui.onFlash = () => this.flashStep(0); this.ui.onMap = () => this.openJournal();
     this.ui.onSound = () => { this.sound = !this.sound; this.sfx.setMuted(!this.sound); this.narrator.enabled = this.sound; if (!this.sound) this.narrator.stop(); this.ui.sound(this.sound); };
     this.ui.onNarrate = (text) => this.narrator.speak(text); this.ui.onSilence = () => this.narrator.stop();
+    this.cinema.onNarrate = (text) => this.narrator.speak(text); this.cinema.onSilence = () => this.narrator.stop();
     this.ui.root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((button) => {
       const key = button.dataset.key!;
       button.onpointerdown = (event) => { event.preventDefault(); button.setPointerCapture(event.pointerId); this.keys.add(key); };
@@ -331,6 +448,7 @@ export class Adventure {
   private async interact(): Promise<void> {
     if (!this.state || this.busy || this.ui.blocked || this.ended || this.trial || this.encounterKind) return;
     const p = this.heroes[0].root.position;
+    if (this.demo?.stage === 'briefing') { if (distance(p, this.demo.willow) < 3.6) await this.briefing(); return; }
     if (this.target && distance(p, this.target) < 3.2) { await this.runBeat(); return; }
     const object = this.nearest;
     if (!object) return;
@@ -404,6 +522,11 @@ export class Adventure {
   }
 
   private async complete(kind: OutcomeKind, success: boolean, before: number, summary: string, choiceId?: string): Promise<void> {
+    if (this.demo && this.state && !this.ended) {
+      this.encounterKind = undefined;
+      if (kind === 'encounter') await this.startBoss(); else if (kind === 'boss') { this.bossWon = success; await this.endDemo(success); }
+      return;
+    }
     if (!this.state || !this.beat || this.ended) return;
     this.ui.challenge(); this.ui.boss(); this.trial = undefined; this.encounterKind = undefined;
     this.heroes.forEach((hero) => { hero.pose = ''; });
@@ -788,6 +911,10 @@ export class Adventure {
       if (!enemy.encounter && !enemy.boss) { this.drop(enemy.root.position); if (enemy.elite) this.drop(enemy.root.position.clone().add(new T.Vector3(0.6, 0, 0.4))); }
       if (enemy.pawn !== undefined) { this.physics?.removeCharacter(enemy.pawn); enemy.pawn = undefined; }
       this.ui.toast(enemy.boss ? 'The frost breaks. Spring remembers your name.' : 'Shadow dispelled · +2 starlight');
+      if (this.demo?.stage === 'wave' && !enemy.boss) {
+        this.demo.foes++;
+        this.ui.quest('Defeat the shadow horde', `Shadows defeated ${this.demo.foes} / ${WAVE.length}${this.demo.foes < WAVE.length ? '' : ' · the horde is broken!'}`);
+      }
       if (enemy.encounter && this.encounterKind && !this.enemies.some((e) => e.encounter && e.hp > 0)) {
         const kind = this.encounterKind; this.encounterKind = undefined;
         void this.complete(kind, true, this.encounterBefore, kind === 'boss' ? 'The heroes defeated the guardian and restored the spring.' : 'The heroes drove back the gathering shadows.');
@@ -805,6 +932,7 @@ export class Adventure {
 
   private async finish(victory: boolean): Promise<void> {
     if (this.ended || !this.state) return;
+    if (this.demo) { await this.endDemo(victory); return; }
     this.ended = true; this.busy = true; this.keys.clear(); this.ui.challenge(); this.ui.boss(); this.ui.context();
     if (this.encounterKind && this.beat) {
       this.state.outcomes.push({ beatId: this.beat.id, kind: this.encounterKind, success: false, heartsLost: Math.max(0, this.encounterBefore - this.state.hearts), summary: 'The shadows overcame the heroes, but their story can begin again.', perPlayer: [{ success: false, stars: 0 }, { success: false, stars: 0 }] });
@@ -1054,7 +1182,8 @@ export class Adventure {
         enemy.windup -= dt; enemy.ring.visible = true; enemy.ring.scale.setScalar(1 + Math.sin(this.time * 11) * 0.04);
         if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away' + this.fearsLine(enemy.boss.kind));
         if (enemy.windup <= 0) {
-          enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : 2;
+          // In the demo run the horde swings a little less often, so a six-strong wave is fierce but survivable.
+          enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : this.demo ? 2.6 : 2;
           // Regular foes lunge into the strike.
           if (!enemy.boss) { const lunge = target.root.position.clone().sub(p).setY(0); if (lunge.lengthSq() > 0.01) enemy.knock.add(lunge.normalize().multiplyScalar(7)); }
           this.burst(p.clone().add(new T.Vector3(0, 0.2, 0)), enemy.boss ? 0xa4d8df : 0xf7b69a, 17);
@@ -1078,14 +1207,17 @@ export class Adventure {
         }
         const engaged = enemy.encounter || !!enemy.boss || enemy.ai === 'chase';
         const walk = (to: Position, speed: number) => { const dx = to.x - p.x, dz = to.z - p.z, len = Math.hypot(dx, dz); if (len > 0.4) { motion.x += dx / len * speed * dt; motion.z += dz / len * speed * dt; face = Math.atan2(dx, dz); } };
-        if (engaged && d < (enemy.boss ? 11 : 2.6) && enemy.cooldown <= 0) {
-          enemy.windup = enemy.boss ? enemy.boss.telegraphSec : 0.9;
+        // In the demo run at most two of the horde wind up at once, with a longer, readable telegraph.
+        const crowded = !!this.demo && !enemy.boss && this.enemies.filter((e) => !e.boss && e.hp > 0 && e.windup > 0).length >= 2;
+        if (engaged && d < (enemy.boss ? 11 : 2.6) && enemy.cooldown <= 0 && !crowded) {
+          enemy.windup = enemy.boss ? enemy.boss.telegraphSec : this.demo ? 1.15 : 0.9;
           enemy.attack = enemy.boss ? enemy.boss.attacks[Math.floor(this.time) % enemy.boss.attacks.length] : 'strike';
           // The punch winds up through the telegraph and lands as the strike resolves.
           if (enemy.actor && !enemy.boss) { const a = enemy.actor; a.attackClip = 'punch_right'; a.attack = a.attackLength = enemy.windup + 0.35; a.attackContact = enemy.windup; a.attackSerial++; }
           this.fx.warn(p.clone().add(new T.Vector3(0, enemy.boss ? 3.6 : enemy.elite ? 2.3 : 1.7, 0))); this.sfx.warn();
         } else if (engaged && d < (enemy.encounter ? 35 : enemy.boss ? 12 : 30) && d > (enemy.boss ? 5 : 1.7)) {
-          walk(target.root.position, enemy.boss ? 1.4 : enemy.encounter ? 2.3 : enemy.elite ? 2.6 : 3.0);
+          // A boss strides in from afar, then closes the last few steps slowly and deliberately.
+          walk(target.root.position, enemy.boss ? (d > 9 ? 3.2 : 1.4) : enemy.encounter ? 2.3 : enemy.elite ? 2.6 : 3.0);
           face = Math.atan2(target.root.position.x - p.x, target.root.position.z - p.z);
         } else if (enemy.ai === 'return') walk(enemy.home, 3.2);
         else if (enemy.ai === 'idle' && enemy.wander) walk(enemy.wander, 1.1);

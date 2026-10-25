@@ -187,3 +187,51 @@
 .weapon-badge b { color: var(--rift); font-size: 14px; letter-spacing: 0.03em; }
 .weapon-badge span { text-transform: capitalize; opacity: 0.8; }
 @media (max-width: 720px) { .weapon-badge { bottom: 112px; } }
+
+/* Demo run: NPC briefing, quest card, boss title card and the closing result (Cinematics.ts). */
+.npc-briefing { position: fixed; inset: 0; z-index: 50; display: grid; align-items: end; justify-items: center; padding: 0 16px 34px; background: linear-gradient(0deg, #0d1f18e6 0%, #0d1f1870 32%, transparent 60%); color: var(--game-text); opacity: 0; transition: opacity 320ms ease; cursor: pointer; }
+.npc-briefing.visible { opacity: 1; }
+.npc-panel { display: grid; grid-template-columns: 150px 1fr; gap: 22px; width: min(860px, 100%); padding: 18px 24px 16px 18px; background: var(--game-panel); border: 1px solid #dec89199; border-radius: 6px; box-shadow: 0 18px 50px #0a1a1490, inset 0 0 0 4px #19372f, inset 0 0 0 5px #dec89133; transform: translateY(14px); transition: transform 380ms cubic-bezier(.2, 1.3, .4, 1); }
+.npc-briefing.visible .npc-panel { transform: none; }
+.npc-portrait { width: 150px; height: 170px; margin-top: -58px; border: 2px solid var(--game-gold); border-radius: 6px; overflow: hidden; background: radial-gradient(circle at 50% 30%, #6f9a7d, #1c3a2f 70%); box-shadow: 0 10px 28px #0a1a14a0; }
+.npc-portrait img { width: 100%; height: 135%; object-fit: cover; object-position: 50% 4%; }
+.npc-name { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--game-line); padding-bottom: 6px; }
+.npc-name strong { font: 600 21px 'Cinzel', Georgia, serif; color: var(--game-gold); letter-spacing: .02em; }
+.npc-name span { font: italic 13px Georgia, serif; color: var(--game-muted); }
+.npc-line { min-height: 3.1em; margin: 10px 0 8px; font: 22px/1.45 'IM Fell English', Georgia, serif; text-wrap: pretty; }
+.npc-next { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font: 11px system-ui, sans-serif; color: var(--game-muted); }
+.npc-next kbd { font: 11px/1.2 system-ui, sans-serif; border: 1px solid #e7e9d270; border-radius: 3px; padding: 3px 6px; background: #172e2770; color: var(--game-text); }
+.npc-step { margin-right: auto; letter-spacing: .1em; }
+.npc-briefing.typing .npc-next { opacity: .35; }
+.npc-briefing.accepting .npc-panel { opacity: .35; filter: blur(1px); transition: opacity 300ms, filter 300ms; }
+.quest-card { position: fixed; left: 50%; top: 46%; width: min(440px, calc(100vw - 32px)); padding: 26px 30px 24px; text-align: center; background: #13291fF2; border: 1px solid var(--game-gold); border-radius: 6px; box-shadow: 0 0 0 5px #13291f, 0 0 0 6px #f0d48e55, 0 30px 80px #000a; transform: translate(-50%, -44%) scale(.94); opacity: 0; transition: opacity 280ms, transform 380ms cubic-bezier(.2, 1.4, .4, 1); cursor: default; }
+.quest-card.visible { opacity: 1; transform: translate(-50%, -50%); }
+.quest-new { font: 600 11px system-ui, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--game-gold); }
+.quest-card h2 { margin: 8px 0 6px; font: 600 30px 'Cinzel', Georgia, serif; }
+.quest-card p { margin: 0 0 14px; font: 17px/1.45 'IM Fell English', Georgia, serif; color: var(--game-muted); }
+.quest-card ul { list-style: none; margin: 0 0 20px; padding: 0; text-align: left; display: grid; gap: 8px; font: 14px system-ui, sans-serif; }
+.quest-card li { padding-left: 26px; position: relative; }
+.quest-card li::before { content: '◇'; position: absolute; left: 4px; color: var(--game-gold); }
+.quest-card kbd { margin-left: 12px; font: 10px system-ui, sans-serif; color: #253b2b; background: #253b2b14; border: 1px solid #253b2b70; border-radius: 3px; padding: 2px 5px; }
+.boss-intro { position: fixed; left: 0; right: 0; top: 30%; z-index: 45; text-align: center; color: #eaf6ff; pointer-events: none; opacity: 0; transform: scale(1.08); transition: opacity 500ms ease, transform 900ms ease; text-shadow: 0 0 30px #6fb7e8, 0 3px 14px #0b1a24; }
+.boss-intro.visible { opacity: 1; transform: none; }
+.boss-intro span { font: italic 18px 'IM Fell English', Georgia, serif; letter-spacing: .08em; color: #bfe3ff; }
+.boss-intro h1 { margin: 4px 0 10px; font: 600 clamp(36px, 6vw, 72px)/1 'Cinzel', Georgia, serif; letter-spacing: .06em; text-transform: uppercase; }
+.boss-intro i { display: block; width: min(520px, 70vw); height: 2px; margin: 0 auto; background: linear-gradient(90deg, transparent, #bfe3ff, transparent); }
+.run-result { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; color: var(--game-text); background: radial-gradient(circle at 50% 40%, #f6d99044, #10241bdd 60%, #0a1712f2); opacity: 0; transition: opacity 700ms ease; }
+.run-result.lost { background: radial-gradient(circle at 50% 40%, #9fd3e833, #0e1c22dd 60%, #081116f2); }
+.run-result.visible { opacity: 1; }
+.result-card { width: min(520px, 100%); text-align: center; padding: 34px 34px 28px; background: #13291fF0; border: 1px solid var(--game-gold); border-radius: 6px; box-shadow: 0 0 0 6px #13291f, 0 0 0 7px #f0d48e55, 0 30px 90px #000b; transform: translateY(16px) scale(.97); transition: transform 800ms cubic-bezier(.2, 1.3, .4, 1); }
+.run-result.visible .result-card { transform: none; }
+.result-kicker { font: 600 12px system-ui, sans-serif; letter-spacing: .3em; text-transform: uppercase; color: var(--game-gold); }
+.result-card h1 { margin: 10px 0 8px; font: 600 clamp(30px, 5vw, 44px)/1.1 'Cinzel', Georgia, serif; }
+.result-line { margin: 0 auto 20px; max-width: 400px; font: 18px/1.45 'IM Fell English', Georgia, serif; color: var(--game-muted); }
+.result-card dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 20px; }
+.result-card dl div { padding: 10px 4px; border: 1px solid var(--game-line); border-radius: 4px; background: #0f2019; }
+.result-card dt { font: 10px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--game-muted); }
+.result-card dd { margin: 4px 0 0; font: 600 18px Georgia, serif; color: var(--game-gold); }
+.result-card blockquote { margin: 0 0 22px; font: italic 16px/1.5 'IM Fell English', Georgia, serif; }
+@media (max-width: 620px) {
+  .npc-panel { grid-template-columns: 1fr; } .npc-portrait { width: 96px; height: 110px; margin-top: -50px; }
+  .npc-line { font-size: 18px; } .result-card dl { grid-template-columns: repeat(2, 1fr); }
+}

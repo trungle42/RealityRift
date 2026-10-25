@@ -8,6 +8,8 @@ import type { GameState } from '../src/game/GameState';
 // no test globals or control hooks are added to the production application.
 // These checks cover both heroes (companion, player two), so run the two-player mode.
 (window as unknown as { RIFT_PLAYERS: number }).RIFT_PLAYERS = 2;
+// They walk the full storyteller-driven tale, not the short demo run the game opens with by default.
+(window as unknown as { RIFT_FULL_STORY: boolean }).RIFT_FULL_STORY = true;
 
 interface Internals {
   state: GameState; beat: StoryBeat; busy: boolean; ended: boolean; yaw: number; stamina: number; time: number;
