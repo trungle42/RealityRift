@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $gitRoot = (& git -C $repoRoot rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or [IO.Path]::GetFullPath($gitRoot.Trim()) -ne [IO.Path]::GetFullPath($repoRoot)) {

@@ -62,7 +62,7 @@ Open http://localhost:5173 and begin. Without the private art pack, the game sti
 ./scripts/install-art-pack.sh ~/Downloads/storybound-art-pack.zip
 
 # Windows PowerShell
-.\scripts\install-art-pack.ps1 C:\\Users\\you\\Downloads\\storybound-art-pack.zip
+.\scripts\install-art-pack.ps1 C:/Users/you/Downloads/storybound-art-pack.zip
 ```
 
 The scripts install only the ignored `assetyard/` and `polyhaven/` models under `frontend/public/models/`.
