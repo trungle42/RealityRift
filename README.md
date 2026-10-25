@@ -239,6 +239,20 @@ uv pip install --python .venv/bin/python -r requirements.txt               # onc
 
 The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam. The tracker holds the webcam while it runs, so check that the scanner (**X**) still opens the camera on the demo laptop.
 
+## Demo in one command
+
+Once the setup above is done (`backend/.venv`, `frontend/node_modules`, `cv_2/.venv`), one command from the repo root starts all three pieces:
+
+```bash
+./scripts/demo.sh            # macOS / Linux
+```
+
+```powershell
+.\scripts\demo.ps1           # Windows
+```
+
+It starts the backend (open to the local network, for the phone), the game and the tracker window, then prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--no-tracker` (`-NoTracker` on Windows) to run without the webcam, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+
 ## Controls
 
 Checked against `bindInput()` and the movement code in `frontend/src/adventure/Adventure.ts`.

@@ -198,7 +198,12 @@
 .rift-panel .armory-item span { color: var(--rift); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .relic-card, .relic-card::after { animation: none; } }
 /* Both weapons per hero: sword and wand, the relic element infusing them, the wand's last shape and its cooldown. */
-.weapons-hud { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 20; display: grid; gap: 6px; pointer-events: none; font: 13px Georgia, serif; color: var(--game-text); }
+/* Heroes side by side (wrapping only when narrow), just above the action icons. Toasts and the interact prompt stack above
+   it via --weapons-hud-top, which WeaponsHud keeps equal to its top edge (px above the window bottom). */
+.weapons-hud { position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); z-index: 20; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 10px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; font: 13px Georgia, serif; color: var(--game-text); }
+.weapons-hud.duo .weapon-relic { display: none; }
+.game-toast { bottom: calc(var(--weapons-hud-top, 85px) + 8px); }
+.game-context { bottom: calc(var(--weapons-hud-top, 69px) + 56px); }
 .weapons-hud[hidden] { display: none; }
 .weapons-row { --rift: #c4a8ff; display: flex; gap: 12px; align-items: center; padding: 6px 14px; border-radius: 999px; background: #0f2019cc; border: 1px solid var(--rift); box-shadow: 0 0 18px color-mix(in srgb, var(--rift) 40%, transparent); white-space: nowrap; }
 .weapons-name { color: var(--game-gold); font-size: 13px; }
@@ -208,7 +213,9 @@
 .wand-cool { position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; border-radius: 1px; background: var(--rift); transform-origin: left; transform: scaleX(0); }
 @keyframes wand-cool { from { transform: scaleX(1); opacity: 1; } to { transform: scaleX(0); opacity: 0.4; } }
 .weapon-relic { opacity: 0.75; font-style: italic; }
-@media (max-width: 720px) { .weapons-hud { bottom: 112px; } .weapon-relic { display: none; } }
+/* Narrow windows: the centred interact prompt would reach the camera wand panel (bottom-left), so it moves to the right edge. */
+@media (max-width: 720px) { .weapon-relic { display: none; } .game-context { left: auto; right: 16px; transform: none; } }
+@media (max-width: 520px) { .weapons-hud { bottom: 112px; } }
 @media (prefers-reduced-motion: reduce) { .wand-cool { animation: none !important; } }
 
 /* Demo run: NPC briefing, quest card, boss title card and the closing result (Cinematics.ts). */
