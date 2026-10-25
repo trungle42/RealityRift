@@ -118,7 +118,10 @@ export class ScriptedStory implements StoryProvider {
             encounter: { enemy: 'thorn-imp', count: 4, speed: 1.2 },
           };
         }
-        return lanternFairy(route, `The seal glows gold and swings open. Beyond it, something small is crying for help.`);
+        return showMe(route);
+
+      case 'show-me':
+        return lanternFairy(route, last.success ? `The door hums, pleased with what you showed it, and swings open. Beyond it, something small is crying for help.` : `The door sighs and creaks open anyway. Beyond it, something small is crying for help.`);
 
       case 'thorn-guard':
         return lanternFairy(route, last.success ? `The last imp scampers off. The path is clear — and something small is crying for help.` : `Battered but unbowed, you push past the imps. Nearby, something small is crying for help.`);
@@ -187,6 +190,22 @@ function names(party: [Player, Player]): [string, string] {
 function routeOf(history: GameHistory): EnvironmentId {
   const choice = history.outcomes.find((o) => o.beatId === 'crossroads')?.choiceId;
   return choice === 'cave' ? 'cave' : 'castle';
+}
+
+/** Reality Rift: a second door asks the player to show a real object to the webcam. */
+function showMe(env: EnvironmentId): StoryBeat {
+  const object = env === 'castle' ? 'a book' : 'a bottle or a cup';
+  return {
+    id: 'show-me',
+    chapter: 'Chapter III · The Riddle Door',
+    environment: env,
+    speaker: 'The Riddle Door',
+    narration: [
+      `The seal glows gold and swings open, but a second door waits behind it. A pair of carved eyes blinks awake.`,
+      `"I have never seen your world," it murmurs. "Show me ${object} from it, and I will let you pass."`,
+    ],
+    challenge: { type: 'show', prompt: `Show the door ${object}!`, object },
+  };
 }
 
 function lanternFairy(env: EnvironmentId, opening: string): StoryBeat {

@@ -33,7 +33,7 @@ def assert_story_beat(beat):
     assert len(actions) <= 1
     if "challenge" in beat:
         challenge = beat["challenge"]
-        assert challenge["type"] in {"freeze", "pose", "vote"}
+        assert challenge["type"] in {"freeze", "pose", "vote", "show"}
         assert isinstance(challenge["prompt"], str)
         if challenge["type"] == "freeze":
             assert isinstance(challenge["durationSec"], (int, float))
@@ -42,6 +42,8 @@ def assert_story_beat(beat):
             assert challenge["poses"]
             assert all(pose in {"arms-up", "t-pose", "crouch"} for pose in challenge["poses"])
             assert challenge["secondsPerPose"] > 0
+        elif challenge["type"] == "show":
+            assert isinstance(challenge["object"], str) and challenge["object"]
         else:
             assert len(challenge["options"]) == 2
             assert all(set(option) == {"id", "label"} for option in challenge["options"])
@@ -84,7 +86,8 @@ def test_full_happy_path_follows_engine_contract(monkeypatch):
         (("frost-spell", "freeze", True, None), "spirit-gift"),
         (("spirit-gift", "story", True, None), "crossroads"),
         (("crossroads", "vote", True, "cave"), "gate"),
-        (("gate", "pose", True, None), "lantern-fairy"),
+        (("gate", "pose", True, None), "show-me"),
+        (("show-me", "show", True, None), "lantern-fairy"),
         (("lantern-fairy", "vote", True, "free"), "fairy-joins"),
         (("fairy-joins", "story", True, None), "boss"),
         (("boss", "boss", True, None), "ending-victory"),
@@ -171,3 +174,14 @@ def test_provider_request_catalogs_and_bounds_are_validated():
     bad_outcome = {"beatId": "intro", "kind": "object_quest", "success": True}
     response = client.post("/api/provider/next", json={"history": bad_history, "last": bad_outcome})
     assert response.status_code == 422
+
+
+def test_show_me_asks_for_a_route_object_and_a_miss_still_moves_on(monkeypatch):
+    monkeypatch.setattr("app.gemini._generate", fake_text)
+    cave = step(None, [("crossroads", "vote", True, "cave")], ("gate", "pose", True, None)).json()
+    castle = step(None, [("crossroads", "vote", True, "castle")], ("gate", "pose", True, None)).json()
+    assert_story_beat(cave)
+    assert_story_beat(castle)
+    assert cave["challenge"]["object"] == "a bottle or a cup" and castle["challenge"]["object"] == "a book"
+    after = step(None, [("crossroads", "vote", True, "cave")], ("show-me", "show", False, None)).json()
+    assert after["id"] == "lantern-fairy"

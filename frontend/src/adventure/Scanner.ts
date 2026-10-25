@@ -1,10 +1,12 @@
+import { parseVerifyResponse } from './quest';
 import { ABILITY_LABEL, fitWithin, makeWeapon, parseArtifactResponse, type Weapon } from './weapon';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 const REQUEST_SECONDS = 25;
 const THINKING = ['The rift is opening…', 'The storyteller is studying your object…', 'Something old is answering…', 'A weapon is taking shape…'];
 
-type Phase = 'live' | 'thinking' | 'result' | 'error';
+type Phase = 'live' | 'thinking' | 'result' | 'error' | 'matched' | 'nomatch';
+interface Quest { object: string; prompt: string; resolve: (ok: boolean) => void }
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 /**
@@ -21,6 +23,8 @@ export class Scanner {
   private phase: Phase = 'live';
   private weapon?: Weapon;
   private abort?: AbortController;
+  private quest?: Quest;
+  private seen = '';
   private ticker = 0;
   private readonly badge = document.createElement('div');
 
@@ -42,6 +46,17 @@ export class Scanner {
     this.badge.append(name, meta);
   }
 
+  /**
+   * "Show me X" quest: same camera and photo-upload path, but the photo goes to /api/verify and the
+   * result is only whether the object matched. Resolves true on a match; Skip or Escape resolves false.
+   */
+  ask(object: string, prompt: string): Promise<boolean> {
+    if (this.open) return Promise.resolve(false);
+    return new Promise((resolve) => { this.quest = { object, prompt, resolve }; this.seen = ''; void this.show(); });
+  }
+
+  private settle(ok: boolean): void { const quest = this.quest; this.quest = undefined; quest?.resolve(ok); }
+
   async show(): Promise<void> {
     if (this.open) return;
     this.open = true; this.root.hidden = false; this.weapon = undefined;
@@ -50,7 +65,7 @@ export class Scanner {
 
   close(): void {
     if (!this.open) return;
-    this.open = false; this.root.hidden = true; this.abort?.abort(); clearInterval(this.ticker); this.stopCamera(); this.onClose();
+    this.open = false; this.root.hidden = true; this.abort?.abort(); clearInterval(this.ticker); this.stopCamera(); this.onClose(); this.settle(false);
   }
 
   dispose(): void { window.removeEventListener('keydown', this.onKey, true); this.close(); this.root.remove(); this.badge.remove(); }
@@ -63,7 +78,8 @@ export class Scanner {
     event.preventDefault();
     if (this.phase === 'live') void this.captureFromCamera();
     else if (this.phase === 'result') this.equip();
-    else if (this.phase === 'error') void this.startCamera();
+    else if (this.phase === 'matched') this.finishQuest();
+    else if (this.phase === 'error' || this.phase === 'nomatch') void this.startCamera();
   };
 
   // ---- camera ----
@@ -100,8 +116,15 @@ export class Scanner {
     this.render('thinking');
     this.abort = new AbortController(); const timeout = window.setTimeout(() => this.abort?.abort(), REQUEST_SECONDS * 1000);
     try {
-      const res = await fetch(`${API}/api/artifact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, mimeType: 'image/jpeg' }), signal: this.abort.signal });
+      const quest = this.quest;
+      const res = await fetch(`${API}${quest ? '/api/verify' : '/api/artifact'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, mimeType: 'image/jpeg', ...(quest ? { object: quest.object } : {}) }), signal: this.abort.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (quest) {
+        const verdict = parseVerifyResponse(await res.json());
+        if (!verdict) throw new Error('unexpected response');
+        if (!this.open) return;
+        this.seen = verdict.seen; this.stopCamera(); this.render(verdict.match ? 'matched' : 'nomatch'); return;
+      }
       const parsed = parseArtifactResponse(await res.json());
       if (!parsed) throw new Error('unexpected response');
       if (!this.open) return;
@@ -109,9 +132,11 @@ export class Scanner {
     } catch (error) {
       if (!this.open) return;
       const aborted = (error as { name?: string }).name === 'AbortError';
-      this.render('error', aborted ? 'The rift took too long to answer. Check the backend, then try again.' : 'The rift could not be opened. Is the backend running?');
+      this.render('error', aborted ? 'The rift took too long to answer. Check the backend, then try again.' : this.quest ? 'The door could not look. Is the backend running? You can skip.' : 'The rift could not be opened. Is the backend running?');
     } finally { window.clearTimeout(timeout); }
   }
+
+  private finishQuest(): void { this.stopCamera(); this.open = false; this.root.hidden = true; clearInterval(this.ticker); this.onClose(); this.settle(true); }
 
   private equip(): void {
     if (!this.weapon) return;
@@ -125,17 +150,18 @@ export class Scanner {
     const button = (label: string, hint: string, onClick: () => void, primary = false) => { const b = el('button', primary ? 'primary' : '', label); b.type = 'button'; if (hint) { const k = el('kbd', '', hint); b.append(k); } b.onclick = onClick; return b; };
 
     if (phase === 'live') {
-      this.panel.append(el('h2', '', 'Open a rift'), el('p', 'lede', 'Hold a real object up to the camera: a bottle, a phone, a pen, a shoe. Gemini will turn it into a weapon.'));
+      const quest = this.quest;
+      this.panel.append(el('h2', '', quest ? 'The door is listening' : 'Open a rift'), el('p', 'lede', quest ? `${quest.prompt} Hold ${quest.object} up to the camera.` : 'Hold a real object up to the camera: a bottle, a phone, a pen, a shoe. Gemini will turn it into a weapon.'));
       if (note) this.panel.append(el('p', 'note', note));
       const actions = el('div', 'actions');
-      if (this.stream) actions.append(button('Scan the object', 'Enter', () => void this.captureFromCamera(), true));
+      if (this.stream) actions.append(button(quest ? 'Show it' : 'Scan the object', 'Enter', () => void this.captureFromCamera(), true));
       const file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.hidden = true; file.onchange = () => { const f = file.files?.[0]; if (f) void this.captureFromFile(f); };
-      actions.append(button('Choose a photo', '', () => file.click(), !this.stream), file, button('Close', 'Esc', () => this.close()));
+      actions.append(button('Choose a photo', '', () => file.click(), !this.stream), file, button(quest ? 'Skip' : 'Close', 'Esc', () => this.close()));
       this.panel.append(actions);
     } else if (phase === 'thinking') {
       const ring = el('div', 'ring'); let i = 0; const line = el('p', 'lede', THINKING[0]);
       this.ticker = window.setInterval(() => { i = (i + 1) % THINKING.length; line.textContent = THINKING[i]; }, 1600);
-      this.panel.append(ring, el('h2', '', 'Reading your object'), line);
+      this.panel.append(ring, el('h2', '', this.quest ? 'The door is looking' : 'Reading your object'), line);
     } else if (phase === 'result' && this.weapon) {
       const w = this.weapon, color = hex(w.spell.color); this.panel.style.setProperty('--rift', color);
       const rarity = el('span', `rarity ${w.rarity}`, w.rarity);
@@ -145,9 +171,15 @@ export class Scanner {
       if (w.source === 'fallback') this.panel.append(el('p', 'note', 'Gemini was unavailable, so the rift conjured a stand-in weapon.'));
       const actions = el('div', 'actions'); actions.append(button('Take it', 'Enter', () => this.equip(), true), button('Scan something else', '', () => void this.startCamera()));
       this.panel.append(actions);
+    } else if (phase === 'matched' && this.quest) {
+      this.panel.append(el('h2', '', 'The door accepts'), el('p', 'lede', this.seen ? `It sees ${this.seen}, and that is just what it wanted.` : 'It is just what the door wanted.'));
+      const actions = el('div', 'actions'); actions.append(button('Go through', 'Enter', () => this.finishQuest(), true)); this.panel.append(actions);
+    } else if (phase === 'nomatch' && this.quest) {
+      this.panel.append(el('h2', '', 'Not quite'), el('p', 'lede', this.seen ? `The door sees ${this.seen}, but it asked for ${this.quest.object}.` : `The door does not see ${this.quest.object}.`));
+      const actions = el('div', 'actions'); actions.append(button('Try again', 'Enter', () => void this.startCamera(), true), button('Skip', 'Esc', () => this.close())); this.panel.append(actions);
     } else {
       this.panel.append(el('h2', '', 'The rift slipped'), el('p', 'note', note));
-      const actions = el('div', 'actions'); actions.append(button('Try again', 'Enter', () => void this.startCamera(), true), button('Close', 'Esc', () => this.close())); this.panel.append(actions);
+      const actions = el('div', 'actions'); actions.append(button('Try again', 'Enter', () => void this.startCamera(), true), button(this.quest ? 'Skip' : 'Close', 'Esc', () => this.close())); this.panel.append(actions);
     }
   }
 }

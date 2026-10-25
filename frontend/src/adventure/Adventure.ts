@@ -361,6 +361,12 @@ export class Adventure {
       const choice = await this.ui.choose(beat.challenge.prompt, beat.challenge.options);
       this.busy = false; await this.complete('vote', true, 0, `They chose ${beat.challenge.options.find((o) => o.id === choice)?.label ?? choice}.`, choice); return;
     }
+    if (beat.challenge?.type === 'show') {
+      const { object, prompt } = beat.challenge; this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+      const ok = await this.scanner.ask(object, prompt); this.busy = false;
+      if (ok) this.ui.toast('The door swings open for you.');
+      await this.complete('show', ok, this.state!.hearts, ok ? `They showed the door ${object} from their own world.` : `They could not show the door ${object}.`); return;
+    }
     this.busy = false;
     if (beat.challenge?.type === 'freeze') {
       this.trial = { type: 'freeze', elapsed: 0, duration: beat.challenge.durationSec, moved: 0, held: 0, poseIndex: 0, poses: [], secondsPerPose: 0, before: this.state!.hearts };
