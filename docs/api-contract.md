@@ -182,7 +182,10 @@ Relay in `backend/app/cv.py`, the same pattern as `/ws/joystick/{room}`. **Only 
 the network (`--host 0.0.0.0`) so the phone can reach `/joystick`, and the relay carries the player's webcam picture, so a client
 that is not loopback (`127.0.0.1`, `::1`) is refused (closed with 1008 before the handshake completes, HTTP 403) unless the backend
 runs with `CV_ALLOW_REMOTE=1`, for a deliberate multi-machine setup. The tracker and the game always run on the same laptop; the
-phone only uses `/ws/joystick`, which stays open to the network. `room` is 1-32 of `A-Za-z0-9_-`; the game uses its `?room=` URL
+phone only uses `/ws/joystick`, which stays open to the network. **And only the game's own pages:** any web page open in the
+player's browser also connects from loopback, so a connection that sends an `Origin` header (browsers always do) must come from
+`CORS_ORIGINS` or match `CORS_ORIGIN_REGEX` (the backend's CORS rule; default any `http://localhost` or `http://127.0.0.1` port),
+or it is refused the same way. The Python tracker sends no `Origin` and is allowed. `room` is 1-32 of `A-Za-z0-9_-`; the game uses its `?room=` URL
 parameter (default `storybound`), shared with the phone joystick. A bad room or role is closed with code 1008. Each side gets
 `{type:"peer", role, state:"joined"|"left"}` when the other side connects or leaves, and a newcomer is told who is already there.
 Every message is rebuilt from the fields below (types checked, numbers clamped, names limited to `^[a-z][a-z0-9_-]{0,15}$`, at most
