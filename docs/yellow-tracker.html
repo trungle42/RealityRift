@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yellow Tracker Guide</title>
+<style>
+  :root {
+    --bg: #fafaf8; --fg: #1c1c1e; --muted: #5f6674; --line: #b9bec7; --node: #ffffff;
+    --card: #ffffff; --code: #f0f1f4; --acc: #2563eb; --acc-soft: rgba(37, 99, 235, .13);
+    --warn: #b45309; --warn-soft: rgba(217, 119, 6, .18); --ok: #15803d; --gold: #d49a00;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --fg: #e7e9ee; --muted: #a0a8b8; --line: #3d4452; --node: #1a1e26;
+      --card: #171a21; --code: #1d212a; --acc: #7db2ff; --acc-soft: rgba(125, 178, 255, .17);
+      --warn: #f5b455; --warn-soft: rgba(245, 180, 85, .18); --ok: #4ade80; --gold: #ffd23f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--font); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px 64px; }
+  header { padding: 40px 0 8px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+  h2 { font-size: 1.4rem; margin: 56px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+  h3 { font-size: 1.1rem; margin: 28px 0 6px; }
+  p { margin: 8px 0; }
+  .lead { color: var(--muted); font-size: 1.05rem; max-width: 760px; }
+  nav { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 16px 0 0; font-size: .92rem; }
+  nav a { color: var(--acc); text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+  .chips li { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px; font-size: .85rem; color: var(--muted); }
+  code, pre { font-family: var(--mono); font-size: .88em; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 12px 0; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .85em; background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 6px; }
+  figure { margin: 20px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 10px; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+  figcaption { color: var(--muted); font-size: .9rem; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .93rem; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--code); }
+  tr:last-child td { border-bottom: 0; }
+  .tablewrap { overflow-x: auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; margin: 14px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h4 { margin: 0 0 2px; font: 600 .98rem var(--mono); }
+  .card .meta { font-size: .8rem; color: var(--muted); margin-bottom: 6px; }
+  .card p { font-size: .92rem; margin: 6px 0; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 8px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: .93rem; }
+  ol.steps { padding-left: 20px; } ol.steps li { margin: 6px 0; }
+
+  /* SVG vocabulary (styles live here, not inside the SVGs) */
+  svg text { fill: currentColor; font: 13px var(--font); }
+  svg .t-sm { font-size: 11px; fill: var(--muted); }
+  svg .t-b { font-weight: 600; }
+  svg .t-acc { fill: var(--acc); font-weight: 600; }
+  svg .t-warn { fill: var(--warn); font-weight: 600; }
+  svg .node { fill: var(--node); stroke: var(--line); stroke-width: 1.5; }
+  svg .acc { fill: var(--acc-soft); stroke: var(--acc); stroke-width: 1.5; }
+  svg .warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+  svg .ghost { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  svg .edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+  svg .guide { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 5 4; }
+  svg .guide-warn { fill: none; stroke: var(--warn); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  svg .frame { fill: var(--code); stroke: var(--line); stroke-width: 1.5; }
+  svg .trail { fill: none; stroke: var(--gold); stroke-linecap: round; stroke-linejoin: round; }
+  svg .ball { fill: var(--gold); stroke: var(--fg); stroke-width: 1.5; }
+  svg .series { fill: none; stroke: var(--acc); stroke-width: 2.4; stroke-linejoin: round; }
+  svg .axis { stroke: var(--line); stroke-width: 1.2; }
+  svg .bar-on { fill: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Yellow Tracker: user guide</h1>
+  <p class="lead">Hold a yellow object up to your webcam and watch it leave a trail. Detection pauses and resumes every 5 seconds, and every pause wipes the trail, so each round starts on a clean screen.</p>
+  <ul class="chips">
+    <li>Python 3.12</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>17 tests, no camera needed</li>
+  </ul>
+  <nav aria-label="Sections">
+    <a href="#what">What it does</a><a href="#start">Quick start</a><a href="#screen">The screen</a><a href="#cycle">On/off cycle</a><a href="#how">How it works</a><a href="#tuning">Tuning</a><a href="#trouble">Troubleshooting</a><a href="#data">Output data</a><a href="#files">Files &amp; tests</a>
+  </nav>
+</header>
+
+<h2 id="what">What it does</h2>
+<p>The program watches your webcam, finds the largest <strong>yellow</strong> blob in view (the ball, foam head or tape on your stick), and draws a line through every place that blob has been. Move the stick around and the line follows it.</p>
+<p>Every 5 seconds detection switches state. While it is <span class="good">ON</span> the path grows. When it switches <span class="bad">OFF</span> the path is <strong>erased</strong> and nothing is tracked until it switches back on, when a new path begins.</p>
+<div class="note"><strong>Use a yellow object on a stick that is not itself yellow.</strong> The tracker follows any yellow it sees, so a yellow stick would drag the tracked point away from the ball. Keep other yellow things (clothes, posters) out of the shot.</div>
+
+<h2 id="start">Quick start</h2>
+<p>Everything below runs from the <code>cv_2/</code> folder.</p>
+<ol class="steps">
+  <li>
+    <strong>Create the environment once.</strong> On Windows on ARM64 (Snapdragon) it must use the <em>x86_64</em> Python 3.12, because OpenCV has no ARM64 Windows build. On a Mac or x64 PC use <code>uv venv --python 3.12 .venv</code>.
+<pre><code>uv venv --python cpython-3.12-windows-x86_64-none .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre>
+  </li>
+  <li><strong>Run the demo.</strong>
+<pre><code>.venv\Scripts\python.exe -m tools.demo</code></pre>
+  </li>
+  <li>Hold the yellow object in front of the camera and move it. Press <kbd>m</kbd> to see what the program considers yellow, <kbd>q</kbd> to quit.</li>
+</ol>
+<div class="tablewrap"><table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>python -m tools.demo</code></td><td>Live window with the trail and the ON/OFF banner.</td></tr>
+  <tr><td><code>python -m tools.demo --period 3</code></td><td>Switch every 3 s instead of 5.</td></tr>
+  <tr><td><code>python -m tools.demo --camera 1</code></td><td>Use a different webcam.</td></tr>
+  <tr><td><code>python -m tools.demo --no-window --frames 90</code></td><td>Headless check: runs 90 frames, prints fps and the last detection.</td></tr>
+  <tr><td><code>python -m pytest</code></td><td>Run the tests (no camera needed).</td></tr>
+</table></div>
+
+<h2 id="screen">The screen</h2>
+<p>The view is mirrored like a selfie camera: move the stick to your right and the trail moves right on screen.</p>
+<figure>
+<svg viewBox="0 0 860 330" role="img" aria-label="Annotated screenshot: status banner, countdown bar, trail, object marker">
+  <rect class="frame" x="10" y="10" width="520" height="310" rx="6"/>
+  <rect class="node" x="10" y="10" width="520" height="30" rx="6"/>
+  <text class="t-b" x="22" y="30">DETECTION ON  switches in 3.2s</text>
+  <rect class="bar-on" x="10" y="40" width="333" height="4"/>
+  <polyline class="trail" stroke-width="1.5" points="90,250 110,235 135,228 160,236"/>
+  <polyline class="trail" stroke-width="2.5" points="160,236 200,215 240,170 280,150"/>
+  <polyline class="trail" stroke-width="4" points="280,150 320,120 360,125 400,150"/>
+  <polyline class="trail" stroke-width="5" points="400,150 430,185 445,215"/>
+  <circle cx="445" cy="215" r="20" class="ball" fill-opacity=".85"/>
+  <circle cx="445" cy="215" r="24" fill="none" stroke="var(--fg)" stroke-width="2"/>
+  <circle cx="445" cy="215" r="3" fill="#dc2626"/>
+  <line x1="445" y1="238" x2="445" y2="310" stroke="var(--muted)" stroke-width="7" stroke-linecap="round"/>
+
+  <path class="guide" d="M300 25 L585 25"/><text x="595" y="29"><tspan class="t-b">Status banner</tspan></text>
+  <text class="t-sm" x="595" y="45">green ON / red OFF, seconds until it switches</text>
+  <path class="guide" d="M343 42 L585 80"/><text x="595" y="84"><tspan class="t-b">Countdown bar</tspan></text>
+  <text class="t-sm" x="595" y="100">shrinks to zero, then the state flips</text>
+  <path class="guide" d="M200 215 L585 150"/><text x="595" y="154"><tspan class="t-b">The trail</tspan></text>
+  <text class="t-sm" x="595" y="170">thick = recent, thin = old</text>
+  <path class="guide" d="M469 215 L585 215"/><text x="595" y="219"><tspan class="t-b">Object marker</tspan></text>
+  <text class="t-sm" x="595" y="235">white ring + red dot on the tracked centre</text>
+  <path class="guide" d="M452 285 L585 285"/><text x="595" y="289"><tspan class="t-b">The stick</tspan></text>
+  <text class="t-sm" x="595" y="305">not yellow, so it is ignored</text>
+</svg>
+<figcaption>What the ON state looks like. The trail is the smoothed path of the yellow blob's centre.</figcaption>
+</figure>
+<p>When the state is OFF the banner turns red, a red border appears around the picture, the bottom says <em>paused - trace erased</em>, and no trail or marker is drawn.</p>
+
+<h2 id="cycle">The on/off cycle</h2>
+<p>The clock starts when the program starts, with detection <span class="good">ON</span>. It then alternates every <code>period</code> seconds (5 by default). The moment it goes OFF the path is erased; the OFF phase just waits. When it goes ON again a brand new path starts from wherever the object is.</p>
+<figure>
+<svg viewBox="0 0 880 250" role="img" aria-label="Timeline: detection on 0-5s, off 5-10s, on 10-15s, off 15-20s; trail length grows during on phases and drops to zero at each off edge">
+  <rect class="acc" x="60" y="14" width="195" height="26"/>
+  <rect class="warn" x="255" y="14" width="195" height="26"/>
+  <rect class="acc" x="450" y="14" width="195" height="26"/>
+  <rect class="warn" x="645" y="14" width="195" height="26"/>
+  <text class="t-acc" x="157" y="32" text-anchor="middle">ON</text>
+  <text class="t-warn" x="352" y="32" text-anchor="middle">OFF</text>
+  <text class="t-acc" x="547" y="32" text-anchor="middle">ON</text>
+  <text class="t-warn" x="742" y="32" text-anchor="middle">OFF</text>
+
+  <line class="axis" x1="60" y1="190" x2="840" y2="190"/>
+  <line class="axis" x1="60" y1="60" x2="60" y2="190"/>
+  <polyline class="series" points="60,190 255,80 255,190 450,190 645,80 645,190 840,190"/>
+  <path class="guide-warn" d="M255 50 L255 190"/><path class="guide-warn" d="M645 50 L645 190"/>
+  <text class="t-warn" x="263" y="72">trail erased</text>
+  <text class="t-warn" x="653" y="72">trail erased</text>
+  <text class="t-sm" x="54" y="82" text-anchor="end">points in</text>
+  <text class="t-sm" x="54" y="95" text-anchor="end">the trail</text>
+  <text class="t-sm" x="54" y="194" text-anchor="end">0</text>
+
+  <g class="t-sm">
+    <text x="60" y="210" text-anchor="middle">0 s</text><text x="255" y="210" text-anchor="middle">5 s</text>
+    <text x="450" y="210" text-anchor="middle">10 s</text><text x="645" y="210" text-anchor="middle">15 s</text>
+    <text x="840" y="210" text-anchor="middle">20 s</text>
+  </g>
+  <text class="t-sm" x="450" y="236" text-anchor="middle">while OFF the detector is not run at all; the lines are drawn for an object moving the whole time</text>
+</svg>
+<figcaption>Trail length over time for an object that keeps moving. It ramps up while ON and resets to zero at every ON→OFF switch.</figcaption>
+</figure>
+<p>Change the length with <code>--period</code> or <code>YT_PERIOD</code>. If the object disappears for more than a quarter of a second while ON, the line is <em>broken</em> rather than joined across the gap, so you never get a long straight stroke to where it reappeared.</p>
+
+<h2 id="how">How it works</h2>
+<p>There is no trained model. Each frame goes through a short pipeline of ordinary image processing, all in <code>yellow_tracker/</code>.</p>
+<figure>
+<svg viewBox="0 0 880 175" role="img" aria-label="Pipeline: camera, gate, detector, smoother, trace, overlay; while off the gate skips detection and clears the trace">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g>
+    <rect class="node" x="10"  y="30" width="120" height="58" rx="8"/><text class="t-b" x="70"  y="55" text-anchor="middle">Camera</text><text class="t-sm" x="70" y="73" text-anchor="middle">newest frame</text>
+    <rect class="warn" x="160" y="30" width="120" height="58" rx="8"/><text class="t-b" x="220" y="55" text-anchor="middle">Gate</text><text class="t-sm" x="220" y="73" text-anchor="middle">on / off by clock</text>
+    <rect class="node" x="310" y="30" width="120" height="58" rx="8"/><text class="t-b" x="370" y="55" text-anchor="middle">Detector</text><text class="t-sm" x="370" y="73" text-anchor="middle">HSV → biggest blob</text>
+    <rect class="node" x="460" y="30" width="120" height="58" rx="8"/><text class="t-b" x="520" y="55" text-anchor="middle">Smoother</text><text class="t-sm" x="520" y="73" text-anchor="middle">EMA, kills jitter</text>
+    <rect class="acc"  x="610" y="30" width="120" height="58" rx="8"/><text class="t-b" x="670" y="55" text-anchor="middle">Trace</text><text class="t-sm" x="670" y="73" text-anchor="middle">polyline segments</text>
+    <rect class="node" x="760" y="30" width="110" height="58" rx="8"/><text class="t-b" x="815" y="55" text-anchor="middle">Overlay</text><text class="t-sm" x="815" y="73" text-anchor="middle">draw on frame</text>
+  </g>
+  <g class="edge" marker-end="url(#ah)">
+    <path d="M130 59 L156 59"/><path d="M280 59 L306 59"/><path d="M430 59 L456 59"/><path d="M580 59 L606 59"/><path d="M730 59 L756 59"/>
+  </g>
+  <path class="guide-warn" d="M220 90 L220 132 L670 132 L670 92" marker-end="url(#ah)"/>
+  <text class="t-warn" x="445" y="152" text-anchor="middle">gate OFF: skip detection, clear the trace</text>
+</svg>
+<figcaption>One frame, left to right. The orange path is the shortcut taken while detection is off.</figcaption>
+</figure>
+
+<div class="cards">
+  <div class="card"><h4>1. Colour mask</h4><div class="meta">detector.py</div>
+    <p>The frame is blurred, converted to HSV (hue / saturation / value) and every pixel whose hue is in the yellow band, and that is vivid and bright enough, is marked. Small speckles are removed and small holes (shiny highlights) are filled.</p></div>
+  <div class="card"><h4>2. Biggest blob</h4><div class="meta">detector.py</div>
+    <p>The outline with the largest area wins. If it is smaller than <code>YT_MIN_AREA</code> of the frame it is treated as noise and nothing is detected. Its centre of mass is the tracked point.</p></div>
+  <div class="card"><h4>3. Smoothing</h4><div class="meta">pipeline.py</div>
+    <p>The point is blended with the previous one (weight 0.6 on the new position), which hides pixel-level jitter without making the trail lag noticeably.</p></div>
+  <div class="card"><h4>4. Trace</h4><div class="meta">trace.py</div>
+    <p>Points are appended to the current line segment. A gap of more than 0.25 s ends the segment. At most 2000 points are kept. The gate clears everything when ON turns to OFF.</p></div>
+</div>
+
+<h2 id="tuning">Tuning</h2>
+<p>Webcams differ in white balance, so the exact "yellow" differs too. If the tracker misses your object or latches onto something else, press <kbd>m</kbd> in the demo: the right-hand pane is the mask, and white means "counts as yellow". Your object should be a solid white blob and nearly everything else black.</p>
+<p>Change settings with environment variables before starting the demo, for example in PowerShell: <code>$env:YT_H_MIN=18; $env:YT_H_MAX=35; .venv\Scripts\python.exe -m tools.demo</code>.</p>
+<div class="tablewrap"><table>
+  <tr><th>Variable</th><th>Default</th><th>Effect</th></tr>
+  <tr><td><code>YT_H_MIN</code> / <code>YT_H_MAX</code></td><td>20 / 25</td><td>Hue band (OpenCV hue runs 0-179; pure yellow is 30). Widen it if your object is only partly white in the mask; narrow it if neighbouring colours leak in.</td></tr>
+  <tr><td><code>YT_S_MIN</code></td><td>90</td><td>Minimum saturation (0-255). Raise it to reject pale, washed-out things such as skin and walls.</td></tr>
+  <tr><td><code>YT_V_MIN</code></td><td>90</td><td>Minimum brightness (0-255). Raise it to ignore dark, muddy yellows and shadows.</td></tr>
+  <tr><td><code>YT_MIN_AREA</code></td><td>0.0006</td><td>Smallest blob that counts, as a fraction of the frame (about 185 px at 640×480).</td></tr>
+  <tr><td><code>YT_PERIOD</code></td><td>5</td><td>Seconds in each ON and each OFF phase.</td></tr>
+  <tr><td><code>YT_MIRROR</code></td><td>1</td><td>Selfie-style view. <code>0</code> shows the raw camera orientation.</td></tr>
+  <tr><td><code>YT_CAMERA</code></td><td>0</td><td>Camera index.</td></tr>
+  <tr><td><code>YT_WIDTH</code> / <code>YT_HEIGHT</code></td><td>640 / 480</td><td>Capture size.</td></tr>
+</table></div>
+<p>Other values (smoothing weight, gap length, point limit) are fields of the <code>Config</code> dataclass in <code>yellow_tracker/config.py</code>.</p>
+
+<h2 id="trouble">Troubleshooting</h2>
+<div class="tablewrap"><table>
+  <tr><th>Symptom</th><th>Likely cause and fix</th></tr>
+  <tr><td>Nothing is tracked, the marker never appears</td><td>The object is outside the hue band or too small. Press <kbd>m</kbd>; if it is black in the mask, widen <code>YT_H_MIN/MAX</code> or lower <code>YT_S_MIN</code>. Lighting that is dim or tinted shifts yellow towards orange or green.</td></tr>
+  <tr><td>The marker jumps to something else</td><td>Another yellow-ish thing is bigger than your object (clothes, wall, skin). Remove it from view, or raise <code>YT_S_MIN</code> / narrow the hue band. The largest blob always wins.</td></tr>
+  <tr><td>The marker sits on the stick, not the ball</td><td>The stick is yellow too. Use a stick of another colour or wrap it in tape.</td></tr>
+  <tr><td>The line breaks into pieces</td><td>The object keeps dropping out of the mask (glare on a shiny surface, motion blur). Lower <code>YT_V_MIN</code> or widen the hue band; brighter, even light helps most.</td></tr>
+  <tr><td>"Could not open camera 0"</td><td>Another program (or a demo that did not exit) is holding the webcam. Close it, or pick another camera with <code>--camera 1</code>. On macOS allow camera access for your terminal.</td></tr>
+  <tr><td><code>uv pip install</code> fails with "Unknown compiler(s)"</td><td>You created the venv with the native ARM64 Python. Recreate it with the x86_64 Python as shown in <a href="#start">Quick start</a>.</td></tr>
+  <tr><td>The picture looks flipped</td><td>That is the default selfie view. Set <code>YT_MIRROR=0</code> for the raw orientation.</td></tr>
+</table></div>
+
+<h2 id="data">Output data</h2>
+<p>Each frame produces a plain dictionary (<code>Pipeline.process(frame)</code>). It is JSON-safe and uses 0-1 coordinates, so it can be sent to a web frontend unchanged. Nothing serves it over the network yet.</p>
+<pre><code>{
+  "active": true,             // false during the OFF phase
+  "secondsLeft": 3.2,         // until the next switch
+  "mirrored": true,           // x already flipped to match a selfie view
+  "object": {                 // null when nothing is detected (always null while OFF)
+    "x": 0.71, "y": 0.43,     // centre, 0-1 from the top-left of the (mirrored) view
+    "radius": 0.06            // fraction of frame width
+  },
+  "trace": [                  // list of line segments; empty right after an OFF switch
+    [[0.20, 0.61], [0.23, 0.58], ...],
+    [[0.71, 0.43]]
+  ]
+}</code></pre>
+
+<h2 id="files">Files &amp; tests</h2>
+<div class="tablewrap"><table>
+  <tr><th>Path</th><th>Role</th></tr>
+  <tr><td><code>yellow_tracker/config.py</code></td><td>All settings and the <code>YT_*</code> environment variables.</td></tr>
+  <tr><td><code>yellow_tracker/capture.py</code></td><td>Webcam reader that always hands over the newest frame.</td></tr>
+  <tr><td><code>yellow_tracker/detector.py</code></td><td>Colour mask and blob finding.</td></tr>
+  <tr><td><code>yellow_tracker/trace.py</code></td><td>The 5-second on/off gate and the path storage.</td></tr>
+  <tr><td><code>yellow_tracker/pipeline.py</code></td><td>Wires the stages together; produces the data above.</td></tr>
+  <tr><td><code>yellow_tracker/overlay.py</code></td><td>Draws the trail, marker and banner.</td></tr>
+  <tr><td><code>tools/demo.py</code></td><td>The demo window.</td></tr>
+  <tr><td><code>tests/test_tracker.py</code></td><td>17 tests on synthetic frames with a fake clock.</td></tr>
+</table></div>
+<p>The tests draw a yellow ball on a stick (plus skin-, blue- and orange-coloured decoys) and drive the clock by hand. They check, among other things, that the path follows the object, that it is erased on <em>every</em> OFF switch over several cycles, that the detector is not run while OFF, and that a lost object breaks the line. They have not been run against many real lighting conditions, so expect to tune the hue band for your camera.</p>
+<p>Developer notes and design decisions: <code>cv_2/CLAUDE.md</code>. Setup summary: <code>cv_2/README.md</code>.</p>
+
+</div>
+</body>
+</html>
