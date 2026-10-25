@@ -1,9 +1,9 @@
 # cv_2/: yellow / blue / red blob path tracker
 
 Context for anyone (human or agent) continuing work here. User-facing setup is in [README.md](README.md); diagrams and a
-user guide are in [../docs/yellow-tracker.html](../docs/yellow-tracker.html). It replaces the earlier `cv/` pose/zone
-service (RTMPose over ONNX Runtime, port 8001, `/ws/cv`), which was **deleted from the working tree and never committed**,
-so it is not recoverable from git. This project is self-contained: its own venv, its own copy of `Camera`.
+user guide are in [../docs/yellow-tracker.html](../docs/yellow-tracker.html). It replaces an earlier pose-based `cv/` service
+that was removed from the repository (and was never committed, so it is not recoverable). This project is self-contained: its own
+venv, its own copy of `Camera`.
 
 ## What this is
 
@@ -320,10 +320,6 @@ across lighting conditions or object types, and blue/red thresholds have never b
 - Tune blue and red against real objects and add more colours (a new colour is one `ColorSpec` in `default_colors()`).
 - Velocity/prediction so the object can be bridged across brief occlusions.
 - Frontend rendering of the payload's `trace` (it is already normalised and mirrored).
-- `docs/cv-architecture.html` and the "CV service" section of `docs/api-contract.md` still describe the deleted cv/ pose
-  service. They are marked LEGACY with a pointer to this folder and `docs/yellow-tracker.html`, but the old text is kept: remove it,
-  or replace the api-contract section with the tracker's real WebSocket protocol once a server exists (the per-frame data is
-  already documented in the guide's "Output data").
 
 ## Conventions
 
