@@ -66,8 +66,8 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 
 ## What's next
 
-- Finish wiring the tracker into the game: wand shapes casting spells, and wand shapes for the pose seals.
-- Reality Rift extras: the scanned weapon in the hero's hand, a clearer hint of what a boss fears, a story that remembers your objects, and carrying several weapons. `TODO(after merge)`
+- Finish wiring the tracker into the game: wand shapes for the pose seals. (Wand shapes already forge weapons and fire a Rift Surge.) `TODO(after merge)`
+- Reality Rift extras: the scanned weapon modelled in the hero's hand, and a clearer hint of what a boss fears. `TODO(after merge)`
 - Our own models for the whole world, so every asset is ours.
 - A hosted version, so a judge can play without cloning the repo.
 - More bosses and more elements, so more kinds of objects matter.

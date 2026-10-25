@@ -62,11 +62,11 @@ So the object you pick is a real choice: a hot drink tends to come back as fire,
 
 In progress (Reality Rift extras on other branches):
 
-<!-- TODO(after merge): flip each line below to working once its branch is on main; confirm the final list with the Reality Rift session. -->
-- A model of the scanned weapon in the hero's hand. (Today the hero's sword glows in the weapon's element colour.) `TODO(after merge)`
-- A fuller boss weakness hint. (A first version is on `main`: the boss bar line above.) `TODO(after merge)`
-- The story remembering the objects you scanned. `TODO(after merge)`
-- A weapon arsenal, so you can carry more than one scanned weapon. `TODO(after merge)`
+<!-- TODO(after merge): flip each line below to working once feature/rift-next is on main. -->
+- **Relic card and armory:** the weapon card is framed around your own photo of the object, and every weapon you forge is kept in an armory in this browser (up to 8, never uploaded). Pick one from the scanner to equip it again. `TODO(after merge)`
+- **The story remembers your objects:** forged weapons travel in the story history, so Gemini's narration and the storybook name the real object and what it became (the scripted story adds a "Reality Rift" page). `TODO(after merge)`
+- **Wand forging and Rift Surge:** completing a circle, triangle, square or star with a wand sets the weapon's power (nova, meteor, wave, chain); completing the same shape in a fight fires a Rift Surge. The cv_2 tracker drives it through the CV link (a wand completing the round's target shape); keys 4-7 (yellow wand) and 8, 9, 0, - (blue wand) stand in when no tracker runs. `TODO(after merge)`
+- **Player two forges too:** the yellow wand is hero one and the blue wand hero two; whichever wand shapes the card claims the weapon, and either hero can take it. Each hero casts their own weapon. `TODO(after merge)`
 
 ### The "show me X" riddle door (working)
 
@@ -286,7 +286,7 @@ The browser checks drive the real renderer with real key events, so they need a 
 
 **In progress (not on `main` yet)**
 
-- Reality Rift extras: held weapon model, fuller boss weakness hint, story remembering your objects, weapon arsenal. `TODO(after merge)`
+- Reality Rift extras: relic card with your photo, armory, story remembering your objects, wand forging with Rift Surge, a weapon for each hero. `TODO(after merge)`
 - Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
 
 **Not done**

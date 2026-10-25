@@ -71,7 +71,11 @@ export function scaledDamage(base: number, multiplier: number): number { return 
 /** The spell every hero has before scanning anything. */
 export function defaultSpell(color: number): SpellSpec { return { ability: 'bolt', color, damage: 1, ...BASE.bolt }; }
 
-export interface Weapon extends Artifact { spell: SpellSpec; source: 'gemini' | 'fallback' }
+export interface Weapon extends Artifact {
+  spell: SpellSpec; source: 'gemini' | 'fallback';
+  /** Set when a drawn wand shape forged its power (see forge.ts). */
+  shape?: 'circle' | 'triangle' | 'square' | 'star';
+}
 
 export function makeWeapon(response: ArtifactResponse): Weapon { return { ...response.artifact, spell: spellFor(response.artifact), source: response.source }; }
 

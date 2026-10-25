@@ -129,6 +129,16 @@ export interface BeatOutcome {
   summary: string;
 }
 
+/** Reality Rift: a weapon a hero forged from a real object held up to the webcam. */
+export interface ForgedRelic {
+  hero: PlayerIndex;
+  /** The real object, e.g. "water bottle". */
+  object: string;
+  name: string;
+  element: string;
+  ability: string;
+}
+
 export interface GameHistory {
   party: [Player, Player];
   hearts: number;
@@ -137,6 +147,8 @@ export interface GameHistory {
   rewards: RewardSpec[];
   outcomes: BeatOutcome[];
   environments: EnvironmentId[];
+  /** Weapons forged from real objects, oldest first. Optional so older providers can ignore it. */
+  relics?: ForgedRelic[];
 }
 
 export interface StorybookPage {

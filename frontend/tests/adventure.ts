@@ -157,6 +157,39 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
     });
+    await check('Reality Rift: a blue wand shape forges the card for player two, the same shape surges, another reshapes', async () => {
+      inner.trial = undefined; inner.busy = false;
+      type Held = { ability: string; shape?: string; artifactName: string } | undefined;
+      const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: Held[] };
+      const phase = () => document.querySelector<HTMLElement>('.rift-scan')!.dataset.phase, panel = () => document.querySelector('.rift-panel')!.textContent ?? '';
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
+      const photo = new File([await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))], 'mug.png', { type: 'image/png' });
+      const realFetch = window.fetch;
+      window.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith('/api/artifact')
+        ? new Response(JSON.stringify({ artifact: { object: 'coffee mug', artifactName: 'Ember Chalice', artifactType: 'chalice', element: 'fire', ability: 'bolt', damage: 70, rarity: 'epic', description: 'Still warm.' }, source: 'gemini' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : realFetch(url, init)) as typeof fetch;
+      try {
+        localStorage.removeItem('storybound.armory.v1');
+        void rift.scanner.show(); await until(() => rift.scanner.open, 'scanner did not open');
+        await rift.scanner.captureFromFile(photo); await until(() => phase() === 'result', 'relic card missing');
+        assert(!!document.querySelector('.relic-card .relic-photo img'), 'relic card has no photo of the object');
+        key('Digit9'); key('Digit9', false); // blue wand completes a triangle
+        await until(() => panel().includes('Shaped by') && panel().includes('Meteor'), 'triangle did not forge meteor on the card');
+        const p2 = inner.state.history().party[1].name;
+        assert(panel().includes(`Give to ${p2}`), 'blue wand did not claim the weapon for player two');
+        key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
+        const held = (i: number): Held => rift.weapons[i];
+        assert(held(1)?.ability === 'meteor' && held(1)?.shape === 'triangle' && !held(0), 'player two did not receive the meteor weapon');
+        const relic = inner.state.history().relics?.find((r) => r.hero === 1);
+        assert(relic?.object === 'coffee mug' && relic.ability === 'meteor', 'storyteller history is missing the forged relic');
+        assert(JSON.parse(localStorage.getItem('storybound.armory.v1') ?? '[]')[0]?.response?.artifact?.ability === 'meteor', 'armory did not keep the forged weapon');
+        inner.spellCooldown[1] = 3; key('Digit9'); key('Digit9', false);
+        assert(inner.spellCooldown[1] > 0 && inner.spellCooldown[1] < 3, 'drawing the weapon shape did not fire a Rift Surge');
+        key('Digit8'); key('Digit8', false);
+        assert(held(1)?.ability === 'nova' && held(1)?.shape === 'circle', 'a different shape did not reshape the weapon');
+        assert(inner.state.history().relics?.filter((r) => r.hero === 1).length === 1, 'reshaping duplicated the relic');
+      } finally { window.fetch = realFetch; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; }
+    });
     await check('Boss wards block damage during the warning and admit spells during recovery', async () => {
       inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); inner.state.hearts = 3;
       const beat: StoryBeat = { id: 'boss', chapter: 'Finale', environment: 'cave', narration: ['The guardian wakes.'], boss: { kind: 'shadow-dragon', name: 'Umbraxis', maxHp: 6, attacks: ['shadow-wave'], telegraphSec: 2.2, vulnerableSec: 4 } };
