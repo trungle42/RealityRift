@@ -6,11 +6,14 @@ gets {"type":"welcome","id","peers":[{id,name,colour}]}; the others hear {"type"
 From then on each game sends its hero's {"type":"state",x,y,z,heading,speed,anim,hp} and cosmetic
 {"type":"fx",kind,x,y,z,dx,dz,ability?,element?}; the relay rebuilds them from known fields (numbers finite and clamped, names
 from fixed lists), stamps the sender's id and passes them to everyone else. Anything else is dropped, messages are capped at
-MAX_MSG bytes and RATE a second per player, and nothing is stored. A fourth player gets {"type":"full"} and a close. The
+MAX_MSG bytes and RATE a second per player, and nothing is stored. A fourth player gets {"type":"full"} and a close (the
+game keeps retrying). The same name and colour joining again (a reloaded or relaunched game, or an old tab still open) takes
+over that player's slot: the old connection gets {"type":"replaced"} and a close, so a stale tab never fills the room. The
 tunnel's random room code is the only "auth", as for the phone joystick.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import re
@@ -78,6 +81,16 @@ async def _send_all(targets, text: str) -> None:
             pass
 
 
+async def _retire(ws: WebSocket) -> None:
+    """Tell a connection its player joined again elsewhere, then close it; a dead one (the tunnel has not noticed yet)
+    is given up on after a second rather than holding up the new join."""
+    try:
+        await asyncio.wait_for(ws.send_text(json.dumps({"type": "replaced"})), 1.0)
+        await asyncio.wait_for(ws.close(code=4000), 1.0)
+    except Exception:
+        pass
+
+
 @router.websocket("/ws/presence/{room}")
 async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""):
     name = name.strip()
@@ -86,6 +99,11 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
         return
     await ws.accept()
     peers = _rooms.setdefault(room, {})
+    for old, them in list(peers.items()):
+        if them["name"] == name and them["colour"] == colour:
+            del peers[old]
+            await _send_all(peers, json.dumps({"type": "peer", "state": "left", **them}))
+            await _retire(old)
     free = [n for n in range(MAX_PEERS) if n not in {p["id"] for p in peers.values()}]
     if not free:
         await ws.send_text(json.dumps({"type": "full"}))
@@ -99,6 +117,8 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
     try:
         while True:
             text = await ws.receive_text()
+            if peers.get(ws) is not me:     # replaced: its id may already belong to the new connection
+                break
             now = time.monotonic()
             if now - window >= 1.0:
                 window, sent = now, 0
@@ -111,10 +131,11 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
                 continue
             if msg:
                 await _send_all([p for p in peers if p is not ws], json.dumps({**msg, "id": me["id"]}))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):     # RuntimeError: receiving on a socket the relay closed (replaced)
         pass
     finally:
-        peers.pop(ws, None)
-        await _send_all(peers, json.dumps({"type": "peer", "state": "left", **me}))
-        if not peers:
+        if peers.get(ws) is me:     # a replaced connection's leaving was announced when it was replaced
+            del peers[ws]
+            await _send_all(peers, json.dumps({"type": "peer", "state": "left", **me}))
+        if not peers and _rooms.get(room) is peers:
             _rooms.pop(room, None)

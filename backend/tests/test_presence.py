@@ -91,6 +91,38 @@ def test_a_fourth_player_is_told_the_room_is_full(client):
                 fourth.receive_text()
 
 
+def test_the_same_player_joining_again_takes_over_their_slot_even_in_a_full_room(client):
+    with client.websocket_connect(url("p7", "Trung", "red")) as trung, client.websocket_connect(url("p7", "Rishaan", "blue")) as old, \
+            client.websocket_connect(url("p7", "haicil", "yellow")) as haicil:
+        trung.receive_text(); old.receive_text(); haicil.receive_text()          # welcomes
+        trung.receive_text(); trung.receive_text(); old.receive_text()           # the joins after theirs
+        with client.websocket_connect(url("p7", "Rishaan", "blue")) as again:
+            assert json.loads(again.receive_text()) == {"type": "welcome", "id": 1, "peers": [{"id": 0, "name": "Trung", "colour": "red"},
+                                                                                                 {"id": 2, "name": "haicil", "colour": "yellow"}]}
+            assert json.loads(old.receive_text()) == {"type": "replaced"}
+            with pytest.raises(Exception):
+                old.receive_text()
+            for other in (trung, haicil):
+                assert json.loads(other.receive_text()) == {"type": "peer", "state": "left", "id": 1, "name": "Rishaan", "colour": "blue"}
+                assert json.loads(other.receive_text()) == {"type": "peer", "state": "joined", "id": 1, "name": "Rishaan", "colour": "blue"}
+            # The old connection going away later does not announce a second "left" for id 1, which is the new one's now.
+            old.close()
+            for x in (1, 2):
+                again.send_text(json.dumps({**STATE, "x": x}))
+            for other in (trung, haicil):
+                assert [(m["type"], m.get("x")) for m in (json.loads(other.receive_text()) for _ in range(2))] == [("state", 1.0), ("state", 2.0)]
+
+
+def test_only_the_same_name_and_colour_counts_as_the_same_player(client):
+    with client.websocket_connect(url("p8", "Trung", "red")) as first:
+        first.receive_text()
+        for name, colour in (("Trung", "blue"), ("Other", "red")):
+            with client.websocket_connect(url("p8", name, colour)) as second:
+                assert json.loads(second.receive_text())["id"] == 1
+                assert json.loads(first.receive_text())["state"] == "joined"
+            assert json.loads(first.receive_text())["state"] == "left"
+
+
 @pytest.mark.parametrize("bad", ["/ws/presence/p5?name=&colour=red", "/ws/presence/p5?name=Trung&colour=green",
                                  "/ws/presence/p5?name=<script>&colour=red", "/ws/presence/p5?name=" + "x" * 17 + "&colour=red",
                                  "/ws/presence/bad room!?name=A&colour=red"])

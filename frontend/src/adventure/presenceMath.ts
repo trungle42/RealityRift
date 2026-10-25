@@ -27,7 +27,8 @@ export type PresenceMessage =
   | { type: 'peer'; state: 'joined' | 'left'; peer: Peer }
   | { type: 'state'; id: string; state: HeroState }
   | { type: 'fx'; id: string; fx: FxEvent }
-  | { type: 'full' };
+  | { type: 'full' }
+  | { type: 'replaced' };
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const text = (v: unknown, max = 24): string | undefined => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : undefined);
@@ -43,6 +44,7 @@ export function parsePresence(raw: unknown): PresenceMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const m = raw as Record<string, unknown>;
   if (m.type === 'full') return { type: 'full' };
+  if (m.type === 'replaced') return { type: 'replaced' };
   if (m.type === 'welcome') {
     const id = idOf(m.id); if (id === undefined) return undefined;
     const peers = Array.isArray(m.peers) ? m.peers.map((p) => (typeof p === 'object' && p ? peerOf(p as Record<string, unknown>) : undefined)).filter((p): p is Peer => !!p && p.id !== id) : [];

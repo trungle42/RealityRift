@@ -74,6 +74,19 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       await fourth.until(() => fourth.closed, 'the fourth connection stayed open');
     });
 
+    await check('The same laptop joining again (a reload, a relaunch, an old tab) takes over its own slot, even in a full room', async () => {
+      const marks = [trung.heard.length, rishaan.heard.length];
+      const again = await Client.open(room, 'haicil', 'yellow'); clients.push(again);
+      assert(again.welcome?.type === 'welcome' && again.id === 2, `the returning laptop got ${JSON.stringify(again.welcome)}`);
+      await haicil.until(() => haicil.closed && haicil.heard.some((h) => h.msg.type === 'replaced'), 'the old connection was not told it was replaced, then closed');
+      for (const [c, mark] of [[trung, marks[0]], [rishaan, marks[1]]] as const) {
+        await c.until(() => c.since(mark, 'peer').length >= 2, `${c.name} did not see haicil leave and come back`);
+        const seen = c.since(mark, 'peer').map((m) => `${m.state} ${m.name}#${m.id}`).join(';');
+        assert(seen === 'left haicil#2;joined haicil#2', `${c.name} saw ${seen}`);
+      }
+      haicil = again;
+    });
+
     await check('Moving: a hero\'s state at 12 Hz reaches both others, every message, well within 0.5 s', async () => {
       const marks = [rishaan.heard.length, haicil.heard.length], sent = new Map<number, number>();
       for (let i = 0; i < 18; i++) { const x = 100 + i; sent.set(x, performance.now()); trung.send(state(x)); await wait(83); }
@@ -183,24 +196,46 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(n >= 0, `effects did not arrive: ${others.map((l, i) => `${l.name} cast ${before[i].cast}->${l.presence()!.fxCount.cast}, slash ${before[i].slash}->${l.presence()!.fxCount.slash}`).join('; ')}`);
     });
 
-    await check('A fourth laptop is told the room is full', async () => {
-      const fourth = open('Extra', 'red');
+    const label = (l: Laptop) => l.doc().querySelector('.presence-list strong')?.textContent ?? '';
+    const names = (l: Laptop) => [...l.presence()!.avatars.values()].map((a) => a.name).sort().join(',');
+    const start = async (l: Laptop, who: string) => {
       const end = performance.now() + 25000;
-      while (!ready(fourth)) { if (performance.now() > end) throw new Error('the fourth game did not start'); await wait(200); }
+      while (!ready(l)) { if (performance.now() > end) throw new Error(`${who} did not start`); await wait(200); }
+    };
+    let fourth: Laptop | undefined, reopened: Laptop | undefined;
+    await check('A fourth laptop is told the room is full', async () => {
+      fourth = open('Extra', 'red'); await start(fourth, 'the fourth game');
       let text = '';
-      for (let i = 0; i < 120 && !text.includes('Room full'); i++) { await tick([...laptops, fourth]); text = fourth.doc().querySelector('.presence-list')?.textContent ?? ''; }
-      fourth.game().dispose(); fourth.frame.remove();
+      for (let i = 0; i < 120 && !text.includes('Room full'); i++) { await tick([...laptops, fourth]); text = label(fourth); }
       assert(text.includes('Room full'), `the fourth laptop shows "${text}"`);
       assert(laptops.every((l) => l.presence()!.avatars.size === 2), 'the turned-away laptop appeared in a game');
     });
 
     await check('Closing a laptop removes its hero from the other two', async () => {
-      const [, , c] = laptops, id = String(c.presence()!.id);
+      const [, , c] = laptops;
       c.game().dispose(); c.frame.remove(); laptops = laptops.slice(0, 2);
-      const n = await ticksUntil(laptops, () => laptops.every((l) => !l.presence()!.avatars.has(id)), 120);
-      assert(n >= 0, `haicil's hero is still there after 2 s: ${laptops.map((l) => `${l.name} sees ${[...l.presence()!.avatars.values()].map((a) => a.name).join(',')}`).join('; ')}`);
+      const n = await ticksUntil([...laptops, fourth!], () => laptops.every((l) => !names(l).includes('haicil')), 120);
+      assert(n >= 0, `haicil's hero is still there after 2 s: ${laptops.map((l) => `${l.name} sees ${names(l)}`).join('; ')}`);
     });
-    laptops.forEach((l) => { try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
+
+    await check('The fourth laptop keeps asking and takes the freed slot', async () => {
+      const everyone = [...laptops, fourth!];
+      const n = await ticksUntil(everyone, () => names(fourth!) === 'Rishaan,Trung' && laptops.every((l) => names(l).includes('Extra')) && label(fourth!) === 'Online', 900);
+      assert(n >= 0, `not joined: the fourth shows "${label(fourth!)}" and sees [${names(fourth!)}]; ${laptops.map((l) => `${l.name} sees [${names(l)}]`).join('; ')}`);
+    });
+
+    await check('A game opened again by the same player takes over; the old one stops and says why', async () => {
+      const [trungGame, oldRishaan] = laptops;
+      reopened = open('Rishaan', 'blue'); await start(reopened, 'the reopened game');
+      const everyone = [trungGame, oldRishaan, fourth!, reopened];
+      const n = await ticksUntil(everyone, () => names(reopened!) === 'Extra,Trung' && names(trungGame) === 'Extra,Rishaan' && names(fourth!) === 'Rishaan,Trung'
+        && label(oldRishaan) === 'Playing in another tab' && oldRishaan.presence()!.avatars.size === 0, 600);
+      assert(n >= 0, `the reopened game sees [${names(reopened)}], Trung [${names(trungGame)}], Extra [${names(fourth!)}]; the old one shows "${label(oldRishaan)}" with ${oldRishaan.presence()!.avatars.size} heroes`);
+      // It stays stopped: no reconnect takes the slot back from the newer game.
+      await ticksUntil(everyone, () => false, 90);
+      assert(label(oldRishaan) === 'Playing in another tab' && names(trungGame) === 'Extra,Rishaan', `afterwards the old one shows "${label(oldRishaan)}", Trung sees [${names(trungGame)}]`);
+    });
+    [...laptops, fourth, reopened].forEach((l) => { if (!l) return; try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
 
     status.textContent = `Done. ${notes.join(' · ')}`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = `${String(error)} ${notes.join(' · ')}`; document.body.dataset.result = 'failed'; console.error(error); }

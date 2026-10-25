@@ -9,6 +9,8 @@ import { ELEMENT_COLOR, type Element } from './weapon';
 import { animOf, parsePresence, peerColor, presenceConfig, SEND_RATE, SnapshotBuffer, wrapAngle, type Anim, type FxEvent, type HeroState, type LocalHero, type Peer } from './presenceMath';
 
 const ROLL_LENGTH = 0.55;
+/** How often a game turned away from a full room asks again (a slot frees when someone leaves or an old tab closes). */
+const FULL_RETRY_MS = 4000;
 
 interface HeroModels extends AvatarModels { sword: GLTF }
 
@@ -100,8 +102,10 @@ export class Presence {
   private retry = 0;
   private timer = 0;
   private closed = false;
-  /** The relay said the room already has three players: stop retrying. */
+  /** The relay said the room already has three players: ask again every FULL_RETRY_MS until a slot frees. */
   private full = false;
+  /** This player joined again (another tab, or a relaunch) and that game took over the slot: stop for good. */
+  private replaced = false;
   /** Wall-clock times (see `clock`): when state last went out, and until when hero 0 counts as casting. */
   private sentAt = -Infinity;
   private castingUntil = -Infinity;
@@ -173,7 +177,8 @@ export class Presence {
   handle(raw: unknown): void {
     const message = parsePresence(raw); if (!message) return;
     if (message.type === 'full') { this.full = true; this.renderList(); return; }
-    if (message.type === 'welcome') { this.id = message.id; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); }
+    if (message.type === 'replaced') { this.replaced = true; this.renderList(); return; }
+    if (message.type === 'welcome') { this.id = message.id; this.full = false; this.retry = 0; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); }
     else if (message.type === 'peer') { if (message.peer.id === this.id) return; if (message.state === 'joined') this.add(message.peer); else this.drop(message.peer.id); }
     else if (message.type === 'state') this.peers.get(message.id)?.push(message.state, this.clock());
     else if (message.type === 'fx') { const remote = this.peers.get(message.id); if (remote) this.play(remote, message.fx); }
@@ -209,7 +214,7 @@ export class Presence {
   private renderList(): void {
     const everyone = [{ name: this.config.name, colour: this.config.colour }, ...[...this.peers.values()].map((r) => r.peer)];
     const label = document.createElement('strong'); label.style.color = 'var(--game-gold, #f0d48e)';
-    label.textContent = this.full ? 'Room full (3 players)' : this.socket?.readyState === 1 ? 'Online' : 'Connecting';
+    label.textContent = this.replaced ? 'Playing in another tab' : this.full ? 'Room full (3 players) · retrying' : this.socket?.readyState === 1 ? 'Online' : 'Connecting';
     const parts: Node[] = [label, document.createTextNode(' ·')];
     for (const p of everyone) {
       const dot = document.createElement('span');
@@ -227,11 +232,11 @@ export class Presence {
     try {
       const socket = this.options.socket ? this.options.socket(this.config.url) : new WebSocket(this.config.url);
       this.socket = socket;
-      socket.onopen = () => { this.retry = 0; this.renderList(); };
+      socket.onopen = () => this.renderList();
       socket.onmessage = (event) => { let raw: unknown; try { raw = JSON.parse(String(event.data)); } catch { return; } this.handle(raw); };
       socket.onclose = () => {
         this.peers.forEach((remote) => remote.dispose()); this.peers.clear(); this.renderList();
-        if (!this.closed && !this.full) this.timer = window.setTimeout(() => this.connect(), Math.min(5000, 600 + this.retry++ * 600));
+        if (!this.closed && !this.replaced) this.timer = window.setTimeout(() => this.connect(), this.full ? FULL_RETRY_MS : Math.min(5000, 600 + this.retry++ * 600));
       };
       socket.onerror = () => socket.close();
     } catch { if (!this.closed) this.timer = window.setTimeout(() => this.connect(), 3000); }
