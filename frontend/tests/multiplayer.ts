@@ -125,25 +125,83 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     });
 
     // ---- Part two: three real games -------------------------------------------------------------------------------
-    await check('Three games show each other\'s heroes (name, colour), movement and effects, and a closed game disappears', async () => {
-      const players = [['Trung', 'red'], ['Rishaan', 'blue'], ['haicil', 'yellow']] as const, gameRoom = `${room}g`;
-      const box = document.querySelector('#players')!;
-      const frames = players.map(([name, wand]) => {
-        const frame = document.createElement('iframe'); frame.width = '320'; frame.height = '200'; frame.style.border = '1px solid #f0d48e66';
-        frame.src = `/?story=scripted&presence=${encodeURIComponent(relay)}&room=${gameRoom}&name=${name}&wand=${wand}`;
-        box.append(frame); return frame;
-      });
-      await wait(6000);
-      type PresenceLike = { avatars?: Map<number, { name: string; colour: string; root: { position: { x: number; z: number } } }> };
-      const presenceOf = (frame: HTMLIFrameElement) => (frame.contentWindow as unknown as { __storybound?: { presence?: PresenceLike } } | null)?.__storybound?.presence;
-      if (!frames.every((frame) => presenceOf(frame)?.avatars)) {
-        notes.push('part two skipped: the game build exposes no presence client yet (window.__storybound.presence.avatars)');
-        frames.forEach((frame) => frame.remove());
+    // Each frame is one laptop: a real game (tests/mp-player.html) with its own ?presence / ?room / ?name / ?wand.
+    type Avatar = { name: string; colour: string; root: { position: { x: number; z: number } } };
+    type PresenceLike = { avatars: Map<string, Avatar>; fxCount: { cast: number; slash: number }; id?: string; update(real: number, time: number, hero: unknown, airborne: boolean): void };
+    type GameLike = { time: number; heroes: { root: { position: { x: number; y: number; z: number; set(x: number, y: number, z: number): void } }; update(dt: number, t: number): void }[]; update(dt: number): void; cast(p: 0): boolean; strike(p: 0): void; airborne: boolean[]; presence?: PresenceLike; spellCooldown: number[]; attackCooldown: number[]; dispose(): void };
+    type Laptop = { name: string; colour: string; frame: HTMLIFrameElement; game: () => GameLike; presence: () => PresenceLike | undefined; doc: () => Document };
+    const gameRoom = `${room}g`, box = document.querySelector('#players')!;
+    const open = (name: string, colour: string): Laptop => {
+      const frame = document.createElement('iframe'); frame.width = '300'; frame.height = '190'; frame.style.border = '1px solid #f0d48e66';
+      frame.src = `/tests/mp-player.html?presence=${encodeURIComponent(relay)}&room=${gameRoom}&name=${name}&wand=${colour}`; box.append(frame);
+      const sb = () => (frame.contentWindow as unknown as { __storybound?: { game?: GameLike; presence?: PresenceLike; ready?: boolean } } | null)?.__storybound;
+      return { name, colour, frame, game: () => sb()!.game!, presence: () => sb()?.presence, doc: () => frame.contentDocument! };
+    };
+    const ready = (l: Laptop) => !!(l.frame.contentWindow as unknown as { __storybound?: { ready?: boolean } } | null)?.__storybound?.ready;
+    /** One game step on every open laptop, as frame() does it, then a real 16 ms so relay messages arrive. */
+    const tick = async (laptops: Laptop[], dt = 1 / 60) => {
+      for (const l of laptops) {
+        const g = l.game(); g.time += dt; g.heroes.forEach((h) => h.update(dt, g.time)); g.update(dt); g.presence?.update(dt, g.time, g.heroes[0], !!g.airborne?.[0]);
+      }
+      await wait(16);
+    };
+    const ticksUntil = async (laptops: Laptop[], predicate: () => boolean, max: number) => { for (let n = 0; n <= max; n++) { if (predicate()) return n; await tick(laptops); } return -1; };
+    let laptops: Laptop[] = [];
+
+    await check('Three games: each shows the other two heroes with the right name and wand colour', async () => {
+      laptops = [open('Trung', 'red'), open('Rishaan', 'blue'), open('haicil', 'yellow')];
+      const end = performance.now() + 25000;
+      while (!laptops.every(ready)) { if (performance.now() > end) throw new Error('the three games did not start within 25 s'); await wait(200); }
+      if (!laptops.every((l) => l.presence()?.avatars)) {
+        notes.push('game checks skipped: this build exposes no presence client (window.__storybound.presence)');
         return 'skip';
       }
-      // (Filled in against Presence.ts once it lands: avatars per game, movement within 0.5 s, fx, and leave.)
-      frames.forEach((frame) => frame.remove());
+      const seen = (l: Laptop) => [...l.presence()!.avatars.values()].map((a) => `${a.name}/${a.colour}`).sort().join(',');
+      const want = (l: Laptop) => laptops.filter((o) => o !== l).map((o) => `${o.name}/${o.colour}`).sort().join(',');
+      const n = await ticksUntil(laptops, () => laptops.every((l) => seen(l) === want(l)), 300);
+      assert(n >= 0, `after 5 s: ${laptops.map((l) => `${l.name} sees [${seen(l)}]`).join('; ')}`);
+      notes.push(`all three saw each other after ${n} frames`);
     });
+
+    await check('Moving one hero moves it on the other two within 0.5 s', async () => {
+      const [a] = laptops, ga = a.game(), p = ga.heroes[0].root.position, id = a.presence()!.id!;
+      const to = { x: p.x + 3, z: p.z - 2 };
+      p.set(to.x, p.y, to.z);
+      const near = (l: Laptop) => { const av = l.presence()!.avatars.get(String(id)); return !!av && Math.hypot(av.root.position.x - to.x, av.root.position.z - to.z) < 0.6; };
+      const n = await ticksUntil(laptops, () => laptops.slice(1).every(near), 60);
+      const where = laptops.slice(1).map((l) => { const av = l.presence()!.avatars.get(String(id)); return av ? `${l.name}: ${Math.hypot(av.root.position.x - to.x, av.root.position.z - to.z).toFixed(2)} m off` : `${l.name}: no avatar ${id}`; });
+      assert(n >= 0 && n <= 30, `Trung's move had not arrived after ${n < 0 ? '60+' : n} frames (${where.join(', ')})`);
+      notes.push(`a move arrived in ${n} frames (${(n / 60).toFixed(2)} s)`);
+    });
+
+    await check('A cast and a slash on one laptop show up as effects on the other two', async () => {
+      const [, b] = laptops, gb = b.game(), others = [laptops[0], laptops[2]];
+      const before = others.map((l) => ({ ...l.presence()!.fxCount }));
+      gb.spellCooldown[0] = 0; const cast = gb.cast(0); gb.attackCooldown[0] = 0; gb.strike(0);
+      assert(cast, 'Rishaan could not cast (the game would not let hero one act)');
+      const n = await ticksUntil(laptops, () => others.every((l, i) => l.presence()!.fxCount.cast > before[i].cast && l.presence()!.fxCount.slash > before[i].slash), 60);
+      assert(n >= 0, `effects did not arrive: ${others.map((l, i) => `${l.name} cast ${before[i].cast}->${l.presence()!.fxCount.cast}, slash ${before[i].slash}->${l.presence()!.fxCount.slash}`).join('; ')}`);
+    });
+
+    await check('A fourth laptop is told the room is full', async () => {
+      const fourth = open('Extra', 'red');
+      const end = performance.now() + 25000;
+      while (!ready(fourth)) { if (performance.now() > end) throw new Error('the fourth game did not start'); await wait(200); }
+      let text = '';
+      for (let i = 0; i < 120 && !text.includes('Room full'); i++) { await tick([...laptops, fourth]); text = fourth.doc().querySelector('.presence-list')?.textContent ?? ''; }
+      fourth.game().dispose(); fourth.frame.remove();
+      assert(text.includes('Room full'), `the fourth laptop shows "${text}"`);
+      assert(laptops.every((l) => l.presence()!.avatars.size === 2), 'the turned-away laptop appeared in a game');
+    });
+
+    await check('Closing a laptop removes its hero from the other two', async () => {
+      const [, , c] = laptops, id = String(c.presence()!.id);
+      c.game().dispose(); c.frame.remove(); laptops = laptops.slice(0, 2);
+      const n = await ticksUntil(laptops, () => laptops.every((l) => !l.presence()!.avatars.has(id)), 120);
+      assert(n >= 0, `haicil's hero is still there after 2 s: ${laptops.map((l) => `${l.name} sees ${[...l.presence()!.avatars.values()].map((a) => a.name).join(',')}`).join('; ')}`);
+    });
+    laptops.forEach((l) => { try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
+
     status.textContent = `Done. ${notes.join(' · ')}`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = `${String(error)} ${notes.join(' · ')}`; document.body.dataset.result = 'failed'; console.error(error); }
   finally { clients.forEach((c) => c.close()); running = false; }
