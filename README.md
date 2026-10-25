@@ -95,12 +95,12 @@ After you pass the Chapter III pose gate, a second door with carved eyes wakes u
 
 ### Phone joystick (working)
 
-Press **H** in the game. A toast shows a URL like `http://192.168.x.x:8000/joystick`. Open it on a phone, then drag your thumb anywhere on the screen to move; push past the ring to sprint. The stick moves the first hero whenever no movement key is held, and the game toasts when the phone connects.
+**No keyboard needed:** the start screen shows a QR code of the phone page; scan it, and the start screen says "Phone connected · Tap your phone to begin". On the phone, drag anywhere to move (push past the ring to sprint) and **tap** (a quick touch without dragging) for whatever Enter / E would do: start, talk to Willow, read on, accept the quest, take the photo and the relic in the scanner, play again. **Scan** (top right) opens the Reality Rift scanner and **Roll** (top left) rolls. With the tracker running, the lime-taped phone's slash is the sword and the wand draws spells, so the whole demo run plays with just the phone and the wand. The keyboard still works (**H** shows the phone URL as a toast). The stick moves the first hero whenever no movement key is held.
 
 - The backend must be started with `--host 0.0.0.0` (see [Run everything](#run-everything-from-a-fresh-clone)). Without it, the backend only answers on the laptop itself and the phone cannot reach it.
 - The phone and the laptop must be on the same network. Many venue Wi-Fi networks block device-to-device traffic, so the safe plan is: turn on the phone's hotspot and join the laptop to it.
 - Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
-- Only `{type: "move", x, y, sprint}` is forwarded, with numbers clamped to the unit circle. The room code is the only access control, which is fine for a demo.
+- Only `{type: "move", x, y, sprint}` (numbers clamped to the unit circle) and the buttons `{type: "action" | "scan" | "roll"}` are forwarded, phone to game only. Phones join from anywhere on the network; the game side must be this laptop's own page (loopback and the game's Origin, the same rule as the camera relay), so another machine or site cannot read or spoof the controls.
 
 ### cv_2: webcam colour tracker (working; wands, slash, jump and motion connected to the game)
 
@@ -238,7 +238,13 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 .venv\Scripts\python.exe -m tools.demo
 ```
 
-Calibrate for your lighting with `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
+**Tune the colours to your camera and room first** (the built-in thresholds were measured on one webcam; in a new room they can miss the wand or the tape entirely):
+
+```bash
+.venv/bin/python -m tools.autotune                                         # on Windows: .venv\Scripts\python.exe -m tools.autotune
+```
+
+No keys to press: a window asks you to hold the yellow wand ball in a box, then the phone tape, about 3 s each after a countdown, then to move both around for 4 s while it checks the new thresholds with the real tracker, and prints e.g. `Result: wand seen 96 %, tape seen 91 %`. It saves `cv_2/tuned.env` (git-ignored), which every tracker tool reads from then on; `YT_*` environment variables still win, and deleting the file goes back to the built-in values. Stop `tools.publish` first: only one program can hold the camera. `./scripts/demo.sh --tune` (`.\scripts\demo.ps1 -Tune`) runs it before starting the demo. For fine control there is still the click tool, `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
 
 To send the tracker to the game, keep the backend (step 1) running and the game open, then run one of these instead of the demo (on Windows use `.venv\Scripts\python.exe`):
 
@@ -248,7 +254,7 @@ uv pip install --python .venv/bin/python -r requirements.txt               # onc
 .venv/bin/python -m tools.publish --api http://localhost:8020 --room demo  # another backend or room; open the game with ?room=demo
 ```
 
-**Everything shows inside the game.** The tracker has no window of its own (`--window` opens its OpenCV view for debugging) and it is the only program that opens the webcam: it sends the game a small camera picture about 9 times a second, which the wand panel shows with your wand trails and the phone marker on top (plus a setup hint for a solo player: "Yellow wand not seen", "Phone tape not seen" or "Step back a little"), and the scanner (**X**) shows the same picture and scans from a full-size snapshot the tracker sends on request, instead of opening the camera itself. With no tracker running, the scanner opens the camera as before. The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam.
+**Everything shows inside the game.** The tracker has no window of its own (`--window` opens its OpenCV view for debugging) and it is the only program that opens the webcam: it sends the game a small camera picture about 15 times a second, which the wand panel shows with your wand trails and the phone marker on top (plus a setup hint for a solo player: "Yellow wand not seen", "Phone tape not seen" or "Step back a little"), and the scanner (**X**) shows the same picture and scans from a full-size snapshot the tracker sends on request, instead of opening the camera itself. With no tracker running, the scanner opens the camera as before. The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 ## Demo in one command
 
@@ -262,7 +268,7 @@ Once the setup above is done (`backend/.venv`, `frontend/node_modules`, `cv_2/.v
 .\scripts\demo.ps1           # Windows
 ```
 
-It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--no-tracker` (`-NoTracker` on Windows) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--tune` (`-Tune` on Windows) to first tune the tracker's colours to this camera and room (the no-keys setup above; it refuses if a tracker is already running, since it needs the camera), `--no-tracker` (`-NoTracker`) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
 
 ## Controls
 
@@ -294,8 +300,9 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 
 | What | Command | Result on `main` |
 |---|---|---|
-| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 46 pass |
-| Frontend unit tests | `cd frontend && npm test` | 83 pass |
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 54 pass |
+| Frontend unit tests | `cd frontend && npm test` | 87 pass |
+| Phone-only run | `npm run dev`, open `http://localhost:5173/tests/phonerun.html`, click **Run phone-only checks** | 4 checks: start, Willow and the wave, a scan and a roll with phone messages only |
 | Type-check and build | `cd frontend && npm run build` | passes |
 | In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 16 checks, listed as PASS / FAIL. They play the full story, not the demo run |
 | cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 247 pass (about 15-90 s on a Mac; no camera needed) |

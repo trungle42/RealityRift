@@ -4,6 +4,7 @@
 #
 #   .\scripts\demo.ps1                                backend :8000, game :5173, tracker, browser
 #   .\scripts\demo.ps1 -NoTracker -NoBrowser          no webcam tracker / do not open the browser
+#   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
 #   .\scripts\demo.ps1 -ApiPort 8020 -WebPort 5220    other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -11,6 +12,7 @@
 param(
     [switch]$NoTracker,
     [switch]$NoBrowser,
+    [switch]$Tune,
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -55,6 +57,17 @@ if ($startWeb) {
 }
 if ($startTracker -and -not (Test-Path $trackerPy)) {
     throw 'cv_2\.venv is missing. Set it up once (see cv_2\README.md; Windows on ARM needs the x86_64 Python), or run with -NoTracker.'
+}
+
+# -Tune: the colour setup (cv_2 tools.autotune) needs the camera to itself, so it runs first, before the tracker starts.
+if ($Tune) {
+    $publishRunning = [bool](Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like '*-m tools.publish*' })
+    if ($publishRunning) { throw '-Tune needs the camera, but a tracker (python -m tools.publish) is already running. Stop it (Ctrl-C in its window), then run .\scripts\demo.ps1 -Tune again.' }
+    if (-not (Test-Path $trackerPy)) { throw 'cv_2\.venv is missing, so the colours cannot be tuned. Set it up once (see cv_2\README.md; Windows on ARM needs the x86_64 Python).' }
+    Write-Host 'Colour setup: follow the prompts in the camera window (no keys to press) ...'
+    Push-Location (Join-Path $repoRoot 'cv_2')
+    try { & $trackerPy -m tools.autotune; $tuneCode = $LASTEXITCODE } finally { Pop-Location }
+    if ($tuneCode -ne 0) { Write-Host 'demo: the colour setup did not finish; starting with the colours from before (cv_2\tuned.env if present, else the built-in ones).' }
 }
 
 $logs = Join-Path ([IO.Path]::GetTempPath()) ("storybound-demo-" + [guid]::NewGuid().ToString('N').Substring(0, 8))

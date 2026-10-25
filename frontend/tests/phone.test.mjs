@@ -4,7 +4,24 @@ import { test } from 'node:test';
 import ts from 'typescript';
 
 const source = ts.transpileModule(await readFile(new URL('../src/adventure/phoneMath.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseStick, currentStick, NO_STICK, STICK_DEADZONE, STICK_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { parseStick, currentStick, parseCommand, NO_STICK, STICK_DEADZONE, STICK_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const qrSource = ts.transpileModule(await readFile(new URL('../src/adventure/qr.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const { qrModules, qrSvg } = await import(`data:text/javascript;base64,${Buffer.from(qrSource).toString('base64')}`);
+
+test('the phone buttons parse; anything else is not a command', () => {
+  for (const type of ['action', 'scan', 'roll']) assert.equal(parseCommand({ type, x: 1 }), type);
+  for (const bad of [null, 'action', {}, { type: 'move', x: 0, y: 0 }, { type: 'teleport' }]) assert.equal(parseCommand(bad), undefined);
+});
+test('the start screen QR code has the right size and the three finder patterns', () => {
+  // Decoding is checked with OpenCV outside the unit tests (all versions 1-9 decoded to their text).
+  const m = qrModules('http://192.168.1.5:8000/joystick');
+  assert.equal(m.length, 29);                                         // version 3 at level M
+  for (const [x, y] of [[0, 0], [22, 0], [0, 22]]) {
+    assert.ok(m[y][x] && m[y + 6][x + 6] && !m[y + 1][x + 1] && m[y + 3][x + 3], `finder pattern at ${x},${y}`);
+  }
+  assert.ok(qrSvg('x').startsWith('<svg') && !qrSvg('"><script>').includes('<script>'));
+  assert.throws(() => qrModules('x'.repeat(300)));
+});
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} !~ ${b}`);
 
 test('pushing the stick up is forward, the same as pressing W (negative z)', () => {

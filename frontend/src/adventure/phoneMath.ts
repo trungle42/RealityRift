@@ -22,6 +22,13 @@ export function parseStick(raw: unknown): StickMove | undefined {
 
 export const NO_STICK: StickMove = { x: 0, z: 0, mag: 0, sprint: false };
 
+/** The phone's buttons: a quick tap on the pad is `action` (like E / Enter / Space), plus the Scan and Roll buttons. */
+export type PhoneCommand = 'action' | 'scan' | 'roll';
+export function parseCommand(raw: unknown): PhoneCommand | undefined {
+  const type = typeof raw === 'object' && raw !== null ? (raw as { type?: unknown }).type : undefined;
+  return type === 'action' || type === 'scan' || type === 'roll' ? type : undefined;
+}
+
 /** The stick to apply right now: the latest one, or none if it has gone stale. */
 export function currentStick(latest: StickMove | undefined, receivedAt: number, now: number): StickMove {
   return latest && now - receivedAt <= STICK_STALE_SECONDS ? latest : NO_STICK;

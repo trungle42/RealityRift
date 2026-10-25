@@ -215,6 +215,8 @@ async def cv_ws(ws: WebSocket, room: str, role: str = "game"):
         pass
     finally:
         peers[role].discard(ws)
-        await _send_all(peers[other], json.dumps({"type": "peer", "role": role, "state": "left"}))
+        # Only the last one leaving counts: with two game tabs open, closing one must not hand the wand back to its timer.
+        if not peers[role]:
+            await _send_all(peers[other], json.dumps({"type": "peer", "role": role, "state": "left"}))
         if not peers["tracker"] and not peers["game"]:
             _rooms.pop(room, None)

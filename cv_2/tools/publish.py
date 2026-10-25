@@ -8,7 +8,7 @@ then draw); when it leaves the wand goes back to the 5 s timer. The slash hold i
 so the sword can be swung again quickly; the demo keeps 2 s.
 
 It is the only program that opens the webcam, and it has no window of its own by default: it also sends the game a small
-mirrored camera picture ~9 times a second (shown in the game's wand panel), and one full-size picture whenever the game's
+mirrored camera picture ~15 times a second (shown in the game's wand panel), and one full-size picture whenever the game's
 scanner asks for it. --window opens the old OpenCV debug view as well.
 
 Run from the cv_2/ folder, with the backend running:
@@ -89,7 +89,8 @@ class Publisher:
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                with connect(self.url, open_timeout=self.retry_s, close_timeout=0.5, max_size=None) as ws:
+                # No permessage-deflate: base64 JPEG barely compresses, so it would only spend CPU on both ends.
+                with connect(self.url, open_timeout=self.retry_s, close_timeout=0.5, max_size=None, compression=None) as ws:
                     self.connected = True
                     while not self._stop.is_set():
                         for msg in self._take(0.2):
@@ -147,7 +148,7 @@ def main() -> None:
     ap.add_argument("--room", default="storybound", help="room code; the game uses ?room=<code> (default storybound)")
     ap.add_argument("--camera", type=int, default=cfg.camera)
     ap.add_argument("--slash-hold", type=float, default=0.5, help="seconds before another slash can count (default 0.5)")
-    ap.add_argument("--preview-fps", type=float, default=9, help="camera pictures a second for the game's wand panel (0 = none)")
+    ap.add_argument("--preview-fps", type=float, default=15, help="camera pictures a second for the game's wand panel (0 = none)")
     ap.add_argument("--preview-width", type=int, default=224, help="width of those pictures in pixels (default 224)")
     ap.add_argument("--window", action="store_true", help="debug: also show the tracker's own OpenCV window (q quits)")
     ap.add_argument("--frames", type=int, default=0, help="stop after N frames (0 = until Ctrl+C)")
@@ -174,7 +175,9 @@ def main() -> None:
             payload = pipe.process(frame)
             pub.offer(game_message(payload))
             now_s = time.monotonic()
-            if args.preview_fps > 0 and now_s - last_preview >= 1 / args.preview_fps:
+            # Pictures can only go out on camera frames, which come at a fixed rate: allowing 10 % early keeps 15/s on every
+            # 2nd frame of a 30 fps camera, where waiting for a full 1/15 s would often slip to the 3rd (uneven, ~10/s).
+            if args.preview_fps > 0 and now_s - last_preview >= 0.9 / args.preview_fps:
                 pub.offer(jpeg_message("frame", frame, args.preview_width, 55, cfg.mirror), "frame")
                 last_preview = now_s
             n += 1

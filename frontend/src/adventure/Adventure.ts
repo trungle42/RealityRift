@@ -17,12 +17,14 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { colourOf, heroFor, KeyboardShapes, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { colourOf, heroFor, KeyboardShapes, RuneCaller, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
 import { WandModel } from './WandModel';
 import { WeaponsHud } from './WeaponsHud';
 import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
+import { phoneAction, showPhonePairing } from './phoneActions';
+import type { PhoneCommand } from './phoneMath';
 import { CvInput } from './CvInput';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
@@ -113,6 +115,8 @@ export class Adventure {
   /** Each hero's two weapons: the sword in the right hand, this wand in the left. Drawn shapes cast with per-shape cooldowns. */
   private readonly wands: (WandModel | undefined)[] = [];
   private readonly wandCooldowns = new ShapeCooldowns();
+  /** In combat the game asks hero 0 for one rune at a time; only that shape casts. */
+  private readonly runes = new RuneCaller();
   private readonly hud = new WeaponsHud();
   /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
   private readonly shapes: ShapeSource = new KeyboardShapes();
@@ -238,11 +242,13 @@ export class Adventure {
     // Scenery between the camera and the hero dissolves instead of blocking the view.
     fadeOccluders(this.world.root, (o) => o.name === 'ground' || o.name === 'lake' || o.userData.noFade === true);
     document.getElementById('loading')?.remove();
-    const party = await this.ui.start(this.solo);
+    // The phone joins on the start screen (QR code) and can start, steer and act for the whole demo run without a keyboard.
+    this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone connected: drag to move · tap to act · Scan opens the rift' : 'Phone disconnected'), undefined, (command) => this.onPhone(command));
+    const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
+    const party = await starting;
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.shapes.subscribe((colour, shape) => this.onShape(colour, shape)); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
-    this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
-    this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
+    this.ui.toast(this.phone.phoneConnected ? 'Drag on your phone to move · tap it to act · draw with the wand · slash with the phone' : 'Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
     this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
     this.wandHud = new WandHud(this.cv, this.ui.root);
@@ -255,7 +261,7 @@ export class Adventure {
     this.yaw = 0; this.rig.snap(this.heroes[0].root.position);
     // No golden beacon here: it would stand right on top of Willow. The quest line and the E prompt lead the way.
     this.target = { ...this.demo.willow, name: 'Speak with Willow' }; this.world.marker.visible = false;
-    this.ui.quest('Speak with Willow', 'She waits just ahead on the path · walk up and press E');
+    this.ui.quest('Speak with Willow', `She waits just ahead on the path · walk up and ${this.pressAct()}`);
     this.ui.discover('The Whispering Wood');
   }
 
@@ -470,7 +476,7 @@ export class Adventure {
       await this.finish(this.state!.hearts > 0 && this.bossWon); return;
     }
     this.target = objectiveFor(this.beat); this.world.setObjective(this.target);
-    this.ui.quest(this.target.name, 'Find the golden beacon · press E nearby');
+    this.ui.quest(this.target.name, `Find the golden beacon · ${this.pressAct()} nearby`);
   }
 
   private async interact(): Promise<void> {
@@ -550,6 +556,7 @@ export class Adventure {
   }
 
   private async complete(kind: OutcomeKind, success: boolean, before: number, summary: string, choiceId?: string): Promise<void> {
+    this.endRunes();
     if (this.demo && this.state && !this.ended) {
       this.encounterKind = undefined;
       if (kind === 'encounter') await this.startBoss(); else if (kind === 'boss') { this.bossWon = success; await this.endDemo(success); }
@@ -843,6 +850,16 @@ export class Adventure {
   }
 
   // ---- Reality Rift: scan an object, get a weapon ----
+  /** The phone's buttons (its stick is read every frame): a tap does what Enter / E would, Scan opens the rift, Roll rolls. */
+  private onPhone(command: PhoneCommand): void {
+    if (command === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
+    else if (command === 'scan') void this.openScan();
+    else if (!this.scanner.open) this.roll(0);
+  }
+
+  /** "tap your phone" once a phone is connected, else the key. */
+  private pressAct(): string { return this.phone?.phoneConnected ? 'tap your phone' : 'press E'; }
+
   private async openScan(): Promise<void> {
     if (!this.state || this.busy || this.ended || this.ui.blocked || this.scanner.open) return;
     this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
@@ -865,9 +882,26 @@ export class Adventure {
    */
   private onShape(colour: WandColour, shape: WandShape): void {
     const player = heroFor(colour, this.solo); if (player === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    // In combat only the rune the game asked for casts; any other shape just gets a reminder.
+    const asked = player === 0 ? this.runes.target : undefined;
+    if (asked && shape !== asked) { this.hud.notRune(asked); return; }
     if (!this.wandCooldowns.ready(player, shape, this.time) || !this.cast(player, wandSpell(SHAPE_ABILITY[shape], this.weapons[player]))) return;
     this.wandCooldowns.use(player, shape, this.time); this.hud.cast(player, shape, SHAPE_COOLDOWN[shape]);
+    if (asked) this.runes.next(this.time);
   }
+
+  /**
+   * Combat (an encounter or a boss): ask for a rune, tell the tracker to complete only that shape, and show it, with a
+   * visible wait while the wand recovers. Out of combat the wand is free. A pose seal asks for its own rune, so trials are left alone.
+   */
+  private updateRunes(): void {
+    if (this.trial) return;
+    if (!this.encounterKind || this.ended) { this.endRunes(); return; }
+    const rune = this.runes.update(this.time);
+    this.cv?.gate(true, rune); this.hud.rune(rune, this.wandCooldowns.left(0, rune, this.time));
+  }
+
+  private endRunes(): void { if (!this.runes.target) return; this.runes.clear(); this.hud.rune(undefined); this.cv?.gate(true); }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
   private evadeDirection(player: PlayerIndex): T.Vector3 {
@@ -976,6 +1010,7 @@ export class Adventure {
 
   private async finish(victory: boolean): Promise<void> {
     if (this.ended || !this.state) return;
+    this.endRunes();
     if (this.demo) { await this.endDemo(victory); return; }
     this.ended = true; this.busy = true; this.keys.clear(); this.ui.challenge(); this.ui.boss(); this.ui.context();
     if (this.encounterKind && this.beat) {
@@ -1040,6 +1075,7 @@ export class Adventure {
 
   private update(dt: number): void {
     this.invulnerable = Math.max(0, this.invulnerable - dt);
+    this.updateRunes();
     this.stamina = Math.min(1, this.stamina + dt * 0.16);
     if (this.keys.has('KeyC')) this.yaw += dt * 1.4;
     if (this.keys.has('KeyV')) this.yaw -= dt * 1.4;

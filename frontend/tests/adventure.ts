@@ -192,7 +192,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
     });
-    await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword', async () => {
+    await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword; in combat only the requested rune casts', async () => {
       inner.trial = undefined; inner.busy = false; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
       type Spellish = { element?: string; color: number; damage: number };
       const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: unknown[]; strikes: Spellish[]; bolts: Spellish[]; hit: (...a: unknown[]) => void; strike(p: 0 | 1): void; resolveHits(): void };
@@ -239,6 +239,20 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         rift.strike(0); for (let i = 0; i < 10; i++) { inner.time += 0.05; inner.update(0.05); }
         assert(elements.includes('fire'), 'a sword hit did not carry the relic element');
       } finally { window.fetch = realFetch; rift.hit = realHit; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
+      // In combat the game asks for one rune at a time: only that shape casts (keys 4-7 follow the same rule as the tracker).
+      const combat = game as unknown as { runes: { target?: string }; encounterKind?: string; wandCooldowns: { ready(hero: 0, shape: string, now: number): boolean } };
+      combat.encounterKind = 'encounter'; inner.time += WAND_RECOVERY + 3.1; inner.update(0.01);
+      const want = combat.runes.target; assert(want, 'no rune requested in combat');
+      assert((document.querySelector('.rune-request:not([hidden])')?.textContent ?? '').includes(want), 'the requested rune is not shown');
+      const keyOf: Record<string, string> = { circle: 'Digit4', triangle: 'Digit5', square: 'Digit6', star: 'Digit7' };
+      const other = Object.keys(keyOf).find((shape) => shape !== want)!, quiet = { bolts: rift.bolts.length, strikes: rift.strikes.length };
+      draw(keyOf[other]);
+      assert(rift.bolts.length === quiet.bolts && rift.strikes.length === quiet.strikes && combat.wandCooldowns.ready(0, other, inner.time) && combat.runes.target === want, `${other} cast although the game asked for ${want}`);
+      draw(keyOf[want]);
+      assert(!combat.wandCooldowns.ready(0, want, inner.time), `the requested ${want} did not cast`);
+      assert(combat.runes.target && combat.runes.target !== want, 'the request did not move on after the cast');
+      combat.encounterKind = undefined; inner.update(0.01);
+      assert(document.querySelector('.rune-request')?.hasAttribute('hidden') && !combat.runes.target, 'the rune request outlived the fight');
     });
     await check('Boss wards block damage during the warning and admit spells during recovery', async () => {
       inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); inner.state.hearts = 3;
