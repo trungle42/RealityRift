@@ -2,6 +2,8 @@
 
 **Don't just read the fairy tale. Become part of it.**
 
+The frontend now includes a third-person 3D edition with free movement, an orbiting camera, exploration, combat, and the existing fairy-tale story progression. The forest sanctuary is the focus of its first detailed asset pass. See [3D adventure controls and setup](docs/3d-adventure.md). Rishaan's established 2.5D campaign is available with `?mode=classic`.
+
 An AI-powered interactive fairy-tale adventure for two players, built for HackTX 2026 (theme: Fairy Tale).
 Two heroes enter an enchanted kingdom. A Gemini-powered storyteller writes each scene from what the players
 actually did (who froze, who missed a pose, which path they voted for), the engine runs the challenges and the boss

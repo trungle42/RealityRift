@@ -1,0 +1,143 @@
+:root {
+  --game-ink: #19392f;
+  --game-panel: #19372ff2;
+  --game-text: #faf5e1;
+  --game-muted: #cbd6c5;
+  --game-gold: #f0d48e;
+  --game-line: #c5d3bd55;
+  --game-focus: #fff1bc;
+  --z-world: 0;
+  --z-hud: 10;
+  --z-story: 20;
+  --z-onboard: 30;
+  --z-toast: 40;
+}
+.adventure-canvas { width: 100%; height: 100%; touch-action: none; outline: none; position: fixed; inset: 0; z-index: var(--z-world); }
+.adventure-ui { position: fixed; inset: 0; z-index: var(--z-hud); pointer-events: none; color: var(--game-text); font: 14px/1.5 system-ui, sans-serif; user-select: none; }
+.adventure-ui *, .adventure-start *, .adventure-modal * { box-sizing: border-box; }
+.adventure-ui button, .adventure-start button, .adventure-modal button { cursor: pointer; font: inherit; color: inherit; pointer-events: auto; touch-action: manipulation; }
+.adventure-ui svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.adventure-ui kbd, .adventure-start kbd { font: 11px/1.2 system-ui, sans-serif; border: 1px solid #e7e9d270; border-radius: 3px; padding: 4px 6px; color: var(--game-text); background: #172e2770; white-space: nowrap; }
+.adventure-ui [hidden] { display: none !important; }
+.adventure-ui button:focus-visible, .adventure-start :focus-visible, .adventure-modal :focus-visible { outline: 3px solid var(--game-focus); outline-offset: 5px; }
+.adventure-ui button:hover { color: var(--game-gold); }
+.adventure-ui button:active { transform: translateY(1px); }
+.game-topshade { position: absolute; inset: 0 0 auto; height: 235px; background: linear-gradient(#10291e80, #10291e20 60%, transparent); }
+.game-status { position: absolute; top: 30px; left: 36px; text-shadow: 0 1px 8px #11291f; }
+.game-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; font: 500 16px 'Cinzel', Georgia, serif; letter-spacing: 0.16em; }
+.game-brand svg { width: 25px; height: 25px; color: var(--game-gold); }
+.game-vitals { display: flex; align-items: center; gap: 24px; }
+.game-hearts { display: flex; gap: 5px; font-size: 29px; line-height: 1; }
+.game-hearts .full { color: #eeafa0; filter: drop-shadow(0 1px 1px #512d27); }
+.game-hearts .empty { color: #e2e6d65c; }
+.game-stars { color: var(--game-gold); font-size: 18px; font-variant-numeric: tabular-nums; }
+.game-stamina { height: 4px; width: 98px; background: #253f31; border-radius: 2px; overflow: hidden; margin-top: 13px; }
+.game-stamina i { display: block; height: 100%; background: #bce2b4; transform-origin: left; }
+.game-party { display: block; font-size: 11px; color: var(--game-muted); margin-top: 6px; }
+.game-compass { position: absolute; left: 50%; top: 32px; width: 245px; transform: translateX(-50%); display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #f7f6dfbd; text-shadow: 0 1px 6px #19392f; }
+.game-compass i { width: 1px; height: 7px; background: #e9e9d075; }
+.game-compass b { position: absolute; top: 22px; left: calc(50% - 6px); font-size: 19px; color: var(--game-gold); }
+.game-location { position: absolute; right: 32px; top: 24px; text-align: center; }
+.game-map-button { padding: 0; border: 2px solid #e0d5a57a; border-radius: 50%; width: 134px; height: 134px; background: #324d40; position: relative; box-shadow: 0 3px 18px #0e2c2540; }
+.game-map-button canvas { width: 100%; height: 100%; border-radius: 50%; opacity: 0.94; }
+.map-key { position: absolute; right: 1px; bottom: 1px; border: 1px solid var(--game-line); border-radius: 50%; background: var(--game-panel); width: 24px; height: 24px; font-size: 11px; line-height: 23px; }
+.game-location p { font: 16px 'IM Fell English', Georgia, serif; margin: 8px 0 1px; text-shadow: 0 1px 6px #19392f; }
+.game-location small { font-size: 10px; color: var(--game-muted); text-shadow: 0 1px 6px #19392f; }
+.game-quest { position: absolute; top: 190px; left: 36px; max-width: 265px; padding: 14px 18px 14px 0; text-shadow: 0 1px 5px #163623, 0 0 24px #19392f; }
+.quest-category { color: var(--game-gold); font-size: 11px; }
+.game-quest h2 { font: 21px/1.2 'IM Fell English', Georgia, serif; font-weight: 400; margin: 5px 0 7px; text-wrap: balance; }
+.game-quest p { font-size: 11px; margin: 0; color: var(--game-text); }
+.game-quest::after { content: ''; display: block; width: 50px; height: 1px; background: var(--game-gold); opacity: 0.7; margin-top: 14px; }
+.game-footer { position: absolute; inset: auto 32px 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; text-shadow: 0 2px 5px #17372b; }
+.game-move-hint { display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--game-text); }
+.hint-divider { opacity: 0.5; margin: 0 2px; }
+.game-actions { display: flex; gap: 17px; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
+.game-actions button { position: relative; background: #19392fcf; border: 1px solid #f2e3ba7a; border-radius: 50%; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; transition: background 180ms, border-color 180ms; }
+.game-actions button:hover { background: #294b3d; border-color: var(--game-gold); }
+.game-actions kbd { position: absolute; right: -6px; bottom: -2px; padding: 2px 4px; background: var(--game-ink); }
+.game-actions button > span:last-child { position: absolute; top: calc(100% + 7px); font-size: 9px; color: var(--game-text); }
+.dodge-icon { font-size: 29px; line-height: 1; }
+.adventure-ui .game-tools { position: static; z-index: auto; display: flex; gap: 18px; align-items: center; }
+.game-tools button { background: none; border: 0; display: flex; gap: 7px; align-items: center; padding: 8px; }
+.sound-button { font-size: 24px !important; }
+.game-context { position: absolute; left: 50%; bottom: 125px; transform: translateX(-50%); }
+.game-interact { min-height: 48px; white-space: nowrap; background: var(--game-panel); border: 1px solid #e6dcad90; border-radius: 4px; padding: 9px 22px 9px 10px; display: flex; align-items: center; gap: 12px; box-shadow: 0 3px 20px #13302050; }
+.game-interact kbd { font-size: 15px; padding: 3px 8px; color: var(--game-ink); background: var(--game-text); }
+.game-toast { position: absolute; left: 50%; bottom: 93px; transform: translate(-50%, 8px); padding: 10px 18px; background: var(--game-panel); border: 1px solid var(--game-line); border-radius: 3px; text-align: center; max-width: min(620px, 90%); width: max-content; font-size: 13px; opacity: 0; transition: opacity 200ms, transform 200ms; z-index: var(--z-toast); }
+.game-toast.visible { opacity: 1; transform: translate(-50%, 0); }
+.game-discovery { position: absolute; top: 27%; left: 50%; transform: translateX(-50%); text-align: center; opacity: 0; text-shadow: 0 2px 15px #19392f; }
+.game-discovery span { font-size: 11px; color: var(--game-gold); }
+.game-discovery h2 { margin: 5px 0; font: 36px 'IM Fell English', Georgia, serif; }
+.game-discovery.visible { animation: discovery 4.5s ease-out both; }
+@keyframes discovery { 0%, 100% { opacity: 0; } 15%, 70% { opacity: 1; } }
+.game-dialogue { pointer-events: auto; position: absolute; left: 50%; bottom: 100px; transform: translateX(-50%); width: min(700px, calc(100vw - 48px)); padding: 20px 28px 14px; background: var(--game-panel); border: 1px solid #dec89180; border-radius: 4px; box-shadow: 0 12px 40px #142f2540; z-index: var(--z-story); }
+.dialogue-speaker { font-size: 12px; color: var(--game-gold); }
+.game-dialogue p { font: 21px/1.45 'IM Fell English', Georgia, serif; margin: 9px 0 15px; text-wrap: pretty; }
+.game-dialogue button { display: flex; align-items: center; gap: 10px; background: none; border: 0; margin-left: auto; padding: 5px; font-size: 11px; }
+.game-challenge { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); width: min(450px, 85%); text-align: center; background: var(--game-panel); padding: 17px 25px; border: 1px solid var(--game-line); border-radius: 4px; }
+.game-challenge span { color: var(--game-gold); font-size: 11px; }
+.game-challenge h2 { font: 26px 'IM Fell English', Georgia, serif; margin: 6px 0; }
+.game-challenge p { font-size: 12px; color: var(--game-muted); margin: 8px 0; }
+.game-challenge progress { appearance: none; width: 100%; height: 4px; border: none; margin-top: 5px; }
+.game-challenge progress::-webkit-progress-bar { background: #63806c; }
+.game-challenge progress::-webkit-progress-value { background: var(--game-gold); }
+.game-boss { position: absolute; top: 83px; left: 50%; transform: translateX(-50%); width: min(410px, 65%); text-align: center; text-shadow: 0 1px 8px #183528; }
+.game-boss > span { font: 22px 'IM Fell English', Georgia, serif; }
+.game-boss > div { height: 6px; background: #294335; border: 1px solid #f5e8b780; margin: 10px 0 5px; }
+.game-boss i { display: block; height: 100%; background: #d89686; transform-origin: left; transition: transform 180ms; }
+.game-boss small { font-size: 11px; }
+.game-vignette { position: absolute; inset: 0; box-shadow: inset 0 0 90px #1d3f3020; z-index: -1; }
+.game-damage { position: absolute; inset: 0; opacity: 0; box-shadow: inset 0 0 120px #bd4b3fa0; }
+.game-damage.hurt { animation: hurt 600ms ease-out; }
+@keyframes hurt { 10% { opacity: 1; } 100% { opacity: 0; } }
+.adventure-start { position: fixed; inset: 0; z-index: var(--z-onboard); display: flex; align-items: center; color: var(--game-text); background: linear-gradient(90deg, #15382ce8 0%, #163a2cc9 28%, #163a2c50 53%, transparent 77%); font: 14px/1.5 system-ui, sans-serif; overflow-y: auto; }
+.start-content { width: min(540px, 51%); padding: 30px 40px 35px 64px; text-align: center; }
+.start-flourish { font: 46px Georgia, serif; color: var(--game-gold); }
+.start-subtitle { margin: 10px 0; font-size: 11px; letter-spacing: 0.13em; }
+.adventure-start h1 { font: 500 clamp(38px, 4.5vw, 70px)/1.15 'Cinzel', Georgia, serif; text-transform: uppercase; letter-spacing: 0.01em; margin: 8px 0; text-wrap: balance; }
+.start-tale { font: italic 25px 'IM Fell English', Georgia, serif; color: var(--game-gold); margin: 5px 0 29px; }
+.start-description { font: 18px/1.55 'IM Fell English', Georgia, serif; color: var(--game-text); margin-bottom: 28px; }
+.start-names { display: flex; gap: 16px; margin: 20px 0 23px; text-align: left; }
+.start-names label { flex: 1; min-width: 0; font-size: 10px; color: var(--game-muted); }
+.start-names input { display: block; width: 100%; padding: 8px 0; border: none; border-bottom: 1px solid #e7d7a773; background: transparent; border-radius: 0; font: 18px 'IM Fell English', Georgia, serif; color: var(--game-text); margin-top: 3px; }
+.adventure-primary { padding: 14px 23px; background: var(--game-gold); color: #253b2b !important; border: 1px solid var(--game-gold); border-radius: 3px; width: 100%; font: 600 13px system-ui, sans-serif !important; transition: background 180ms, transform 180ms; cursor: pointer; }
+.adventure-primary:hover { background: #ffeab3; transform: translateY(-1px); }
+.adventure-primary span { margin-left: 20px; font-size: 17px; }
+.start-controls { display: flex; gap: 19px; justify-content: center; font-size: 10px; margin-top: 25px; color: var(--game-muted); }
+.start-controls kbd { margin-right: 4px; font-size: 9px; padding: 3px 4px; }
+.start-footnote { margin-top: 35px; font-size: 9px; color: var(--game-muted); }
+.before-start .game-status, .before-start .game-quest, .before-start .game-footer, .before-start .game-compass, .before-start .game-location { visibility: hidden; }
+.adventure-modal { width: min(730px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; padding: 34px 38px; border: 1px solid #c4bc8a; border-radius: 5px; color: var(--game-text); background: #1e3b30; font: 15px/1.7 system-ui, sans-serif; box-shadow: 0 25px 80px #0b241f70; }
+.adventure-modal::backdrop { background: #102c24a8; }
+.adventure-modal h2 { font: 32px/1.2 'IM Fell English', Georgia, serif; margin: 0 0 14px; text-wrap: balance; }
+.adventure-modal h3 { font: 23px 'IM Fell English', Georgia, serif; color: var(--game-gold); margin-bottom: 5px; }
+.adventure-modal p { color: var(--game-muted); max-width: 65ch; }
+.adventure-choice { display: block; width: 100%; text-align: left; border: 1px solid var(--game-line); background: #294b3c; padding: 18px 22px; margin: 12px 0; font-size: 15px !important; border-radius: 3px; }
+.adventure-choice:hover { background: #3f624a; border-color: var(--game-gold); }
+.journal-worldmap { width: 100%; height: auto; border: 1px solid var(--game-line); border-radius: 3px; margin-top: 10px; }
+.journal-kicker { font-size: 11px; color: var(--game-gold) !important; margin: 0 0 6px; }
+.journal-controls { font-size: 12px; line-height: 1.8; }
+.game-touch { display: none; pointer-events: auto; position: absolute; left: 25px; bottom: 75px; text-align: center; }
+.game-touch button { background: var(--game-panel); border: 1px solid var(--game-line); border-radius: 5px; margin: 2px; width: 42px; height: 42px; color: var(--game-text); }
+@media (pointer: coarse) { .game-touch { display: block; } .game-move-hint { display: none; } }
+@media (max-width: 800px) {
+  .game-status { top: 20px; left: 20px; } .game-brand { font-size: 13px; } .game-quest { top: 155px; left: 20px; max-width: 210px; } .game-quest h2 { font-size: 18px; }
+  .game-location { top: 18px; right: 20px; } .game-map-button { width: 100px; height: 100px; } .game-location p { font-size: 13px; } .game-location small { display: none; }
+  .game-compass { width: 130px; top: 24px; } .game-footer { left: 20px; right: 20px; } .game-move-hint > span { display: none; }
+  .start-content { padding: 25px; width: min(460px, 66%); } .adventure-start { background: linear-gradient(90deg, #15382cf2 15%, #163a2cb0 55%, transparent); }
+  .start-controls { flex-wrap: wrap; gap: 12px; } .start-footnote { margin-top: 20px; } .start-flourish { font-size: 35px; }
+}
+@media (max-width: 520px) {
+  .adventure-start { justify-content: center; background: #163a2cc9; } .start-content { width: 100%; max-width: 410px; } .adventure-start h1 { font-size: 42px; }
+  .game-brand span { font-size: 11px; letter-spacing: 0.08em; } .game-hearts { font-size: 24px; } .game-vitals { gap: 12px; } .game-party { font-size: 10px; }
+  .game-map-button { width: 80px; height: 80px; } .game-location p { max-width: 100px; font-size: 12px; } .game-compass { display: none; }
+  .game-quest { top: 145px; max-width: 180px; } .game-quest h2 { font-size: 17px; } .game-quest p { font-size: 10px; }
+  .game-move-hint, .game-tools .sound-button { display: none; } .game-tools { margin-left: auto; } .game-actions { gap: 13px; } .game-footer { bottom: 26px; }
+  .game-dialogue { bottom: 106px; padding: 16px 19px 10px; } .game-dialogue p { font-size: 18px; } .game-toast { font-size: 11px; }
+  .adventure-modal { padding: 26px 22px; } .game-challenge { top: 235px; } .game-discovery { top: 38%; width: 95%; } .game-discovery h2 { font-size: 30px; }
+}
+@media (max-height: 650px) and (min-width: 521px) {
+  .start-content { padding-top: 15px; padding-bottom: 15px; } .start-flourish { display: none; } .start-tale { margin-bottom: 18px; } .start-description { margin: 15px 0; } .start-names { margin: 10px 0 17px; } .start-footnote { margin-top: 16px; }
+  .game-quest { top: 150px; } .game-discovery { top: 30%; }
+}
+@media (prefers-reduced-motion: reduce) { .adventure-ui *, .adventure-start *, .adventure-modal * { animation-duration: 1ms !important; transition-duration: 1ms !important; } .game-discovery.visible { animation: none; } }
