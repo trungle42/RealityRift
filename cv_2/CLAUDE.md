@@ -321,7 +321,9 @@ across lighting conditions or object types, and blue/red thresholds have never b
 - Velocity/prediction so the object can be bridged across brief occlusions.
 - Frontend rendering of the payload's `trace` (it is already normalised and mirrored).
 - `docs/cv-architecture.html` and the "CV service" section of `docs/api-contract.md` still describe the deleted cv/ pose
-  service; reconcile or remove them once the project direction is settled.
+  service. They are marked LEGACY with a pointer to this folder and `docs/yellow-tracker.html`, but the old text is kept: remove it,
+  or replace the api-contract section with the tracker's real WebSocket protocol once a server exists (the per-frame data is
+  already documented in the guide's "Output data").
 
 ## Conventions
 

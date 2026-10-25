@@ -35,6 +35,14 @@ Response: `{ storybook: { title, pages:[{text,environment}], outcome: victory|bi
 `{ ok, gemini: boolean, model }`: `gemini:false` means key missing or `OFFLINE=1`.
 
 ## CV service (separate process, port 8001): webcam people + poses
+
+> **LEGACY - this service is no longer in the repository.** The `cv/` pose service described below (port 8001, `WS /ws/cv`, poses and
+> colour planes) was removed and replaced by the standalone tracker in [`cv_2/`](../cv_2/), which tracks a yellow, a blue and a red wand,
+> recognises drawn shapes, and detects a phone slash and a jump. **That tracker has no server or WebSocket yet**; nothing here is
+> implemented. For what it produces per frame (`Pipeline.process()`), see the "Output data" section of
+> [`docs/yellow-tracker.html`](yellow-tracker.html) and [`cv_2/CLAUDE.md`](../cv_2/CLAUDE.md). The text below is kept only as a reference for
+> anyone who re-adds a pose service, and must not be relied on.
+
 Lives in `cv/` (see `cv/README.md`). Tracks up to 2 people ("Person 1", "Person 2"; ids are reused,
 so a 2-player game only ever sees 1 and 2), recognises a fixed pose list, and reports which
 of two colour planes each person stands in.

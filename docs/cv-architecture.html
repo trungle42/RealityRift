@@ -93,6 +93,8 @@
   </nav>
 </header>
 
+<div class="note"><strong>Legacy document.</strong> This page describes the earlier <code>cv/</code> pose service (RTMPose, port 8001, <code>/ws/cv</code>), which is <strong>no longer in the repository</strong>: it was removed and replaced by the standalone tracker in <code>cv_2/</code> (colour wand tracking, shape drawing, phone slash, jump). Nothing below is implemented any more. For the current design see <a href="yellow-tracker.html">yellow-tracker.html</a> (user guide, output data) and <code>cv_2/CLAUDE.md</code> (decisions and measurements). Kept for reference only.</div>
+
 <!-- ============================ OVERVIEW ============================ -->
 <h2 id="overview">1. Overview</h2>
 <p>The CV service is its own process, separate from the FastAPI/Gemini backend. The game frontend opens one WebSocket to it and receives a JSON message for every processed camera frame: who is in view, their skeleton, the pose they are making, whether they are frozen, and which plane they stand in. The game decides what those facts mean (a <code>pose</code> challenge passes when <code>pose.label</code> equals the requested pose and <code>pose.stable</code> is true).</p>
