@@ -14,7 +14,15 @@ Open `http://localhost:5173/?story=scripted` for fully local play. The default s
 
 ## Play
 
-WASD moves the ranger relative to the camera. Drag the world to orbit the camera; the wheel zooms, and C/V also rotate it. Shift sprints, Space jumps, E interacts, J strikes with the sword, F casts, Q dodges, and M opens the map and journal. The companion follows and casts automatically; arrow keys give a second player direct movement control and `/` casts for that player.
+WASD moves the ranger relative to the camera. Click the world to capture the mouse for mouse-look (left click strikes, Esc frees the mouse); without the mouse captured, drag the world to orbit the camera. The wheel zooms, and C/V also rotate it. Shift sprints, Space jumps, E interacts, J strikes with the sword, F casts, and M opens the map and journal (Esc does too when the mouse is free).
+
+- **Q rolls:** about 4.5 m, 1 s of invulnerability from the start, 4 s cooldown.
+- **R flash-steps:** a short dash that costs stamina, with a 6 s cooldown. Dodging at the last moment of an enemy attack slows time for a flurry rush.
+- **Z or Tab** (or right click) locks on to the nearest foe and releases it again.
+- **X scans an object** (Reality Rift, also the Scan button): hold a real object to the webcam and the backend turns it into your spell. See the main [README](../README.md).
+- **H** shows the URL for the phone joystick; the backend must run with `--host 0.0.0.0` for a phone to reach it.
+
+The default is solo play: one hero, and the companion follows and casts automatically. Add `?players=2` for a second human: arrow keys move that player, `/` casts and Right Shift rolls. In solo play the arrow keys also move your hero, and `/` and Right Shift cast and roll for you.
 
 Walk to the golden beacon to begin the next story encounter. Story choices, freeze, pose seals, encounters, and bosses use the existing beat ids and catalog. Hold 1/2/3 for arms-up, T-pose, and crouch; the second player's equivalents are I/O/P. An automatic companion mirrors pose challenges and defends boss warnings. Boss wards reject damage during their warning, then open for attacks. Treasure and springs are claimed once; a full-health party preserves a spring for later. Progress lasts for this adventure; refresh starts a new one.
 
