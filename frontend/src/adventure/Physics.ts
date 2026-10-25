@@ -10,6 +10,7 @@ export class Physics {
   readonly world: RAPIER.World;
   private readonly pawns: (Pawn | undefined)[] = [];
   private readonly surfaces: { mesh: T.Mesh; collider: RAPIER.Collider; matrix: T.Matrix4 }[] = [];
+  private readonly thin = new Set<number>();
 
   static async create(surfaces: T.Mesh[], trees: (Solid & { y: number })[]): Promise<Physics> {
     ready ??= RAPIER.init(); await ready;
@@ -28,10 +29,14 @@ export class Physics {
       if (indices.length >= 3) {
         const collider = this.world.createCollider(RAPIER.ColliderDesc.trimesh(vertices, indices).setFriction(0.8));
         this.surfaces.push({ mesh: surface, collider, matrix: surface.matrixWorld.clone() });
+        // Trees, rocks and props are see-through for the camera (they dither out); walls and terrain still push it in.
+        geometry.computeBoundingBox(); const size = geometry.boundingBox!.getSize(new T.Vector3());
+        let thin = size.x < 3.5 && size.z < 3.5; for (let p: T.Object3D | null = surface; p; p = p.parent) if (p.userData.cameraThin) thin = true;
+        if (thin) this.thin.add(collider.handle);
       }
       geometry.dispose();
     }
-    for (const tree of trees) this.world.createCollider(RAPIER.ColliderDesc.cylinder(2.5, tree.radius).setTranslation(tree.x, tree.y + 2.5, tree.z));
+    for (const tree of trees) this.thin.add(this.world.createCollider(RAPIER.ColliderDesc.cylinder(2.5, tree.radius).setTranslation(tree.x, tree.y + 2.5, tree.z)).handle);
     // Shallow wading support under the lake; bank geometry handles entering/exiting.
     this.world.createCollider(RAPIER.ColliderDesc.cylinder(0.04, 16.8).setTranslation(30, -0.62, 24));
     for (const x of [-67.5, 67.5]) this.world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, 40, 65).setTranslation(x, 15, -5));
@@ -39,7 +44,7 @@ export class Physics {
     this.world.step();
   }
 
-  addCharacter(feet: T.Vector3, radius = 0.32, halfHeight = 0.55): number {
+  addCharacter(feet: T.Vector3, radius = 0.38, halfHeight = 0.5): number {
     const offset = radius + halfHeight + 0.02;
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(feet.x, feet.y + offset, feet.z));
     const collider = this.world.createCollider(RAPIER.ColliderDesc.capsule(halfHeight, radius).setFriction(0), body);
@@ -105,6 +110,20 @@ export class Physics {
     direction.divideScalar(length);
     const hit = this.world.castRay(new RAPIER.Ray(from, direction), length, true, RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC | RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC | RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
     return hit?.timeOfImpact;
+  }
+
+  /**
+   * Camera probe: distance to the first wall/terrain hit, and separately to the first thin prop (trunk, rock, lamp).
+   * The rig always respects walls, and respects thin props only when they would sit at the lens.
+   */
+  cameraHits(from: T.Vector3, to: T.Vector3): { wall?: number; thin?: number } {
+    const direction = to.clone().sub(from), length = direction.length();
+    if (length < 0.001) return {};
+    direction.divideScalar(length);
+    const ray = new RAPIER.Ray(from, direction), flags = RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC | RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC | RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
+    const wall = this.world.castRay(ray, length, true, flags, undefined, undefined, undefined, (c) => !this.thin.has(c.handle));
+    const thin = this.world.castRay(ray, length, true, flags, undefined, undefined, undefined, (c) => this.thin.has(c.handle));
+    return { wall: wall?.timeOfImpact, thin: thin?.timeOfImpact };
   }
 
   dispose(): void { this.world.free(); }

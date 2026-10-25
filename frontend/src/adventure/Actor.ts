@@ -25,6 +25,13 @@ export class Actor {
   attack = 0;
   hurt = 0;
   pose = '';
+  /** Which swing clip plays while `attack` > 0, and how long that swing lasts. */
+  attackClip = 'strike';
+  attackLength = 0.4;
+  attackSerial = 0;
+  private playedSerial = -1;
+  /** Seconds of hit-reaction animation remaining. */
+  stagger = 0;
   readonly color: number;
   private model?: T.Object3D;
   private mixer?: T.AnimationMixer;
@@ -80,16 +87,28 @@ export class Actor {
 
   update(dt: number, time: number): void {
     this.attack = Math.max(0, this.attack - dt); this.hurt = Math.max(0, this.hurt - dt);
+    this.stagger = Math.max(0, this.stagger - dt);
     if (this.model && this.mixer) {
-      const name = this.pose || (this.attack > 0 ? 'strike' : this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle');
+      const attackName = this.attack > 0 ? (this.actions.has(this.attackClip) ? this.attackClip : 'strike') : '';
+      const name = this.pose || (this.stagger > 0 && this.actions.has('stagger_back') ? 'stagger_back' : attackName || (this.moving > 6 && this.actions.has('run') ? 'run' : this.moving > 0.1 ? 'walk' : 'idle'));
       const action = this.actions.get(name);
-      if (action && action !== this.activeAction) {
-        this.activeAction?.fadeOut(0.12); action.reset().fadeIn(0.12).play(); this.activeAction = action;
+      // A new swing restarts its clip even when chaining the same attack (combo steps).
+      if (action && (action !== this.activeAction || (attackName && this.attackSerial !== this.playedSerial))) {
+        const blend = attackName ? 0.06 : name === 'stagger_back' ? 0.05 : 0.18;
+        if (action === this.activeAction) action.reset(); else { this.activeAction?.fadeOut(blend); action.reset().fadeIn(blend).play(); }
+        if (attackName || name === 'stagger_back') { action.setLoop(T.LoopOnce, 1); action.clampWhenFinished = true; }
+        this.activeAction = action; this.playedSerial = this.attackSerial;
       }
-      this.mixer.timeScale = name === 'strike' ? (action?.getClip().duration ?? 0.4) / 0.4 : name === 'walk' ? Math.max(0.65, Math.min(1.6, this.moving / (this.detailedRig ? 3.4 : 4.7))) : name === 'run' ? Math.max(0.8, this.moving / 7) : 1;
+      const clip = action?.getClip().duration ?? 1;
+      this.mixer.timeScale = attackName ? clip / Math.max(0.2, this.attackLength) : name === 'stagger_back' ? clip / 0.45
+        : name === 'walk' ? Math.max(0.65, Math.min(1.6, this.moving / (this.detailedRig ? 3.4 : 4.7))) : name === 'run' ? Math.max(0.8, this.moving / 7) : 1;
       this.mixer.update(dt);
       this.model.visible = this.hurt <= 0 || Math.floor(this.hurt * 12) % 2 === 0;
-      this.root.rotation.y += Math.atan2(Math.sin(this.heading - this.root.rotation.y), Math.cos(this.heading - this.root.rotation.y)) * Math.min(1, dt * 14);
+      const turn = Math.atan2(Math.sin(this.heading - this.root.rotation.y), Math.cos(this.heading - this.root.rotation.y));
+      this.root.rotation.y += turn * Math.min(1, dt * 16);
+      // Lean into turns and sprints, settle when idle.
+      const lean = Math.max(-0.08, Math.min(0.08, -turn * 0.18)) * Math.min(1, this.moving / 5);
+      this.model.rotation.z += (lean - this.model.rotation.z) * Math.min(1, dt * 8);
       return;
     }
     const stride = Math.sin(time * (this.moving > 6 ? 13 : 9)) * Math.min(1, this.moving / 3);

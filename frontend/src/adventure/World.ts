@@ -30,19 +30,45 @@ export class World {
   private readonly forestMeshes: T.InstancedMesh[] = [];
   private readonly treeTransforms: T.Matrix4[] = [];
   private ground?: T.Mesh;
+  private readonly shafts: T.MeshBasicMaterial[] = [];
+  /** Stylized lake: animated ripples, fresnel sky reflection, sun glint, shallow-to-deep tint, shoreline foam. */
+  private readonly waterMaterial = new T.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: true,
+    uniforms: T.UniformsUtils.merge([T.UniformsLib.fog, {
+      time: { value: 0 }, center: { value: new T.Vector2(30, 24) }, sunDir: { value: new T.Vector3(-34, 40, 22).normalize() },
+      deep: { value: new T.Color(0x245f63) }, shallow: { value: new T.Color(0x8fcfbf) }, sky: { value: new T.Color(0xdbe8dc) },
+    }]),
+    vertexShader: `varying vec3 vWorld; #include <fog_pars_vertex>
+      void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; vec4 mvPosition = viewMatrix * w; gl_Position = projectionMatrix * mvPosition; #include <fog_vertex> }`.replace(/#include <(\w+)>/g, '\n#include <$1>\n'),
+    fragmentShader: `uniform float time; uniform vec2 center; uniform vec3 sunDir; uniform vec3 deep; uniform vec3 shallow; uniform vec3 sky; varying vec3 vWorld; #include <common> #include <fog_pars_fragment>
+      void main(){
+        vec2 p = vWorld.xz; float t = time;
+        vec2 g = vec2(cos(p.x * 0.9 + t * 1.3), cos(p.y * 0.8 + t * 1.1)) * 0.12
+               + vec2(cos((p.x + p.y) * 1.7 + t * 2.1), cos((p.x - p.y) * 1.5 + t * 1.7)) * 0.06
+               + vec2(cos(p.x * 3.7 - t * 2.9), cos(p.y * 4.1 + t * 2.3)) * 0.03;
+        vec3 n = normalize(vec3(-g.x, 1.0, -g.y)), v = normalize(cameraPosition - vWorld);
+        float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+        float r = distance(p, center), depth = smoothstep(16.5, 9.0, r);
+        vec3 col = mix(mix(shallow, deep, depth), sky, fres * 0.7);
+        vec3 h = normalize(sunDir + v); float nh = max(dot(n, h), 0.0);
+        col += vec3(1.0, 0.9, 0.68) * (pow(nh, 260.0) * 2.6 + pow(nh, 30.0) * 0.12);
+        float foam = smoothstep(15.6, 16.7, r) * (0.55 + 0.45 * sin(r * 8.0 - t * 1.8 + p.x * 0.5));
+        col = mix(col, vec3(0.96, 0.98, 0.95), foam * 0.55);
+        gl_FragColor = vec4(col, mix(0.62, 0.93, depth) + fres * 0.08 + foam * 0.2);
+        #include <fog_fragment>
+      }`.replace(/#include <(\w+)>/g, '\n#include <$1>\n'),
+  });
+  private readonly wind = { value: 0 };
+  private readonly moteBase: Float32Array;
   private readonly lampSlots: T.Group[] = [];
   private readonly waystone = new T.Group();
 
   constructor(scene: T.Scene) {
     scene.add(this.root);
     this.terrain(); this.woodland(); this.approach(); this.castle(); this.cave(); this.ruins();
-    this.placeObjects(); this.storyLandmarks();
-    this.water = mesh(new T.CircleGeometry(17, 64), new T.MeshStandardMaterial({ color: 0x73b9aa, transparent: true, opacity: 0.78, roughness: 0.24, metalness: 0.15 }), this.root, 30, -0.08, 24);
-    this.water.rotation.x = -Math.PI / 2; this.water.castShadow = false;
-    for (let i = 0; i < 14; i++) {
-      const ring = mesh(new T.TorusGeometry(0.8 + i * 0.67, 0.016, 3, 60), new T.MeshBasicMaterial({ color: 0xc1e4c9, transparent: true, opacity: 0.18 }), this.root, 30, -0.055, 24);
-      ring.rotation.x = -Math.PI / 2;
-    }
+    this.placeObjects(); this.storyLandmarks(); this.sunShafts();
+    this.water = mesh(new T.CircleGeometry(17, 96), this.waterMaterial, this.root, 30, -0.08, 24);
+    this.water.rotation.x = -Math.PI / 2; this.water.castShadow = false; this.water.receiveShadow = false; this.water.name = 'lake'; this.water.renderOrder = 2;
     const bridge = new T.Group(); bridge.position.set(16, 0.4, 24); this.root.add(bridge);
     for (let i = 0; i < 12; i++) mesh(new T.BoxGeometry(2.5, 0.13, 0.38), material(0xa18b64), bridge, 0, Math.sin(i / 11 * Math.PI) * 0.7, -2.2 + i * 0.4);
     for (const side of [-1, 1]) for (let i = 0; i < 4; i++) mesh(new T.CylinderGeometry(0.08, 0.1, 1.5, 6), material(0x6f6546), bridge, side * 1.22, 0.75, -2.2 + i * 1.45);
@@ -54,8 +80,16 @@ export class World {
     beam.castShadow = false; this.root.add(this.marker);
     const points = new Float32Array(270 * 3);
     for (let i = 0; i < points.length; i += 3) { points[i] = (this.random() - 0.5) * 140; points[i + 1] = this.random() * 8 + 0.8; points[i + 2] = (this.random() - 0.5) * 130; }
-    const geometry = new T.BufferGeometry(); geometry.setAttribute('position', new T.BufferAttribute(points, 3));
-    this.particles = new T.Points(geometry, new T.PointsMaterial({ color: 0xffe5a0, size: 0.085, transparent: true, opacity: 0.7, depthWrite: false })); this.root.add(this.particles);
+    const geometry = new T.BufferGeometry(); geometry.setAttribute('position', new T.BufferAttribute(points, 3)); this.moteBase = points.slice();
+    // Glowing pollen / fireflies: soft additive sprites that drift and twinkle.
+    let map: T.Texture | null = null;
+    if (typeof document !== 'undefined') {
+      const glow = document.createElement('canvas'); glow.width = glow.height = 64; const g = glow.getContext('2d')!;
+      const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,240,190,0.8)'); r.addColorStop(1, 'rgba(255,220,140,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+      map = new T.CanvasTexture(glow);
+    }
+    this.particles = new T.Points(geometry, new T.PointsMaterial({ map, color: 0xffe3a0, size: 0.42, transparent: true, opacity: 0.9, depthWrite: false, blending: T.AdditiveBlending }));
+    this.particles.frustumCulled = false; this.root.add(this.particles);
   }
 
   private terrain(): void {
@@ -77,15 +111,48 @@ export class World {
       colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
     }
     geo.setAttribute('color', new T.BufferAttribute(colors, 3)); geo.setAttribute('pathWeight', new T.BufferAttribute(weights, 1)); geo.computeVertexNormals();
-    this.ground = mesh(geo, new T.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), this.root); this.ground.castShadow = false;
-    // Painted mountain silhouettes give the continuous world a distant horizon.
-    const mountain = material(0x8faea0);
-    for (let i = 0; i < 35; i++) {
-      const angle = i / 35 * Math.PI * 2, radius = 115 + this.random() * 20;
-      const h = 20 + this.random() * 30;
-      const peak = mesh(new T.ConeGeometry(14 + this.random() * 15, h, 5), mountain, this.root, Math.sin(angle) * radius, h * 0.25, Math.cos(angle) * radius);
-      peak.rotation.y = this.random() * 6;
-      if (h > 38) mesh(new T.ConeGeometry(5, 8, 5), material(0xe2e8d5), peak, 0, h * 0.5 - 2);
+    this.ground = mesh(geo, new T.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), this.root); this.ground.castShadow = false; this.ground.name = 'ground';
+    // Layered, hazy ridgelines (forested near ridge, blue far range) instead of single peaks:
+    // the fog turns them into the painted horizon of Rishaan's backdrops.
+    this.horizonBand(116, -7, 24, 6, 0x4f6e4c, 0x7d9a76, 1.3, 0.55);
+    this.horizonBand(152, -10, 52, 3, 0x7f9fa6, 0xd7e2dc, 4.1, 0.25);
+  }
+
+  private horizonBand(radius: number, base: number, height: number, freq: number, bottom: number, top: number, seed: number, jag: number): void {
+    const seg = 320, rows = 5, positions: number[] = [], colors: number[] = [], index: number[] = [];
+    const c0 = new T.Color(bottom), c1 = new T.Color(top), c = new T.Color();
+    for (let i = 0; i <= seg; i++) {
+      const a = i / seg * Math.PI * 2;
+      const n = 0.5 + 0.5 * (Math.sin(a * freq + seed) * 0.5 + Math.sin(a * freq * 2.7 + seed * 1.7) * 0.3 + Math.sin(a * freq * 7.3 + seed * 0.4) * 0.2);
+      const crown = jag * (Math.sin(a * 140 + seed) * 0.5 + Math.sin(a * 97) * 0.5) * 0.06 * height; // treeline texture
+      const h = height * (0.3 + 0.7 * n) + crown;
+      for (let j = 0; j <= rows; j++) {
+        const v = j / rows, r = radius * (1 - v * 0.05);
+        positions.push(Math.sin(a) * r, base + h * Math.pow(v, 0.85), Math.cos(a) * r);
+        c.copy(c0).lerp(c1, v); colors.push(c.r, c.g, c.b);
+      }
+    }
+    for (let i = 0; i < seg; i++) for (let j = 0; j < rows; j++) { const a = i * (rows + 1) + j, b = a + rows + 1; index.push(a, b, a + 1, b, b + 1, a + 1); }
+    const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(positions, 3)); geo.setAttribute('color', new T.Float32BufferAttribute(colors, 3)); geo.setIndex(index); geo.computeVertexNormals();
+    const band = new T.Mesh(geo, new T.MeshLambertMaterial({ vertexColors: true, side: T.DoubleSide })); band.userData.physics = false; band.userData.noFade = true; band.name = 'horizon';
+    this.root.add(band);
+  }
+
+  /** Golden light shafts falling into the clearings, after the warm volumetric rays of Rishaan's forest painting. */
+  private sunShafts(): void {
+    if (typeof document === 'undefined') return; // headless (unit tests): no canvas textures
+    const c = document.createElement('canvas'); c.width = 64; c.height = 256; const g = c.getContext('2d')!;
+    const v = g.createLinearGradient(0, 0, 0, 256); v.addColorStop(0, 'rgba(255,255,255,0)'); v.addColorStop(0.35, 'rgba(255,255,255,0.8)'); v.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = v; g.fillRect(0, 0, 64, 256);
+    const h = g.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,1)'); h.addColorStop(0.5, 'rgba(0,0,0,0)'); h.addColorStop(1, 'rgba(0,0,0,1)');
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = h; g.fillRect(0, 0, 64, 256);
+    const map = new T.CanvasTexture(c);
+    const sun = new T.Vector3(-34, 40, 22).normalize(), up = new T.Vector3(0, 1, 0);
+    for (const [x, z, w] of [[-6, 10, 4], [8, 16, 3], [-12, -4, 5], [10, -10, 3.5], [2, 29, 3], [18, 3, 4], [-17, 18, 3], [4, -2, 2.5]]) {
+      const mat = new T.MeshBasicMaterial({ map, color: 0xffdf9e, transparent: true, opacity: 0.12, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
+      const group = new T.Group(); group.position.set(x, heightAt(x, z) + 10, z); group.quaternion.setFromUnitVectors(up, sun); group.userData.physics = false;
+      for (const r of [0, Math.PI / 2]) { const plane = new T.Mesh(new T.PlaneGeometry(w, 24), mat); plane.rotation.y = r; plane.renderOrder = 5; group.add(plane); }
+      this.root.add(group); this.shafts.push(mat);
     }
   }
 
@@ -105,8 +172,9 @@ export class World {
         matrix.scale.set(2.1 * scale, (1.6 + this.random() * 0.5) * scale, 2.1 * scale); matrix.updateMatrix(); leaves.setMatrixAt(count * 3 + c, matrix.matrix);
         leaves.setColorAt(count * 3 + c, new T.Color().setHSL(0.18 + this.random() * 0.10, 0.32 + this.random() * 0.1, 0.35 + this.random() * 0.15));
       }
-      if (Math.abs(x) < 65 && z > -68 && z < 58) {
-        const solid = { x, y, z, radius: 0.42 * scale }; this.solids.push(solid); this.treeSolids.push(solid);
+      // Collider matches the oak's trunk plus the inner root flare, so heroes stop at the bark instead of sinking in.
+      if (Math.abs(x) < 68 && z > -70 && z < 59) {
+        const solid = { x, y, z, radius: 0.66 * scale }; this.solids.push(solid); this.treeSolids.push(solid);
       }
       count++;
     }
@@ -120,7 +188,20 @@ export class World {
       blades.push(...point(-0.035, 0, 0), ...point(0.035, 0, 0), ...point(0.015, h * 0.6, 0.025), ...point(-0.035, 0, 0), ...point(0.015, h * 0.6, 0.025), ...point(-0.015, h * 0.6, 0.025), ...point(-0.015, h * 0.6, 0.025), ...point(0.015, h * 0.6, 0.025), ...point(0.04, h, 0.08));
     }
     grassGeo.setAttribute('position', new T.Float32BufferAttribute(blades, 3)); grassGeo.computeVertexNormals();
-    const grass = new T.InstancedMesh(grassGeo, new T.MeshStandardMaterial({ color: 0x7e9556, side: T.DoubleSide, roughness: 1 }), 9000);
+    const grassMat = new T.MeshStandardMaterial({ color: 0x7e9556, side: T.DoubleSide, roughness: 1 });
+    // Wind ripples travel across the meadow: blades bend more at the tip.
+    grassMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWind = this.wind;
+      shader.vertexShader = 'uniform float uWind;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec2 ip = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+        #else
+          vec2 ip = vec2(0.0);
+        #endif
+        float gust = sin(uWind * 1.6 + ip.x * 0.31 + ip.y * 0.23) * 0.6 + sin(uWind * 3.3 + ip.x * 1.1 - ip.y * 0.7) * 0.25;
+        transformed.x += gust * position.y * 1.1; transformed.z += gust * position.y * 0.55;`);
+    };
+    const grass = new T.InstancedMesh(grassGeo, grassMat, 9000);
     for (let i = 0; i < 9000; i++) {
       const x = (this.random() - 0.5) * 135, z = (this.random() - 0.5) * 130;
       const s = pathDistance(x, z) < 2.7 || heightAt(x, z) < -0.2 ? 0 : 0.45 + this.random() * 0.8;
@@ -187,8 +268,12 @@ export class World {
     const group = new T.Group(); group.position.set(40, 0, -48); this.root.add(group);
     for (let i = 0; i < 12; i++) {
       const angle = i / 12 * Math.PI * 1.6 + Math.PI * 0.2, x = Math.sin(angle) * 12, z = Math.cos(angle) * 10;
-      const rock = mesh(new T.DodecahedronGeometry(5.6 + this.random() * 2, 0), material(0x748f8d), group, x, 3 + this.random() * 2, z);
-      rock.scale.set(0.8, 1.5, 0.85); this.solids.push({ x: 40 + x, z: -48 + z, radius: 3 });
+      const size = 5.6 + this.random() * 2, lift = 3 + this.random() * 2, footprint = size * 0.7;
+      // Keep the guardian's arena (40, -55) and every cave landmark clear of boulders.
+      const keepClear = [{ x: 40, z: -55, r: 6.5 }, ...REGIONS.cave.landmarks.filter((l) => ['chest', 'shrine', 'lore'].includes(l.kind)).map((l) => ({ x: CENTERS.cave.x + (l.x - 650) * 0.035, z: CENTERS.cave.z + (l.y - 510) * 0.045, r: 2.4 }))];
+      if (keepClear.some((k) => Math.hypot(40 + x - k.x, -48 + z - k.z) < footprint + k.r)) continue;
+      const rock = mesh(new T.DodecahedronGeometry(size, 0), material(0x748f8d), group, x, lift, z);
+      rock.scale.set(0.8, 1.5, 0.85); this.solids.push({ x: 40 + x, z: -48 + z, radius: footprint });
     }
     for (let i = 0; i < 30; i++) {
       const angle = this.random() * Math.PI * 2, r = 4 + this.random() * 8;
@@ -295,7 +380,7 @@ export class World {
 
   useDetailedTrees(source: T.Object3D): void {
     for (const [x, z, height, rotation] of [[-10, 25, 11, 0.5], [11, 24, 12, 2], [-12, 13, 13, 1], [12, 10, 12, 3], [-14, -8, 11, 0], [14, -6, 12, 2.5]]) {
-      const tree = this.fitted(source, height); tree.position.set(x, heightAt(x, z), z); tree.rotation.y = rotation; this.root.add(tree);
+      const tree = this.fitted(source, height); tree.position.set(x, heightAt(x, z), z); tree.rotation.y = rotation; tree.userData.cameraThin = true; this.root.add(tree);
       this.solids.push({ x, z, radius: 0.8 });
     }
   }
@@ -391,7 +476,7 @@ export class World {
       let parent: T.Object3D | null = object;
       while (parent) { if (parent === this.marker || parent.userData.physics === false) return; parent = parent.parent; }
       const materials = Array.isArray(object.material) ? object.material : [object.material];
-      if (materials.every((mat) => mat instanceof T.MeshBasicMaterial || /old-magic|ivy|moss|foliage|leaves/.test(mat.name))) return;
+      if (materials.every((mat) => mat instanceof T.MeshBasicMaterial || /old-magic|ivy|living-moss|foliage|leaves|fern/.test(mat.name))) return;
       if (object !== this.ground && ['CircleGeometry', 'TorusGeometry', 'PlaneGeometry'].includes(object.geometry.type)) return;
       surfaces.push(object);
     });
@@ -401,7 +486,14 @@ export class World {
   update(dt: number, time: number): void {
     this.markerGem.position.y = 3.1 + Math.sin(time * 2.2) * 0.2; this.markerGem.rotation.y += dt * 0.7;
     this.water.position.y = -0.08 + Math.sin(time * 0.6) * 0.025;
-    this.particles.rotation.y = Math.sin(time * 0.025) * 0.1;
+    this.wind.value = time; this.waterMaterial.uniforms.time.value = time;
+    const motes = this.particles.geometry.getAttribute('position') as T.BufferAttribute, base = this.moteBase;
+    for (let i = 0; i < motes.count; i++) {
+      const j = i * 3; motes.setXYZ(i, base[j] + Math.sin(time * 0.31 + i) * 1.3, base[j + 1] + Math.sin(time * 0.53 + i * 1.7) * 0.6, base[j + 2] + Math.cos(time * 0.27 + i * 0.9) * 1.3);
+    }
+    motes.needsUpdate = true;
+    (this.particles.material as T.PointsMaterial).opacity = 0.75 + Math.sin(time * 1.3) * 0.15;
+    this.shafts.forEach((mat, i) => { mat.opacity = 0.09 + Math.sin(time * 0.35 + i * 1.9) * 0.04; });
     this.flags.forEach((flag) => { const p = flag.geometry.getAttribute('position'); for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(p.getX(i) * 3 + time * 3) * 0.14); p.needsUpdate = true; });
     this.lights.forEach((light) => { light.rotation.z = time * 0.12; });
     this.shards.forEach((shard, i) => { if (!shard.taken) { shard.mesh.rotation.y += dt; shard.mesh.position.y = shard.baseY + Math.sin(time * 2 + i) * 0.13; } });

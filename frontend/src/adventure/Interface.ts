@@ -49,7 +49,7 @@ export class Interface {
       <div class="game-boss" hidden><span></span><div><i></i></div><small></small></div>
       <div class="game-context"><button class="game-interact" hidden><kbd>E</kbd><span>Interact</span></button></div>
       <section class="game-dialogue" hidden aria-live="polite"><span class="dialogue-speaker"></span><p></p><button>Continue <kbd>↵</kbd></button></section>
-      <footer class="game-footer"><div class="game-move-hint"><kbd>W A S D</kbd><span>Move</span><span class="hint-divider">·</span><span>Drag to look</span></div>
+      <footer class="game-footer"><div class="game-move-hint"><kbd>W A S D</kbd><span>Move</span><span class="hint-divider">·</span><span>Mouse to look</span></div>
         <div class="game-actions"><button data-action="attack" aria-label="Sword strike, J">${icons.sword}<kbd>J</kbd><span>Strike</span></button><button data-action="spell" aria-label="Cast spell, F">${icons.spell}<kbd>F</kbd><span>Spell</span></button><button data-action="dodge" aria-label="Dodge, Q"><span class="dodge-icon">↝</span><kbd>Q</kbd><span>Dodge</span></button></div>
         <div class="game-tools"><button class="sound-button" aria-label="Toggle sound" aria-pressed="true">♪</button><button class="journal-button" aria-label="Journal and controls">${icons.map}<kbd>M</kbd></button></div></footer>
       <div class="game-toast" role="status" aria-live="polite"></div>
