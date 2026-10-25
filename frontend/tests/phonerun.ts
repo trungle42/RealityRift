@@ -97,6 +97,9 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         tapPhone(); await until(() => !!document.querySelector('.relic-card'), 'a tap did not take the photo', 8000);
         tapPhone(); await until(() => !inner.scanner.open, 'a tap on the relic card did not take the relic');
         assert(inner.weapons[0]?.element === 'fire' && webcam === 0, 'the relic was not equipped, or the webcam was opened');
+        // A phone has no Esc: pressing Scan again closes the rift (for a scan the player does not want, or cannot take).
+        phone({ type: 'scan' }); await until(() => inner.scanner.open, 'the Scan button did not reopen the scanner');
+        phone({ type: 'scan' }); await until(() => !inner.scanner.open, 'a second Scan press did not close the scanner');
       } finally { window.fetch = realFetch; inner.cv!.snapshot = realSnapshot; media.getUserMedia = realCamera; }
     });
 

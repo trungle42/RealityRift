@@ -38,7 +38,7 @@
 <header><h1>Storybound</h1><div id="who"></div><div id="status" class="bad">connecting…</div></header>
 <div class="base idle" id="base"></div><div class="knob idle" id="knob"></div><div id="tap"></div>
 <button class="btn" id="roll" type="button">Roll</button><button class="btn" id="scan" type="button">✦ Scan</button><button class="btn" id="slash" type="button">⚔ Slash</button>
-<div class="hint" id="hint">Drag to move · push past the ring to sprint · tap to talk, start and choose · Slash strikes · Scan opens the rift</div>
+<div class="hint" id="hint">Drag to move · push past the ring to sprint · tap to talk, start and choose · Slash strikes · Scan opens or closes the rift</div>
 <script>
 (() => {
   const params = new URLSearchParams(location.search);
@@ -135,6 +135,13 @@
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   // Never leave the hero running if the page is hidden mid-drag.
   document.addEventListener('visibilitychange', () => { if (document.hidden && touchId !== null) { touchId = null; vec = { x: 0, y: 0, sprint: false }; send(); rest(); } });
+  // Keep the screen awake while playing: a phone that dims and locks mid-fight drops the controller. The Wake Lock API needs
+  // a secure page (the tunnel's https) and a user gesture, and the lock is released whenever the page is hidden, so take it on
+  // every touch and again on return. Unsupported browsers just skip it.
+  let wake = null;
+  async function keepAwake() { try { if (!wake && navigator.wakeLock && document.visibilityState === 'visible') { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch { wake = null; } }
+  document.addEventListener('pointerdown', keepAwake, true);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
 })();
 </script>
 </body>
