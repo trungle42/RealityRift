@@ -37,12 +37,22 @@ export function heroFor(colour: WandColour, solo: boolean): PlayerIndex | undefi
   return hero === 1 && solo ? undefined : hero;
 }
 
-/** Per hero and shape cooldowns, on the game clock (so a paused game does not tick them). */
+/**
+ * After any drawn spell the wand needs this long before the next one, whatever the shape. Drawing a shape in the air plus the
+ * tracker's 0.8 s re-arm takes about this long anyway, so players rarely feel it; it stops four ready shapes going off in one
+ * instant. Tuned with tests/demorun.html: two spells per Morwen ward window, so she lasts ~17 s against a fire relic and
+ * ~37 s without one (anything from 1.6 to 2.6 s gives the same; outside that the fight jumps to 12 s or 23+ s).
+ */
+export const WAND_RECOVERY = 2;
+
+/** Per hero and shape cooldowns plus the wand's recovery, on the game clock (so a paused game does not tick them). */
 export class ShapeCooldowns {
   private readonly until = new Map<string, number>();
-  left(hero: PlayerIndex, shape: WandShape, now: number): number { return Math.max(0, (this.until.get(`${hero}:${shape}`) ?? -Infinity) - now); }
+  left(hero: PlayerIndex, shape: WandShape, now: number): number {
+    return Math.max(0, (this.until.get(`${hero}:${shape}`) ?? -Infinity) - now, (this.until.get(`${hero}`) ?? -Infinity) - now);
+  }
   ready(hero: PlayerIndex, shape: WandShape, now: number): boolean { return this.left(hero, shape, now) === 0; }
-  use(hero: PlayerIndex, shape: WandShape, now: number): void { this.until.set(`${hero}:${shape}`, now + SHAPE_COOLDOWN[shape]); }
+  use(hero: PlayerIndex, shape: WandShape, now: number): void { this.until.set(`${hero}:${shape}`, now + SHAPE_COOLDOWN[shape]); this.until.set(`${hero}`, now + WAND_RECOVERY); }
 }
 
 /**

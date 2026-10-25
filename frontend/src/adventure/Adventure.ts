@@ -352,9 +352,10 @@ export class Adventure {
   private closingLine(victory: boolean): string {
     const relic = this.state?.relics.at(-1);
     if (!relic) return victory ? '“You did more than win a battle. You gave Evermere its spring back.” — Willow' : '“Rise, hero. The frost has not won — not yet.” — Willow';
-    return victory
-      ? `“A ${relic.object} from your own world became ${relic.name}, and its ${relic.element} broke her frost. You gave Evermere its spring back.” — Willow`
-      : `“Rise, hero. Keep that ${relic.object} close: ${relic.name} will burn brighter next time.” — Willow`;
+    if (!victory) return `“Rise, hero. Keep that ${relic.object} close: ${relic.name} will shine brighter next time.” — Willow`;
+    // Only the element Morwen fears "broke her frost"; ice (which she resists) or anything else simply carried the hero.
+    const article = /^[aeiou]/i.test(relic.object) ? 'An' : 'A', feared = BOSS_ELEMENTS['frost-witch']?.weak === relic.element;
+    return `“${article} ${relic.object} from your own world became ${relic.name}, and ${feared ? `its ${relic.element} broke her frost` : 'it carried you through'}. You gave Evermere its spring back.” — Willow`;
   }
 
   private async loadModels(): Promise<void> {
