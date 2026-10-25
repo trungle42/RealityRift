@@ -32,4 +32,8 @@ for asset in ["fern_02", "rock_moss_set_01", "island_tree_01", "mossy_cobbleston
             if ROOT.resolve() not in path.parents:
                 raise ValueError("Asset dependency escaped the destination directory")
             fetch(dependency["url"], path, dependency["md5"])
+        if asset == "fern_02":
+            # The glTF's JPEG colour map has no alpha; the separate mask cuts the leaflets out of the frond cards.
+            file = data["Alpha"]["2k"]["png"]
+            fetch(file["url"], metadata.parent / "textures" / f"{asset}_alpha_2k.png", file["md5"])
     print(f"Ready: {asset}")
