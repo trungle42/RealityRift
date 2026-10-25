@@ -15,6 +15,7 @@ test('relay messages are parsed exactly as the contract says; numeric ids become
   assert.deepEqual(P.parsePresence({ type: 'state', id: 0, x: 1, y: 2, z: 3, heading: 0.5, speed: 4, anim: 'run', hp: 3 }), { type: 'state', id: '0', state: { x: 1, y: 2, z: 3, heading: 0.5, speed: 4, anim: 'run', hp: 3 } });
   assert.deepEqual(P.parsePresence({ type: 'fx', id: 0, kind: 'cast', x: 1, y: 0, z: 2, dx: 0, dz: -1, ability: 'nova', element: 'fire' }).fx, { kind: 'cast', ability: 'nova', element: 'fire', x: 1, y: 0, z: 2, dx: 0, dz: -1 });
   assert.deepEqual(P.parsePresence({ type: 'full' }), { type: 'full' });
+  assert.deepEqual(P.parsePresence({ type: 'replaced' }), { type: 'replaced' });
 });
 
 test('malformed or unknown messages are ignored, never thrown', () => {
