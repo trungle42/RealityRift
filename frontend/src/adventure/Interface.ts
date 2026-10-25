@@ -87,6 +87,9 @@ export class Interface {
     const overlay = document.createElement('section'); overlay.className = 'adventure-start';
     overlay.innerHTML = `<div class="start-content"><div class="start-flourish">✧</div><p class="start-subtitle">An Evermere adventure</p><h1>Storybound</h1><p class="start-tale">The last warm spring</p><p class="start-description">Beyond the familiar path, a kingdom waits.<br>Step into the tale. Make it your own.</p><form><div class="start-names"><label>Your hero<input name="hero" value="Rowan" maxlength="24" required autocomplete="off" aria-label="Your hero's name"></label><label>Your companion<input name="companion" value="Wren" maxlength="24" required autocomplete="off" aria-label="Companion's name"></label></div><button class="adventure-primary" type="submit">Begin your tale <span>↗</span></button></form><div class="start-controls"><span><kbd>W A S D</kbd> explore</span><span><kbd>Space</kbd> jump</span><span><kbd>E</kbd> interact</span></div><p class="start-footnote">An original fairy-tale world · Play solo or together</p></div>`;
     document.body.append(overlay); this.root.classList.add('before-start');
+    // Online play (the launcher's ?name=): the hero starts with the player's own name, so the ending tells their story.
+    const own = (new URLSearchParams(location.search).get('name') ?? '').trim().slice(0, 24);
+    const heroField = overlay.querySelector<HTMLInputElement>('input[name="hero"]'); if (own && heroField) heroField.value = own;
     if (solo) {
       const field = overlay.querySelector<HTMLInputElement>('input[name="companion"]');
       if (field) { if (!field.value.trim()) field.value = 'Wren'; (field.closest('label, .start-field, div') as HTMLElement | null)?.setAttribute('hidden', ''); }
