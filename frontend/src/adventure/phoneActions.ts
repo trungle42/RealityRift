@@ -44,8 +44,9 @@ export function showPhonePairing(phone: PhoneInput): void {
   let url = '';
   void phone.phoneUrl().then((link) => { url = link; try { qr.innerHTML = qrSvg(link); } catch { qr.textContent = link; } });
   const show = () => {
-    status.textContent = phone.phoneConnected ? 'Phone connected' : 'Scan with your phone';
-    hint.textContent = phone.phoneConnected ? 'Tap your phone to begin' : url || 'to use it as your controller';
+    const players = phone.players();
+    status.textContent = players.length > 1 ? `${players.length} phones connected` : phone.phoneConnected ? 'Phone connected' : 'Scan with your phone';
+    hint.textContent = phone.phoneConnected ? `Player 1: tap your phone to begin${players.length < 3 ? ' · others: scan to join' : ''}` : url || 'to use it as your controller';
   };
   show();
   const timer = window.setInterval(() => { if (!card.isConnected) { clearInterval(timer); return; } show(); }, 250);

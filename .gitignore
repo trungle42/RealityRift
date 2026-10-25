@@ -2,6 +2,8 @@
 .env.*
 !.env.example
 backend/.env
+# The internet tunnel's address while scripts/demo.sh --tunnel runs (see backend/app/tunnel.py)
+backend/.public_url
 # Colour thresholds for one camera and room, written by `python -m tools.autotune` (see cv_2/README.md)
 cv_2/tuned.env
 cv_2/tuned.env.bak

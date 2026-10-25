@@ -4,13 +4,24 @@ import { test } from 'node:test';
 import ts from 'typescript';
 
 const source = ts.transpileModule(await readFile(new URL('../src/adventure/phoneMath.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseStick, currentStick, parseCommand, NO_STICK, STICK_DEADZONE, STICK_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { parseStick, currentStick, parseCommand, parseButton, parsePlayer, MAX_PLAYERS, NO_STICK, STICK_DEADZONE, STICK_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const qrSource = ts.transpileModule(await readFile(new URL('../src/adventure/qr.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { qrModules, qrSvg } = await import(`data:text/javascript;base64,${Buffer.from(qrSource).toString('base64')}`);
 
 test('the phone buttons parse; anything else is not a command', () => {
   for (const type of ['action', 'scan', 'roll']) assert.equal(parseCommand({ type, x: 1 }), type);
   for (const bad of [null, 'action', {}, { type: 'move', x: 0, y: 0 }, { type: 'teleport' }]) assert.equal(parseCommand(bad), undefined);
+});
+test('Slash is a button for on(), but never one of the old onCommand commands', () => {
+  for (const type of ['action', 'scan', 'roll', 'slash']) assert.equal(parseButton({ type, player: 1 }), type);
+  assert.equal(parseCommand({ type: 'slash' }), undefined);
+  for (const bad of [null, 'slash', {}, { type: 'move', x: 0, y: 0 }, { type: 'Slash' }]) assert.equal(parseButton(bad), undefined);
+});
+test('player slots: 0 to 2, missing means player 0, anything else is ignored', () => {
+  assert.equal(MAX_PLAYERS, 3);
+  for (const player of [0, 1, 2]) assert.equal(parsePlayer({ type: 'slash', player }), player);
+  assert.equal(parsePlayer({ type: 'move', x: 0, y: 1 }), 0);                       // a relay from before player slots
+  for (const player of [3, -1, 1.5, '1', null, NaN]) assert.equal(parsePlayer({ type: 'slash', player }), undefined);
 });
 test('the start screen QR code has the right size and the three finder patterns', () => {
   // Decoding is checked with OpenCV outside the unit tests (all versions 1-9 decoded to their text).

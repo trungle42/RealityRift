@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Storybound joystick</title>
+<link rel="icon" href="data:,">
 <style>
   :root { color-scheme: dark; --gold: #f2d68b; --ink: #0f1f1a; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
@@ -25,19 +26,33 @@
   .btn:active { transform: scale(0.94); }
   #scan { right: 16px; background: linear-gradient(#f6e2a6, #d7ab55); }
   #roll { left: 16px; background: #cfe3dc; }
+  #slash { top: auto; right: 18px; bottom: max(64px, calc(env(safe-area-inset-bottom) + 50px)); width: 112px; height: 112px; padding: 0; border-radius: 50%; font-size: 19px; color: #fff4dc; background: radial-gradient(circle at 35% 30%, #ff9a7a, #b8322a 72%); box-shadow: 0 6px 22px #0009, 0 0 0 3px #f2d68b66; }
+  #who { margin-top: 4px; font-size: 15px; color: #fff4dc; min-height: 1.2em; }
+  #who i { font-style: normal; display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; box-shadow: 0 0 0 2px #0006; }
   #tap { position: fixed; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 3px solid var(--gold); opacity: 0; pointer-events: none; transform: scale(0.6); transition: opacity 260ms, transform 260ms; }
   #tap.on { opacity: 0.9; transform: scale(1); transition: none; }
 </style>
 </head>
 <body>
 <div id="pad"></div>
-<header><h1>Storybound</h1><div id="status" class="bad">connecting…</div></header>
+<header><h1>Storybound</h1><div id="who"></div><div id="status" class="bad">connecting…</div></header>
 <div class="base idle" id="base"></div><div class="knob idle" id="knob"></div><div id="tap"></div>
-<button class="btn" id="roll" type="button">Roll</button><button class="btn" id="scan" type="button">✦ Scan</button>
-<div class="hint" id="hint">Drag to move · push past the ring to sprint · tap to talk, start and choose · Scan opens the rift</div>
+<button class="btn" id="roll" type="button">Roll</button><button class="btn" id="scan" type="button">✦ Scan</button><button class="btn" id="slash" type="button">⚔ Slash</button>
+<div class="hint" id="hint">Drag to move · push past the ring to sprint · tap to talk, start and choose · Slash strikes · Scan opens the rift</div>
 <script>
 (() => {
   const params = new URLSearchParams(location.search);
+  // Player slots come from the relay; the wand colours, in player order, from the game's ?wand= (carried in the QR link).
+  const MAX = 3, PIP = 2, DOT = { red: '#e8463a', blue: '#4b8df0', yellow: '#f2c935' };
+  const wands = (params.get('wand') || '').toLowerCase().split(',').filter((c) => c in DOT);
+  const who = document.getElementById('who');
+  let full = false;
+  function showPlayer(n) {
+    const colour = wands[n];
+    who.replaceChildren();
+    if (colour) { const dot = document.createElement('i'); dot.style.background = DOT[colour]; who.append(dot); }
+    who.append(`Player ${n + 1}${colour ? ' · ' + colour : ''}${n === PIP ? ' (Pip the fairy)' : ''}`);
+  }
   const room = (params.get('room') || 'storybound').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || 'storybound';
   const RADIUS = 80, SPRINT = 1.35;
   const pad = document.getElementById('pad'), base = document.getElementById('base'), knob = document.getElementById('knob');
@@ -54,10 +69,19 @@
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws/joystick/${room}?role=phone`);
-    ws.onopen = () => { retry = 0; setStatus(true, 'connected · room ' + room); };
-    ws.onclose = () => { setStatus(false, 'reconnecting…'); setTimeout(connect, Math.min(3000, 400 + retry++ * 400)); };
+    ws.onopen = () => { retry = 0; full = false; setStatus(true, 'connected · room ' + room); };
+    // A full room (MAX players) keeps trying slowly, so this phone gets in when someone leaves.
+    ws.onclose = () => {
+      if (full) { setStatus(false, `room full (${MAX} players) · waiting for a free spot`); who.textContent = ''; setTimeout(connect, 5000); return; }
+      setStatus(false, 'reconnecting…'); setTimeout(connect, Math.min(3000, 400 + retry++ * 400));
+    };
     ws.onerror = () => ws.close();
-    ws.onmessage = (event) => { try { const m = JSON.parse(event.data); if (m.type === 'peer' && m.role === 'game') setStatus(true, m.state === 'joined' ? 'game connected' : 'waiting for the game'); } catch {} };
+    ws.onmessage = (event) => {
+      let m; try { m = JSON.parse(event.data); } catch { return; }
+      if (m.type === 'peer' && m.role === 'game') setStatus(true, m.state === 'joined' ? 'game connected' : 'waiting for the game');
+      else if (m.type === 'slot' && Number.isInteger(m.player)) showPlayer(m.player);
+      else if (m.type === 'full') full = true;
+    };
   }
   connect();
 
@@ -68,14 +92,14 @@
   function command(type) {
     if (!ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify({ type }));
-    if (navigator.vibrate) navigator.vibrate(type === 'action' ? 12 : 25);
+    if (navigator.vibrate) navigator.vibrate(type === 'action' ? 12 : type === 'slash' ? 40 : 25);
   }
   function tapped(x, y) {
     command('action');
     tapRing.style.left = x + 'px'; tapRing.style.top = y + 'px'; tapRing.classList.add('on');
     requestAnimationFrame(() => requestAnimationFrame(() => tapRing.classList.remove('on')));
   }
-  for (const [id, type] of [['scan', 'scan'], ['roll', 'roll']]) {
+  for (const [id, type] of [['scan', 'scan'], ['roll', 'roll'], ['slash', 'slash']]) {
     document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); command(type); });
   }
   // Resend ~30 times a second while held so the game never mistakes a steady thumb for a lost signal.
