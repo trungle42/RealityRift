@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Yellow Tracker Guide</title>
+<title>Colour Tracker Guide</title>
 <style>
   :root {
     --bg: #fafaf8; --fg: #1c1c1e; --muted: #5f6674; --line: #b9bec7; --node: #ffffff;
     --card: #ffffff; --code: #f0f1f4; --acc: #2563eb; --acc-soft: rgba(37, 99, 235, .13);
     --warn: #b45309; --warn-soft: rgba(217, 119, 6, .18); --ok: #15803d; --gold: #d49a00;
+    --blue: #2563eb; --red: #dc2626;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
@@ -17,6 +18,7 @@
       --bg: #111318; --fg: #e7e9ee; --muted: #a0a8b8; --line: #3d4452; --node: #1a1e26;
       --card: #171a21; --code: #1d212a; --acc: #7db2ff; --acc-soft: rgba(125, 178, 255, .17);
       --warn: #f5b455; --warn-soft: rgba(245, 180, 85, .18); --ok: #4ade80; --gold: #ffd23f;
+      --blue: #5b9bff; --red: #ff6b6b;
     }
   }
   * { box-sizing: border-box; }
@@ -72,7 +74,11 @@
   svg .guide-warn { fill: none; stroke: var(--warn); stroke-width: 1.4; stroke-dasharray: 5 4; }
   svg .frame { fill: var(--code); stroke: var(--line); stroke-width: 1.5; }
   svg .trail { fill: none; stroke: var(--gold); stroke-linecap: round; stroke-linejoin: round; }
+  svg .trail-b { fill: none; stroke: var(--blue); stroke-linecap: round; stroke-linejoin: round; }
+  svg .trail-r { fill: none; stroke: var(--red); stroke-linecap: round; stroke-linejoin: round; }
   svg .ball { fill: var(--gold); stroke: var(--fg); stroke-width: 1.5; }
+  svg .ball-b { fill: var(--blue); stroke: var(--fg); stroke-width: 1.5; }
+  svg .ball-r { fill: var(--red); stroke: var(--fg); stroke-width: 1.5; }
   svg .series { fill: none; stroke: var(--acc); stroke-width: 2.4; stroke-linejoin: round; }
   svg .axis { stroke: var(--line); stroke-width: 1.2; }
   svg .bar-on { fill: var(--ok); }
@@ -82,10 +88,10 @@
 <div class="wrap">
 
 <header>
-  <h1>Yellow Tracker: user guide</h1>
-  <p class="lead">Hold a yellow object up to your webcam and watch it leave a trail. Detection pauses and resumes every 5 seconds, and every pause wipes the trail, so each round starts on a clean screen.</p>
+  <h1>Colour Tracker: user guide</h1>
+  <p class="lead">Hold a yellow, a blue and a red object up to your webcam and watch each one leave a trail in its own colour. Detection pauses and resumes every 5 seconds, and every pause wipes all the trails, so each round starts on a clean screen.</p>
   <ul class="chips">
-    <li>Python 3.12</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>17 tests, no camera needed</li>
+    <li>Python 3.12</li><li>Yellow · blue · red</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>55 tests, no camera needed</li>
   </ul>
   <nav aria-label="Sections">
     <a href="#what">What it does</a><a href="#start">Quick start</a><a href="#screen">The screen</a><a href="#cycle">On/off cycle</a><a href="#how">How it works</a><a href="#tuning">Tuning</a><a href="#trouble">Troubleshooting</a><a href="#data">Output data</a><a href="#files">Files &amp; tests</a>
@@ -93,9 +99,9 @@
 </header>
 
 <h2 id="what">What it does</h2>
-<p>The program watches your webcam, finds the largest <strong>yellow</strong> blob in view (the ball, foam head or tape on your stick), and draws a line through every place that blob has been. Move the stick around and the line follows it.</p>
-<p>Every 5 seconds detection switches state. While it is <span class="good">ON</span> the path grows. When it switches <span class="bad">OFF</span> the path is <strong>erased</strong> and nothing is tracked until it switches back on, when a new path begins.</p>
-<div class="note"><strong>Use a yellow object on a stick that is not itself yellow.</strong> The tracker follows any yellow it sees, so a yellow stick would drag the tracked point away from the ball. Keep other yellow things (clothes, posters) out of the shot.</div>
+<p>The program watches your webcam and looks for three things at once: the largest <strong>yellow</strong> blob, the largest <strong>blue</strong> blob and the largest <strong>red</strong> blob in view (the ball, foam head or tape on a stick). For each colour it draws a line, in that colour, through every place the blob has been. Move a stick around and its line follows it. The colours are tracked independently, so you can use one, two or all three at the same time.</p>
+<p>Every 5 seconds detection switches state, for all colours together. While it is <span class="good">ON</span> the paths grow. When it switches <span class="bad">OFF</span> every path is <strong>erased</strong> and nothing is tracked until it switches back on, when new paths begin.</p>
+<div class="note"><strong>Use sticks that are not yellow, blue or red.</strong> The tracker follows any blob of those colours it sees, so a coloured stick would drag the tracked point away from the ball. Keep other things of those colours (clothes, posters) out of the shot, and note that red is the easiest to confuse with skin; see <a href="#trouble">Troubleshooting</a>.</div>
 
 <h2 id="start">Quick start</h2>
 <p>Everything below runs from the <code>cv_2/</code> folder.</p>
@@ -108,13 +114,15 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <li><strong>Run the demo.</strong>
 <pre><code>.venv\Scripts\python.exe -m tools.demo</code></pre>
   </li>
-  <li>Hold the yellow object in front of the camera and move it. Press <kbd>m</kbd> to see what the program considers yellow, <kbd>q</kbd> to quit.</li>
+  <li>Hold your yellow, blue and/or red object in front of the camera and move it. Press <kbd>m</kbd> to see what the program counts as each colour, <kbd>q</kbd> to quit.</li>
 </ol>
 <div class="tablewrap"><table>
   <tr><th>Command</th><th>What it does</th></tr>
   <tr><td><code>python -m tools.demo</code></td><td>Live window with the trail and the ON/OFF banner.</td></tr>
   <tr><td><code>python -m tools.demo --period 3</code></td><td>Switch every 3 s instead of 5.</td></tr>
   <tr><td><code>python -m tools.demo --camera 1</code></td><td>Use a different webcam.</td></tr>
+  <tr><td><code>python -m tools.tune</code></td><td>Measure your own objects and get thresholds that fit your camera and lighting.</td></tr>
+  <tr><td><code>$env:YT_COLORS="blue,red"</code> before the demo</td><td>Track only some colours (PowerShell; any of <code>yellow</code>, <code>blue</code>, <code>red</code>).</td></tr>
   <tr><td><code>python -m tools.demo --no-window --frames 90</code></td><td>Headless check: runs 90 frames, prints fps and the last detection.</td></tr>
   <tr><td><code>python -m pytest</code></td><td>Run the tests (no camera needed).</td></tr>
 </table></div>
@@ -136,23 +144,36 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <circle cx="445" cy="215" r="3" fill="#dc2626"/>
   <line x1="445" y1="238" x2="445" y2="310" stroke="var(--muted)" stroke-width="7" stroke-linecap="round"/>
 
+  <polyline class="trail-b" stroke-width="1.5" points="70,130 100,110 130,120"/>
+  <polyline class="trail-b" stroke-width="3" points="130,120 170,95 205,100"/>
+  <polyline class="trail-b" stroke-width="5" points="205,100 240,80"/>
+  <line x1="240" y1="96" x2="240" y2="160" stroke="var(--muted)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="240" cy="80" r="16" class="ball-b" fill-opacity=".85"/>
+  <circle cx="240" cy="80" r="20" fill="none" stroke="var(--fg)" stroke-width="2"/>
+
+  <polyline class="trail-r" stroke-width="1.5" points="290,288 320,270 345,282"/>
+  <polyline class="trail-r" stroke-width="3" points="345,282 375,264 400,274"/>
+  <line x1="400" y1="288" x2="400" y2="314" stroke="var(--muted)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="400" cy="274" r="14" class="ball-r" fill-opacity=".85"/>
+  <circle cx="400" cy="274" r="18" fill="none" stroke="var(--fg)" stroke-width="2"/>
+
   <path class="guide" d="M300 25 L585 25"/><text x="595" y="29"><tspan class="t-b">Status banner</tspan></text>
   <text class="t-sm" x="595" y="45">green ON / red OFF, seconds until it switches</text>
   <path class="guide" d="M343 42 L585 80"/><text x="595" y="84"><tspan class="t-b">Countdown bar</tspan></text>
   <text class="t-sm" x="595" y="100">shrinks to zero, then the state flips</text>
-  <path class="guide" d="M200 215 L585 150"/><text x="595" y="154"><tspan class="t-b">The trail</tspan></text>
-  <text class="t-sm" x="595" y="170">thick = recent, thin = old</text>
+  <path class="guide" d="M200 215 L585 150"/><text x="595" y="154"><tspan class="t-b">One trail per colour</tspan></text>
+  <text class="t-sm" x="595" y="170">yellow, blue, red; thick = recent, thin = old</text>
   <path class="guide" d="M469 215 L585 215"/><text x="595" y="219"><tspan class="t-b">Object marker</tspan></text>
-  <text class="t-sm" x="595" y="235">white ring + red dot on the tracked centre</text>
+  <text class="t-sm" x="595" y="235">rings around each tracked blob, labelled with its colour</text>
   <path class="guide" d="M452 285 L585 285"/><text x="595" y="289"><tspan class="t-b">The stick</tspan></text>
-  <text class="t-sm" x="595" y="305">not yellow, so it is ignored</text>
+  <text class="t-sm" x="595" y="305">a neutral colour, so it is ignored</text>
 </svg>
-<figcaption>What the ON state looks like. The trail is the smoothed path of the yellow blob's centre.</figcaption>
+<figcaption>What the ON state looks like with all three colours in view. Each trail is the smoothed path of that colour's blob centre.</figcaption>
 </figure>
-<p>When the state is OFF the banner turns red, a red border appears around the picture, the bottom says <em>paused - trace erased</em>, and no trail or marker is drawn.</p>
+<p>When the state is OFF the status banner turns red, a red border appears around the picture, the bottom says <em>paused - traces erased</em>, and no trail or marker is drawn.</p>
 
 <h2 id="cycle">The on/off cycle</h2>
-<p>The clock starts when the program starts, with detection <span class="good">ON</span>. It then alternates every <code>period</code> seconds (5 by default). The moment it goes OFF the path is erased; the OFF phase just waits. When it goes ON again a brand new path starts from wherever the object is.</p>
+<p>The clock starts when the program starts, with detection <span class="good">ON</span>. It then alternates every <code>period</code> seconds (5 by default). The moment it goes OFF every colour's path is erased; the OFF phase just waits. When it goes ON again brand new paths start from wherever the objects are. All colours switch together.</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-label="Timeline: detection on 0-5s, off 5-10s, on 10-15s, off 15-20s; trail length grows during on phases and drops to zero at each off edge">
   <rect class="acc" x="60" y="14" width="195" height="26"/>
@@ -179,21 +200,21 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
     <text x="450" y="210" text-anchor="middle">10 s</text><text x="645" y="210" text-anchor="middle">15 s</text>
     <text x="840" y="210" text-anchor="middle">20 s</text>
   </g>
-  <text class="t-sm" x="450" y="236" text-anchor="middle">while OFF the detector is not run at all; the lines are drawn for an object moving the whole time</text>
+  <text class="t-sm" x="450" y="236" text-anchor="middle">while OFF no detector runs at all; drawn for one colour moving the whole time (each colour behaves the same)</text>
 </svg>
-<figcaption>Trail length over time for an object that keeps moving. It ramps up while ON and resets to zero at every ON→OFF switch.</figcaption>
+<figcaption>Trail length over time for one colour that keeps moving. It ramps up while ON and resets to zero at every ON→OFF switch.</figcaption>
 </figure>
 <p>Change the length with <code>--period</code> or <code>YT_PERIOD</code>. If the object disappears for more than a quarter of a second while ON, the line is <em>broken</em> rather than joined across the gap, so you never get a long straight stroke to where it reappeared.</p>
 
 <h2 id="how">How it works</h2>
-<p>There is no trained model. Each frame goes through a short pipeline of ordinary image processing, all in <code>yellow_tracker/</code>.</p>
+<p>There is no trained model. Each frame goes through a short pipeline of ordinary image processing, all in <code>tracker/</code>.</p>
 <figure>
 <svg viewBox="0 0 880 175" role="img" aria-label="Pipeline: camera, gate, detector, smoother, trace, overlay; while off the gate skips detection and clears the trace">
   <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
   <g>
     <rect class="node" x="10"  y="30" width="120" height="58" rx="8"/><text class="t-b" x="70"  y="55" text-anchor="middle">Camera</text><text class="t-sm" x="70" y="73" text-anchor="middle">newest frame</text>
     <rect class="warn" x="160" y="30" width="120" height="58" rx="8"/><text class="t-b" x="220" y="55" text-anchor="middle">Gate</text><text class="t-sm" x="220" y="73" text-anchor="middle">on / off by clock</text>
-    <rect class="node" x="310" y="30" width="120" height="58" rx="8"/><text class="t-b" x="370" y="55" text-anchor="middle">Detector</text><text class="t-sm" x="370" y="73" text-anchor="middle">HSV → biggest blob</text>
+    <rect class="node" x="310" y="30" width="120" height="58" rx="8"/><text class="t-b" x="370" y="55" text-anchor="middle">Detector</text><text class="t-sm" x="370" y="73" text-anchor="middle">HSV → blob per colour</text>
     <rect class="node" x="460" y="30" width="120" height="58" rx="8"/><text class="t-b" x="520" y="55" text-anchor="middle">Smoother</text><text class="t-sm" x="520" y="73" text-anchor="middle">EMA, kills jitter</text>
     <rect class="acc"  x="610" y="30" width="120" height="58" rx="8"/><text class="t-b" x="670" y="55" text-anchor="middle">Trace</text><text class="t-sm" x="670" y="73" text-anchor="middle">polyline segments</text>
     <rect class="node" x="760" y="30" width="110" height="58" rx="8"/><text class="t-b" x="815" y="55" text-anchor="middle">Overlay</text><text class="t-sm" x="815" y="73" text-anchor="middle">draw on frame</text>
@@ -202,45 +223,66 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
     <path d="M130 59 L156 59"/><path d="M280 59 L306 59"/><path d="M430 59 L456 59"/><path d="M580 59 L606 59"/><path d="M730 59 L756 59"/>
   </g>
   <path class="guide-warn" d="M220 90 L220 132 L670 132 L670 92" marker-end="url(#ah)"/>
-  <text class="t-warn" x="445" y="152" text-anchor="middle">gate OFF: skip detection, clear the trace</text>
+  <text class="t-warn" x="445" y="152" text-anchor="middle">gate OFF: skip detection, clear every trace</text>
 </svg>
-<figcaption>One frame, left to right. The orange path is the shortcut taken while detection is off.</figcaption>
+<figcaption>One frame, left to right. The detector, smoother and trace stages run once per colour (yellow, blue, red). The orange path is the shortcut taken while detection is off.</figcaption>
 </figure>
 
 <div class="cards">
   <div class="card"><h4>1. Colour mask</h4><div class="meta">detector.py</div>
-    <p>The frame is blurred, converted to HSV (hue / saturation / value) and every pixel whose hue is in the yellow band, and that is vivid and bright enough, is marked. Small speckles are removed and small holes (shiny highlights) are filled.</p></div>
+    <p>The frame is blurred and converted to HSV (hue / saturation / value) once. For each colour, every pixel whose hue is in that colour's band, and that is vivid and bright enough, is marked. Red's hue wraps around the ends of the scale, so it uses two bands. Small speckles are removed and small holes (shiny highlights) are filled.</p></div>
   <div class="card"><h4>2. Biggest blob</h4><div class="meta">detector.py</div>
-    <p>The outline with the largest area wins. If it is smaller than <code>YT_MIN_AREA</code> of the frame it is treated as noise and nothing is detected. Its centre of mass is the tracked point.</p></div>
+    <p>For each colour, the outline with the largest area wins. If it is smaller than <code>YT_MIN_AREA</code> of the frame it is treated as noise and that colour is not detected. Its centre of mass is the tracked point.</p></div>
   <div class="card"><h4>3. Smoothing</h4><div class="meta">pipeline.py</div>
     <p>The point is blended with the previous one (weight 0.6 on the new position), which hides pixel-level jitter without making the trail lag noticeably.</p></div>
+  <div class="card"><h4>Finding vs following</h4><div class="meta">detector.py</div>
+    <p>A new object needs the strict thresholds. Once found, it is followed with relaxed ones near its last position and kept for 0.5 s after a dropout, so uneven lighting does not make it flicker. See <a href="#tuning">Tuning</a>.</p></div>
   <div class="card"><h4>4. Trace</h4><div class="meta">trace.py</div>
-    <p>Points are appended to the current line segment. A gap of more than 0.25 s ends the segment. At most 2000 points are kept. The gate clears everything when ON turns to OFF.</p></div>
+    <p>Each colour has its own trace. Points are appended to the current line segment. A gap of more than 0.25 s ends the segment. At most 2000 points are kept per colour. The gate clears all traces when ON turns to OFF.</p></div>
 </div>
 
 <h2 id="tuning">Tuning</h2>
-<p>Webcams differ in white balance, so the exact "yellow" differs too. If the tracker misses your object or latches onto something else, press <kbd>m</kbd> in the demo: the right-hand pane is the mask, and white means "counts as yellow". Your object should be a solid white blob and nearly everything else black.</p>
-<p>Change settings with environment variables before starting the demo, for example in PowerShell: <code>$env:YT_H_MIN=18; $env:YT_H_MAX=35; .venv\Scripts\python.exe -m tools.demo</code>.</p>
+<h3>Measure your objects (recommended)</h3>
+<p>Webcam lighting is rarely even. On the development laptop the average brightness differed by more than 2&times; between one side of the picture and the other. A ball then looks washed out or dim toward one edge, and a fixed colour threshold makes it flicker or vanish there. Instead of guessing numbers, let the tool measure your real objects:</p>
+<ol class="steps">
+  <li>Run <code>python -m tools.tune</code>.</li>
+  <li>Press <kbd>1</kbd>, <kbd>2</kbd> or <kbd>3</kbd> to choose yellow, blue or red.</li>
+  <li><strong>Click your object in several places</strong>: the edge where it disappears, the opposite edge, and the middle (move it between clicks). Each click samples a small patch.</li>
+  <li>Press <kbd>p</kbd>. It prints PowerShell lines such as <code>$env:YT_BLUE_HUE="108-119"</code> that cover every spot you clicked, with a little slack. Paste them into your terminal and start the demo.</li>
+</ol>
+<p><kbd>c</kbd> forgets the chosen colour's samples, <kbd>m</kbd> toggles the panel showing what the strict detector counts as that colour.</p>
+<h3>Stays on once found</h3>
+<p>Detection is forgiving once it has locked on. An object is <em>found</em> with the strict thresholds below, then <em>followed</em> with relaxed ones (slightly wider hue, half the saturation and brightness floors) but only around where it was a moment ago, and it is searched for there for half a second if it drops out. A brand-new object must also be seen in three frames in a row (about a tenth of a second) before it counts, so a single-frame flash of skin or clothing never starts a trace. A followed blob must also be between about a third and twice the size of the last detection, so a lock cannot spread from a small red patch (lips) across the whole face, and a small patch next to the ball (lips) cannot steal it. So a ball that fades toward the bright or dark side keeps its trail instead of flickering, while skin or a wall elsewhere is still ignored because relaxed thresholds are never used to find a new object. Even lighting still helps most: light your face and the scene from the front rather than from one side, use a <strong>matte</strong> ball (shiny ones wash out), and switch off auto exposure and white balance in your camera app if it has them.</p>
+<h3>Manual settings</h3>
+<p>Webcams differ in white balance, so the exact yellow, blue and red differ too. If the tracker misses an object or latches onto something else, press <kbd>m</kbd> in the demo: the right-hand pane paints what each detector counts as its colour (yellow, blue or red) on black. Each object should be a solid blob of its own colour and nearly everything else black.</p>
+<p>Change settings with environment variables before starting the demo, for example in PowerShell: <code>$env:YT_YELLOW_HUE="18-35"; $env:YT_RED_S_MIN="150"; .venv\Scripts\python.exe -m tools.demo</code>.</p>
 <div class="tablewrap"><table>
   <tr><th>Variable</th><th>Default</th><th>Effect</th></tr>
-  <tr><td><code>YT_H_MIN</code> / <code>YT_H_MAX</code></td><td>20 / 25</td><td>Hue band (OpenCV hue runs 0-179; pure yellow is 30). Widen it if your object is only partly white in the mask; narrow it if neighbouring colours leak in.</td></tr>
-  <tr><td><code>YT_S_MIN</code></td><td>90</td><td>Minimum saturation (0-255). Raise it to reject pale, washed-out things such as skin and walls.</td></tr>
-  <tr><td><code>YT_V_MIN</code></td><td>90</td><td>Minimum brightness (0-255). Raise it to ignore dark, muddy yellows and shadows.</td></tr>
+  <tr><td><code>YT_COLORS</code></td><td>yellow,blue,red</td><td>Which colours to track. A comma-separated subset, e.g. <code>blue,red</code>.</td></tr>
+  <tr><td><code>YT_YELLOW_HUE</code></td><td>20-25</td><td>Hue band (OpenCV hue runs 0-179; pure yellow is 30). The default is narrow, tuned to the dev camera and object. Widen it if your object is only partly coloured in the mask; narrow it if neighbouring colours leak in.</td></tr>
+  <tr><td><code>YT_BLUE_HUE</code></td><td>103-115</td><td>Blue hue band (pure blue is 120). Calibrated with <code>tools.tune</code> on the dev camera.</td></tr>
+  <tr><td><code>YT_RED_HUE</code></td><td>174-179,0-6</td><td>Red wraps around the ends of the hue scale, so it takes two ranges separated by a comma. Calibrated with <code>tools.tune</code> on the dev camera.</td></tr>
+  <tr><td><code>YT_YELLOW_S_MIN</code> / <code>YT_BLUE_S_MIN</code> / <code>YT_RED_S_MIN</code></td><td>90 / 62 / 117</td><td>Minimum saturation (0-255) for that colour. Raise it to reject pale, washed-out things such as skin and walls.</td></tr>
+  <tr><td><code>YT_YELLOW_V_MIN</code> / <code>YT_BLUE_V_MIN</code> / <code>YT_RED_V_MIN</code></td><td>90 / 88 / 97</td><td>Minimum brightness (0-255) for that colour. Raise it to ignore dark, muddy shades and shadows.</td></tr>
+  <tr><td><code>YT_YELLOW_MIN_AREA</code> / <code>YT_BLUE_MIN_AREA</code> / <code>YT_RED_MIN_AREA</code></td><td>0 / 0 / 0.002</td><td>That colour's own smallest blob as a fraction of the frame (0 uses <code>YT_MIN_AREA</code>). Red's is about 600 px, above lips (200-400 px) and well below a ball, so a red object must be reasonably large in the picture.</td></tr>
+  <tr><td><code>YT_YELLOW_MIN_CIRC</code> / <code>YT_BLUE_MIN_CIRC</code> / <code>YT_RED_MIN_CIRC</code></td><td>0 / 0 / 0.62</td><td>How round a blob must be to be <em>found</em> (1 is a perfect circle, a lip-shaped strip scores about 0.5; 0 turns the check off). Red uses it to ignore lips and skin. Once the object has been found it is followed even if a hand covers part of it.</td></tr>
   <tr><td><code>YT_MIN_AREA</code></td><td>0.0006</td><td>Smallest blob that counts, as a fraction of the frame (about 185 px at 640×480).</td></tr>
   <tr><td><code>YT_PERIOD</code></td><td>5</td><td>Seconds in each ON and each OFF phase.</td></tr>
   <tr><td><code>YT_MIRROR</code></td><td>1</td><td>Selfie-style view. <code>0</code> shows the raw camera orientation.</td></tr>
   <tr><td><code>YT_CAMERA</code></td><td>0</td><td>Camera index.</td></tr>
   <tr><td><code>YT_WIDTH</code> / <code>YT_HEIGHT</code></td><td>640 / 480</td><td>Capture size.</td></tr>
 </table></div>
-<p>Other values (smoothing weight, gap length, point limit) are fields of the <code>Config</code> dataclass in <code>yellow_tracker/config.py</code>.</p>
+<p>Other values (smoothing weight, gap length, point limit) are fields of the <code>Config</code> dataclass in <code>tracker/config.py</code>.</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <div class="tablewrap"><table>
   <tr><th>Symptom</th><th>Likely cause and fix</th></tr>
-  <tr><td>Nothing is tracked, the marker never appears</td><td>The object is outside the hue band or too small. Press <kbd>m</kbd>; if it is black in the mask, widen <code>YT_H_MIN/MAX</code> or lower <code>YT_S_MIN</code>. Lighting that is dim or tinted shifts yellow towards orange or green.</td></tr>
-  <tr><td>The marker jumps to something else</td><td>Another yellow-ish thing is bigger than your object (clothes, wall, skin). Remove it from view, or raise <code>YT_S_MIN</code> / narrow the hue band. The largest blob always wins.</td></tr>
-  <tr><td>The marker sits on the stick, not the ball</td><td>The stick is yellow too. Use a stick of another colour or wrap it in tape.</td></tr>
-  <tr><td>The line breaks into pieces</td><td>The object keeps dropping out of the mask (glare on a shiny surface, motion blur). Lower <code>YT_V_MIN</code> or widen the hue band; brighter, even light helps most.</td></tr>
+  <tr><td>One colour is never tracked, its marker never appears</td><td>The object is outside that colour's hue band or too small. Press <kbd>m</kbd>; if it is black in the mask, widen that colour's <code>YT_*_HUE</code> or lower its <code>YT_*_S_MIN</code>. Dim or tinted lighting shifts colours, for example yellow towards orange or green.</td></tr>
+  <tr><td>A colour flickers, or disappears toward one side of the picture</td><td>Uneven lighting: the object is brighter, dimmer or more washed out there than where the thresholds were set. Run <code>python -m tools.tune</code> and click the object on that side and in the middle, then press <kbd>p</kbd> and use the printed lines. Also move or add a light so the scene is lit evenly, and prefer a matte ball. If it only fails when the object is very close to the edge of the picture, the saturation floor (<code>YT_*_S_MIN</code>) is usually the culprit.</td></tr>
+  <tr><td>A marker jumps to something else</td><td>Another thing of the same colour is bigger than your object (clothes, wall). Remove it from view, or raise that colour's <code>YT_*_S_MIN</code> / narrow its hue band. For each colour the largest blob always wins.</td></tr>
+  <tr><td>The red marker appears on your lips, face or hand with no red object</td><td>When first finding an object red only counts <em>round</em> blobs, which rules out lips (a strip). If it still happens, raise <code>YT_RED_MIN_CIRC</code> (try 0.7). If your red object is <em>not</em> round and is never found, lower it instead. Run <code>python -m tools.tune</code> and sample your red object: the printed saturation floor shows how far you can safely raise <code>YT_RED_S_MIN</code> without losing it (lips measured about 125 against a ball of 132 and above, so colour alone separates them poorly). Press <kbd>m</kbd> to see which pixels count as red, or leave red out with <code>YT_COLORS=yellow,blue</code>.</td></tr>
+  <tr><td>The marker sits on the stick, not the ball</td><td>The stick is yellow, blue, red or a reddish wood brown. Use a grey, black or white stick, or wrap it in tape.</td></tr>
+  <tr><td>The line breaks into pieces</td><td>The object keeps dropping out of the mask (glare on a shiny surface, motion blur). Lower that colour's <code>YT_*_V_MIN</code> or widen its hue band; brighter, even light helps most.</td></tr>
   <tr><td>"Could not open camera 0"</td><td>Another program (or a demo that did not exit) is holding the webcam. Close it, or pick another camera with <code>--camera 1</code>. On macOS allow camera access for your terminal.</td></tr>
   <tr><td><code>uv pip install</code> fails with "Unknown compiler(s)"</td><td>You created the venv with the native ARM64 Python. Recreate it with the x86_64 Python as shown in <a href="#start">Quick start</a>.</td></tr>
   <tr><td>The picture looks flipped</td><td>That is the default selfie view. Set <code>YT_MIRROR=0</code> for the raw orientation.</td></tr>
@@ -252,29 +294,39 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   "active": true,             // false during the OFF phase
   "secondsLeft": 3.2,         // until the next switch
   "mirrored": true,           // x already flipped to match a selfie view
-  "object": {                 // null when nothing is detected (always null while OFF)
-    "x": 0.71, "y": 0.43,     // centre, 0-1 from the top-left of the (mirrored) view
-    "radius": 0.06            // fraction of frame width
+  "objects": {                // one entry per tracked colour
+    "yellow": {               // null when that colour is not detected (all null while OFF)
+      "x": 0.71, "y": 0.43,   // centre, 0-1 from the top-left of the (mirrored) view
+      "radius": 0.06          // fraction of frame width
+    },
+    "blue": null,
+    "red": { "x": 0.30, "y": 0.72, "radius": 0.04 }
   },
-  "trace": [                  // list of line segments; empty right after an OFF switch
-    [[0.20, 0.61], [0.23, 0.58], ...],
-    [[0.71, 0.43]]
-  ]
+  "traces": {                 // per colour: a list of line segments; empty right after an OFF switch
+    "yellow": [
+      [[0.20, 0.61], [0.23, 0.58], ...],
+      [[0.71, 0.43]]
+    ],
+    "blue": [],
+    "red": [[[0.31, 0.70], [0.30, 0.72]]]
+  }
 }</code></pre>
 
 <h2 id="files">Files &amp; tests</h2>
 <div class="tablewrap"><table>
   <tr><th>Path</th><th>Role</th></tr>
-  <tr><td><code>yellow_tracker/config.py</code></td><td>All settings and the <code>YT_*</code> environment variables.</td></tr>
-  <tr><td><code>yellow_tracker/capture.py</code></td><td>Webcam reader that always hands over the newest frame.</td></tr>
-  <tr><td><code>yellow_tracker/detector.py</code></td><td>Colour mask and blob finding.</td></tr>
-  <tr><td><code>yellow_tracker/trace.py</code></td><td>The 5-second on/off gate and the path storage.</td></tr>
-  <tr><td><code>yellow_tracker/pipeline.py</code></td><td>Wires the stages together; produces the data above.</td></tr>
-  <tr><td><code>yellow_tracker/overlay.py</code></td><td>Draws the trail, marker and banner.</td></tr>
+  <tr><td><code>tracker/config.py</code></td><td>All settings, the yellow/blue/red colour definitions and the <code>YT_*</code> environment variables.</td></tr>
+  <tr><td><code>tracker/capture.py</code></td><td>Webcam reader that always hands over the newest frame.</td></tr>
+  <tr><td><code>tracker/detector.py</code></td><td>Colour masks (red uses two hue ranges) and blob finding.</td></tr>
+  <tr><td><code>tracker/trace.py</code></td><td>The 5-second on/off gate and the path storage.</td></tr>
+  <tr><td><code>tracker/pipeline.py</code></td><td>Wires the stages together; produces the data above.</td></tr>
+  <tr><td><code>tracker/overlay.py</code></td><td>Draws each colour's trail and marker, the banner, and the mask view.</td></tr>
+  <tr><td><code>tracker/calibrate.py</code></td><td>Turns HSV samples of your object into suggested thresholds.</td></tr>
   <tr><td><code>tools/demo.py</code></td><td>The demo window.</td></tr>
-  <tr><td><code>tests/test_tracker.py</code></td><td>17 tests on synthetic frames with a fake clock.</td></tr>
+  <tr><td><code>tools/tune.py</code></td><td>Click-to-calibrate window (see <a href="#tuning">Tuning</a>).</td></tr>
+  <tr><td><code>tests/test_tracker.py</code></td><td>55 tests on synthetic frames with a fake clock.</td></tr>
 </table></div>
-<p>The tests draw a yellow ball on a stick (plus skin-, blue- and orange-coloured decoys) and drive the clock by hand. They check, among other things, that the path follows the object, that it is erased on <em>every</em> OFF switch over several cycles, that the detector is not run while OFF, and that a lost object breaks the line. They have not been run against many real lighting conditions, so expect to tune the hue band for your camera.</p>
+<p>The tests draw yellow, blue and red balls on sticks (plus skin-, green-, cyan- and magenta-coloured decoys) and drive the clock by hand. They check, among other things, that each colour's path follows its own object without picking up the others, that every path is erased on <em>every</em> OFF switch over several cycles, that no detector runs while OFF, that red is found in both of its hue ranges, that a ball fading toward one side is still followed but not found from scratch, and that a lost object breaks the line. The tests use synthetic images, so they say nothing about your lighting. The default colour bands were hand-tuned on one laptop camera; run <code>python -m tools.tune</code> to fit them to yours.</p>
 <p>Developer notes and design decisions: <code>cv_2/CLAUDE.md</code>. Setup summary: <code>cv_2/README.md</code>.</p>
 
 </div>

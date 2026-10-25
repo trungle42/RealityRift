@@ -1,5 +1,5 @@
-"""Webcam demo: traces a yellow object's path; detection toggles on/off every 5 s and each
-time it turns off the trace is erased.
+"""Webcam demo: traces the path of a yellow, a blue and a red object. Detection toggles on/off
+every 5 s and each time it turns off all the traces are erased.
 
 Run from the cv_2/ folder:  python -m tools.demo          (q quits, m toggles the colour-mask view)
 Headless smoke test:        python -m tools.demo --no-window --frames 60
@@ -11,10 +11,10 @@ import time
 
 import cv2
 
-from yellow_tracker.capture import Camera
-from yellow_tracker.config import Config
-from yellow_tracker.overlay import draw
-from yellow_tracker.pipeline import Pipeline
+from tracker.capture import Camera
+from tracker.config import Config
+from tracker.overlay import draw, mask_view
+from tracker.pipeline import Pipeline
 
 
 def main() -> None:
@@ -38,12 +38,10 @@ def main() -> None:
             last = pipe.process(frame)
             n += 1
             if not args.no_window:
-                view = draw(frame, last, cfg.period_s)
+                view = draw(frame, last, cfg.period_s, cfg.colors)
                 if show_mask:
-                    mask = pipe.detector.mask(frame)
-                    mask = cv2.flip(mask, 1) if cfg.mirror else mask
-                    view = cv2.hconcat([view, cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)])
-                cv2.imshow("Yellow tracker (q quit, m mask)", view)
+                    view = cv2.hconcat([view, mask_view(frame, pipe.detectors, cfg.mirror)])
+                cv2.imshow("Colour tracker (q quit, m mask)", view)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
                     break
@@ -55,8 +53,10 @@ def main() -> None:
     dt = time.monotonic() - start
     print(f"{n} frames in {dt:.1f}s = {n / dt:.1f} fps")
     if last:
-        print(f"active={last['active']} object={last['object']} "
-              f"trace_points={sum(len(s) for s in last['trace'])}")
+        print(f"active={last['active']}")
+        for name, obj in last["objects"].items():
+            pts = sum(len(s) for s in last["traces"][name])
+            print(f"  {name}: object={obj} trace_points={pts}")
 
 
 if __name__ == "__main__":
