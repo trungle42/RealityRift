@@ -30,7 +30,7 @@ import { CvInput } from './CvInput';
 import { Fairy } from './Fairy';
 import { Presence } from './Presence';
 import { avatarFor, dressAvatar, GOLD, localColour, modelOf, tintStandIn } from './avatars';
-import { peerColor } from './presenceMath';
+import { FOE_ATTACKS, peerColor, type FoeSnap } from './presenceMath';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
 import { Cinematics } from './Cinematics';
@@ -142,6 +142,9 @@ export class Adventure {
   /** Encounter foes spawned so far (their netIds), and other players' damage to foes not spawned here yet. */
   private netSerial = 0;
   private readonly pendingHits = new Map<string, number>();
+  /** Following another laptop's foes: the host's latest snapshot of each (wall-clock seconds), and when this host last sent its own. */
+  private readonly foeSnaps = new Map<string, FoeSnap & { at: number }>();
+  private foesSentAt = 0;
   /** Heroes actually in play: just the ranger in solo. */
   private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
@@ -297,7 +300,7 @@ export class Adventure {
     }, this.phone);
     this.presence = Presence.fromPage({ scene: this.scene, fx: this.fx, renderer: this.renderer, hud: this.ui.root });
     // Fighting together: a teammate starting the run starts it here, and their hits land on the same horde and boss.
-    if (this.presence) { this.presence.onStart = () => document.querySelector<HTMLFormElement>('.adventure-start form')?.requestSubmit(); this.presence.onHit = (id, damage) => this.remoteHit(id, damage); }
+    if (this.presence) { this.presence.onStart = () => document.querySelector<HTMLFormElement>('.adventure-start form')?.requestSubmit(); this.presence.onHit = (id, damage) => this.remoteHit(id, damage); this.presence.onFoes = (foes) => this.hostFoes(foes); }
     const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
     const party = await starting; this.presence?.start();
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.hud.setWands(this.seats); this.shapes.subscribe((colour, shape) => { const wand = this.keyWand(colour); if (wand) this.onShape(wand, shape); }); if (this.seated) this.seatHeroTwo(); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
@@ -1151,6 +1154,18 @@ export class Adventure {
     if (foe) this.hit(foe, damage, 0, false, undefined, true); else this.pendingHits.set(id, (this.pendingHits.get(id) ?? 0) + damage);
   }
 
+  /** The host's foes: remember where each stands; if the host's wave is on and this laptop is still at the briefing, join it. */
+  private hostFoes(foes: FoeSnap[]): void {
+    const at = performance.now() / 1000; for (const f of foes) this.foeSnaps.set(f.id, { ...f, at });
+    if (foes.length && this.demo?.stage === 'briefing' && this.state && !this.busy && !this.ended && !this.ui.blocked) this.startWave();
+  }
+
+  /** The host's snapshot for this foe while another laptop hosts the fight (and it is fresh), else undefined. */
+  private mirrorOf(enemy: Enemy): (FoeSnap & { at: number }) | undefined {
+    if (!enemy.netId || !this.presence?.follower) return undefined;
+    const snap = this.foeSnaps.get(enemy.netId); return snap && performance.now() / 1000 - snap.at < 1.5 ? snap : undefined;
+  }
+
   private hurt(deferEnding = false): void {
     if (!this.state || this.invulnerable > 0 || this.ended || !this.state.loseHeart()) return;
     this.invulnerable = 2.5; this.heroes.forEach((hero) => { hero.hurt = 1.2; hero.stagger = 0.45; }); this.ui.damage(); this.sfx.hurt();
@@ -1398,6 +1413,8 @@ export class Adventure {
   }
 
   private updateEnemies(dt: number): void {
+    // The host's foes chase the nearest hero on any laptop; a remote hero's own laptop resolves the strikes on it.
+    const targets: { root: T.Object3D }[] = [...this.active, ...(this.presence?.host ? this.presence.avatars.values() : [])];
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) {
         if (enemy.pawn !== undefined) { this.physics?.removeCharacter(enemy.pawn); enemy.pawn = undefined; }
@@ -1418,7 +1435,10 @@ export class Adventure {
       if (this.ended || this.trial) continue;
       // Enemies crawl during a flurry rush; the hero does not.
       const real = dt; dt = this.flurry > 0 ? dt * 0.15 : dt;
-      const target = this.active.reduce((a, b) => distance(a.root.position, enemy.root.position) < distance(b.root.position, enemy.root.position) ? a : b);
+      const snap = this.mirrorOf(enemy);
+      if (snap && enemy.pawn !== undefined) { this.physics?.removeCharacter(enemy.pawn); enemy.pawn = undefined; }
+      let placed = false;
+      const target = targets.reduce((a, b) => distance(a.root.position, enemy.root.position) < distance(b.root.position, enemy.root.position) ? a : b);
       const p = enemy.root.position, d = distance(p, target.root.position);
       const motion = new T.Vector3(enemy.knock.x * real, -dt * 4, enemy.knock.z * real); enemy.knock.multiplyScalar(Math.exp(-real * 8));
       enemy.cooldown -= dt; enemy.core.position.y = (enemy.boss ? 1.9 : 0.9) + Math.sin(this.time * 3 + enemy.home.x) * 0.13;
@@ -1434,6 +1454,18 @@ export class Adventure {
           this.fx.shockwave(p, enemy.boss ? 0xa4d8df : 0xff9a7a, enemy.boss ? 8 : 2.6, 0.4); this.sfx.land(!!enemy.boss); if (enemy.boss) this.rig.addTrauma(0.35);
           const victim = this.active.findIndex((hero, i) => distance(p, hero.root.position) < (enemy.boss ? 8 : 2.6) && this.dodge[i] <= 0 && this.rollIframes[i] <= 0 && this.jump[i] < 0.7 && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1, 0)), hero.root.position.clone().add(new T.Vector3(0, 1, 0))) === undefined && (enemy.attack === 'frost-gaze' ? hero.moving > 0.1 : enemy.attack === 'shadow-wave' ? hero.pose !== 'crouch' : true));
           if (victim >= 0) this.hurt();
+        }
+      } else if (snap) {
+        // Following the host: stand where the host's foe stands and wind up when it does (the strike lands here, on this
+        // laptop's hero, by the same rules).
+        const k = Math.min(1, real * 10), far = Math.hypot(snap.x - p.x, snap.z - p.z) > 6;
+        p.x += far ? snap.x - p.x : (snap.x - p.x) * k; p.z += far ? snap.z - p.z : (snap.z - p.z) * k; p.y = Math.max(heightAt(p.x, p.z), -0.3);
+        motion.set(0, 0, 0); placed = true; enemy.root.rotation.y = snap.h;
+        if (snap.w && enemy.cooldown <= 0) {
+          enemy.windup = enemy.boss ? enemy.boss.telegraphSec : this.demo ? 1.15 : 0.9;
+          enemy.attack = enemy.boss ? FOE_ATTACKS[snap.a] : 'strike';
+          if (enemy.actor && !enemy.boss) { const a = enemy.actor; a.attackClip = 'punch_right'; a.attack = a.attackLength = enemy.windup + 0.35; a.attackContact = enemy.windup; a.attackSerial++; }
+          this.fx.warn(p.clone().add(new T.Vector3(0, enemy.boss ? 3.6 : enemy.elite ? 2.3 : 1.7, 0))); this.sfx.warn();
         }
       } else {
         // Camp enemies: wander, notice, chase, give up past the leash and heal at home.
@@ -1470,7 +1502,7 @@ export class Adventure {
         enemy.root.rotation.y += turn * Math.min(1, dt * (engaged ? 8 : 4));
       }
       if (enemy.windup > 0) enemy.root.rotation.y = Math.atan2(target.root.position.x - p.x, target.root.position.z - p.z);
-      if (this.physics && enemy.pawn !== undefined) p.copy(this.physics.move(enemy.pawn, p, motion));
+      if (placed) { /* already where the host's foe stands */ } else if (this.physics && enemy.pawn !== undefined) p.copy(this.physics.move(enemy.pawn, p, motion));
       else { const next = moveOnGround(p, motion.x, motion.z, this.world.solids); p.x = next.x; p.z = next.z; p.y = Math.max(heightAt(p.x, p.z), -0.3); }
       if (enemy.bar) { enemy.shown -= dt; enemy.bar.visible = enemy.shown > 0 || this.lock === enemy; }
       if (enemy.visual) enemy.visual.rotation.z = Math.sin(this.time * 2 + enemy.home.x) * 0.025;
@@ -1483,6 +1515,12 @@ export class Adventure {
       }
       if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now' + this.fearsLine(enemy.boss.kind));
       dt = real;
+    }
+    // Hosting with teammates online: send where the encounter foes are, ten times a second.
+    const now = performance.now();
+    if (this.presence?.host && this.presence.avatars.size && now - this.foesSentAt >= 100) {
+      const foes = this.enemies.filter((e) => e.netId && e.hp > 0).map((e) => ({ id: e.netId!, x: e.root.position.x, z: e.root.position.z, h: e.root.rotation.y, w: e.windup > 0, a: Math.max(0, FOE_ATTACKS.indexOf(e.attack as typeof FOE_ATTACKS[number])) }));
+      if (foes.length) { this.foesSentAt = now; this.presence.foes(foes); }
     }
   }
 

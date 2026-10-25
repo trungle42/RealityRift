@@ -115,14 +115,14 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(haicil.since(mark, 'state').length === 0, 'a malformed state was passed on');
     });
 
-    await check('One laptop cannot flood the others: about 30 messages a second at most', async () => {
+    await check('One laptop cannot flood the others: about 60 messages a second at most', async () => {
       await wait(1100);   // a fresh one-second window on the relay
       const mark = trung.heard.length;
-      for (let i = 0; i < 45; i++) haicil.send(state(i));
+      for (let i = 0; i < 90; i++) haicil.send(state(i));
       await wait(500);
       const got = trung.since(mark, 'state').length;
-      assert(got > 0 && got <= 30, `Trung got ${got} of 45 sent within a second`);
-      notes.push(`rate cap: ${got} of 45 burst messages passed`);
+      assert(got > 0 && got <= 60, `Trung got ${got} of 90 sent within a second`);
+      notes.push(`rate cap: ${got} of 90 burst messages passed`);
     });
 
     await check('Closing a laptop: the others see it leave, and a new laptop takes the free slot', async () => {
@@ -140,7 +140,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     // ---- Part two: three real games -------------------------------------------------------------------------------
     // Each frame is one laptop: a real game (tests/mp-player.html) with its own ?presence / ?room / ?name / ?wand.
     type Avatar = { name: string; colour: string; root: { position: { x: number; z: number } } };
-    type PresenceLike = { avatars: Map<string, Avatar>; fxCount: { cast: number; slash: number }; id?: string; update(real: number, time: number, hero: unknown, airborne: boolean): void };
+    type PresenceLike = { host: boolean; avatars: Map<string, Avatar>; fxCount: { cast: number; slash: number }; id?: string; update(real: number, time: number, hero: unknown, airborne: boolean): void };
     type GameLike = { time: number; heroes: { root: { position: { x: number; y: number; z: number; set(x: number, y: number, z: number): void } }; update(dt: number, t: number): void }[]; update(dt: number): void; cast(p: 0): boolean; strike(p: 0): void; airborne: boolean[]; presence?: PresenceLike; spellCooldown: number[]; attackCooldown: number[]; dispose(): void };
     type Laptop = { name: string; colour: string; frame: HTMLIFrameElement; game: () => GameLike; presence: () => PresenceLike | undefined; doc: () => Document };
     const gameRoom = `${room}g`, box = document.querySelector('#players')!;
@@ -270,6 +270,18 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       const got = (c.enemies.find((e) => e.netId === 'e0')?.hp ?? NaN), got1 = (c.enemies.find((e) => e.netId === 'e1')?.hp ?? NaN);
       n = await ticksUntil(team, () => (foe(c, 'e0')?.hp ?? 1) <= 0 && foe(c, 'e1')?.hp === full - 3, 60);
       assert(n >= 0, `haicil, reaching the wave last: e0 ${foe(c, 'e0')?.hp} (at spawn ${got}), e1 ${foe(c, 'e1')?.hp} (at spawn ${got1})`);
+    });
+    await check('Everyone sees the host\'s foes where the host\'s are', async () => {
+      if (!fighter(team[0]).demo) return 'skip';
+      const host = team.find((l) => l.presence()!.host)!, followers = team.filter((l) => l !== host), h = fighter(host);
+      const foe = (g: Fighter, id: string) => (g.enemies as (Foe & { root?: { position: { x: number; z: number; set(x: number, y: number, z: number): void } } })[]).find((e) => e.netId === id && e.hp > 0);
+      const live = h.enemies.find((e) => e.netId && e.hp > 0)!; const id = live.netId!;
+      const hp = foe(h, id)!.root!.position; hp.set(hp.x + 4, 0, hp.z - 3);
+      const at = () => ({ x: foe(h, id)!.root!.position.x, z: foe(h, id)!.root!.position.z });
+      const near = (l: Laptop) => { const f = foe(fighter(l), id); return !!f && Math.hypot(f.root!.position.x - at().x, f.root!.position.z - at().z) < 0.8; };
+      const n = await ticksUntil(team, () => followers.every(near), 120);
+      assert(n >= 0, `${id}: host at ${JSON.stringify(at())}; ${followers.map((l) => { const f = foe(fighter(l), id); return `${l.name} at ${f ? `${f.root!.position.x.toFixed(1)},${f.root!.position.z.toFixed(1)}` : 'none'}`; }).join('; ')}`);
+      notes.push(`followers matched the host's ${id} in ${n} frames`);
     });
     team.forEach((l) => { try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
 

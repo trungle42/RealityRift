@@ -6,7 +6,7 @@ import { avatarFor, dressAvatar, dyeMs, predye, tintStandIn, type Avatar, type A
 import type { Fx } from './Fx';
 import { WandModel } from './WandModel';
 import { ELEMENT_COLOR, type Element } from './weapon';
-import { animOf, parsePresence, peerColor, presenceConfig, SEND_RATE, SnapshotBuffer, wrapAngle, type Anim, type FxEvent, type HeroState, type LocalHero, type Peer } from './presenceMath';
+import { animOf, parsePresence, peerColor, presenceConfig, SEND_RATE, SnapshotBuffer, wrapAngle, type Anim, type FoeSnap, type FxEvent, type HeroState, type LocalHero, type Peer } from './presenceMath';
 
 const ROLL_LENGTH = 0.55;
 /** How often a game turned away from a full room asks again (a slot frees when someone leaves or an old tab closes). */
@@ -120,6 +120,8 @@ export class Presence {
   onStart?: () => void;
   /** Another player's damage to an encounter foe, by its shared id (see Adventure.netId). */
   onHit?: (enemy: string, damage: number) => void;
+  /** The host's encounter foes (where they stand), ten times a second, for the other laptops to draw in the same places. */
+  onFoes?: (foes: FoeSnap[]) => void;
   /** The run has started here or on another laptop. */
   started = false;
   /** Remote effects played so far, per kind, and the latest one (for the multi-laptop test harness). */
@@ -161,6 +163,15 @@ export class Presence {
   /** This laptop started the run: start it on the others too (the relay passes on only the room's first start). */
   start(): void { if (!this.started) { this.started = true; this.send({ type: 'start' }); } }
 
+  /** The host's foes, for the others (rounded to keep the message small). */
+  foes(list: FoeSnap[]): void {
+    const r = (v: number) => Math.round(v * 100) / 100;
+    this.send({ type: 'foes', f: list.slice(0, 12).map((f) => [f.id, r(f.x), r(f.z), r(f.h), f.w ? 1 : 0, f.a]) });
+  }
+
+  /** Someone else hosts the foes and is in the room: this laptop draws theirs. */
+  get follower(): boolean { return this.id !== undefined && this.peers.size > 0 && !this.host; }
+
   /** This player's damage to an encounter foe, for the others to apply to theirs. */
   hit(enemy: string, damage: number): void { this.send({ type: 'hit', enemy, damage }); }
 
@@ -193,6 +204,7 @@ export class Presence {
     if (message.type === 'welcome') { this.id = message.id; this.full = false; this.retry = 0; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); if (message.started) this.remoteStart(); else if (this.started) this.send({ type: 'start' }); }
     else if (message.type === 'start') this.remoteStart();
     else if (message.type === 'hit') this.onHit?.(message.enemy, message.damage);
+    else if (message.type === 'foes') { if (this.peers.has(message.id) && [...this.peers.keys()].every((id) => Number(message.id) <= Number(id)) && Number(message.id) < Number(this.id)) this.onFoes?.(message.foes); }
     else if (message.type === 'peer') { if (message.peer.id === this.id) return; if (message.state === 'joined') this.add(message.peer); else this.drop(message.peer.id); }
     else if (message.type === 'state') this.peers.get(message.id)?.push(message.state, this.clock());
     else if (message.type === 'fx') { const remote = this.peers.get(message.id); if (remote) this.play(remote, message.fx); }
