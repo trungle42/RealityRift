@@ -2,7 +2,7 @@
 
 The webcam tracker in cv_2/ (`python -m tools.publish`) joins /ws/cv/{room}?role=tracker and sends one message per frame; the
 game joins the same room with role=game and receives it. Tracker -> game is {"type":"cv","slash","jump","motion","wand"}; game ->
-tracker is {"type":"gate","on","target"} (relayed so the game can later drive the wand round; the tracker does not act on it yet).
+tracker is {"type":"gate","on","target"}, which tools.publish applies (Pipeline.control): the game drives the wand while it is here.
 Every message is rebuilt from known fields with types checked and sizes capped, so neither side can push arbitrary data into the
 other. The room code is the only "auth", as for the joystick.
 """
