@@ -202,7 +202,13 @@ export class Adventure {
 
   private async loadModels(): Promise<void> {
     const loader = new GLTFLoader(), textures = new T.TextureLoader();
-    const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb')]).then(([asset, combat]) => { if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat.animations.filter((clip) => ['sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name))); });
+    const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb').catch(() => undefined)]).then(([asset, combat]) => {
+      if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat?.animations.filter((clip) => ['sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name)) ?? []);
+      return 'assetyard' as const;
+    }).catch(() => loader.loadAsync('/models/kaykit/Rogue_Hooded.glb').then((asset) => {
+      if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false);
+      return 'kaykit' as const;
+    }));
     const companion = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => { this.queen = asset; if (!this.disposed) this.heroes[1].useModel(clone(asset.scene), asset.animations, false); });
     const jobs = [
       ranger, companion,
@@ -213,7 +219,15 @@ export class Adventure {
       Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.gltf'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.gltf')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
       loader.loadAsync('/models/assetyard/reach-shrine.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/assetyard/wayfarer-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
-      Promise.all([ranger, companion, loader.loadAsync('/models/assetyard/arming-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero) => hero.holdWeapon(asset.scene)); }),
+      ranger.then((model) => Promise.all([
+        loader.loadAsync(model === 'kaykit' ? '/models/kaykit/sword_1handed.gltf' : '/models/assetyard/arming-sword.glb'),
+        model === 'assetyard' ? companion : Promise.resolve(undefined),
+      ]).then(([asset]) => {
+        if (!this.disposed) {
+          this.heroes[0].holdWeapon(asset.scene);
+          if (model === 'assetyard') this.heroes[1].holdWeapon(asset.scene);
+        }
+      })),
       loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => textures.loadAsync(`/models/polyhaven/${name}.jpg`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),

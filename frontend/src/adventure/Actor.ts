@@ -143,14 +143,23 @@ export class Actor {
 
   useModel(model: T.Object3D, clips: T.AnimationClip[], companion: boolean, additionalClips: T.AnimationClip[] = []): void {
     this.body.visible = false; this.model = model;
-    this.detailedRig = !!model.getObjectByName('LeftArm');
+    const kayKitRig = !!model.getObjectByName('handslot.r');
+    if (kayKitRig) for (const name of ['Knife_Offhand', 'Knife']) { const offhand = model.getObjectByName(name); if (offhand) offhand.visible = false; }
+    this.detailedRig = !!model.getObjectByName('LeftArm') || kayKitRig;
     if (this.detailedRig) {
       const box = new T.Box3().setFromObject(model), size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
       const scale = 1.9 / size.y; model.scale.setScalar(scale); model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
     }
     if (this.detailedRig) {
       model.updateWorldMatrix(true, true);
-      const hips = model.getObjectByName('Hips');
+      const hips = model.getObjectByName('Hips') ?? model.getObjectByName('hips');
+      if (kayKitRig && hips) {
+        // Center the rig's pelvis over the physics actor; a wide hand/weapon pose
+        // makes the full-mesh bounds center noticeably offset from its root.
+        const hipPosition = hips.getWorldPosition(new T.Vector3());
+        model.position.x -= hipPosition.x; model.position.z -= hipPosition.z;
+        model.updateWorldMatrix(true, true);
+      }
       const pivotY = hips?.getWorldPosition(new T.Vector3()).y ?? 0.95;
       this.modelPivot = new T.Group(); this.modelPivot.position.y = pivotY;
       model.position.y -= pivotY;
@@ -166,25 +175,31 @@ export class Actor {
       const converted = mats.map((mat: T.MeshStandardMaterial) => {
         const copy = mat.clone();
         if (companion && copy.name === 'ranger-emerald') { copy.map = null; copy.color.set(0xb29767); }
+        if (kayKitRig) copy.color.set(0xd5dfb9);
         return copy;
       });
       object.material = Array.isArray(object.material) ? converted : converted[0];
     });
     this.mixer = new T.AnimationMixer(model);
-    const aliases: Record<string, string> = { walk_forward: 'walk', run_forward: 'run', sword_slash_horizontal: 'strike' };
+    const aliases: Record<string, string> = {
+      walk_forward: 'walk', run_forward: 'run', sword_slash_horizontal: 'strike',
+      Idle: 'idle', Walking_A: 'walk', Running_A: 'run',
+      '1H_Melee_Attack_Slice_Horizontal': 'strike', '1H_Melee_Attack_Chop': 'sword_slash_overhead',
+      '1H_Melee_Attack_Stab': 'sword_thrust', Hit_A: 'stagger_back',
+    };
     for (const original of [...clips, ...additionalClips]) {
       const clip = original.clone(); clip.name = aliases[clip.name] ?? clip.name;
       clip.tracks = clip.tracks.filter((track) => !!model.getObjectByName(track.name.split('.')[0]));
       // Strip baked root motion: the clips walk the hips forward and snap back on loop, so the visible body ran
       // ahead of the physics capsule. Pin horizontal hips travel to the first key; keep the vertical bob.
       for (const track of clip.tracks) {
-        if (!/^(mixamorig)?Hips\.position$|^Root\.position$/i.test(track.name)) continue;
+        if (!/^(?:mixamorig:)?(?:Hips|Root)\.position$/i.test(track.name)) continue;
         const v = track.values, x = v[0], z = v[2];
         for (let k = 0; k < v.length; k += 3) { v[k] = x; v[k + 2] = z; }
       }
       if (clip.tracks.length && !this.actions.has(clip.name)) this.actions.set(clip.name, this.mixer.clipAction(clip));
     }
-    if (this.detailedRig) this.addPoses(model);
+    if (this.detailedRig && !kayKitRig) this.addPoses(model);
   }
 
   private addPoses(model: T.Object3D): void {
@@ -231,10 +246,18 @@ export class Actor {
   }
 
   holdWeapon(source: T.Object3D): void {
-    const hand = this.model?.getObjectByName('RightHand'); if (!hand) return;
+    const kayKitRig = !!this.model?.getObjectByName('handslot.r');
+    const hand = this.model?.getObjectByName(kayKitRig ? 'handslot.r' : 'RightHand'); if (!hand) return;
     const weapon = source.clone(true), box = new T.Box3().setFromObject(weapon), size = box.getSize(new T.Vector3()), center = box.getCenter(new T.Vector3());
     const scale = 0.85 / Math.max(size.x, size.y, size.z);
     const modelScale = this.model?.scale.y ?? 1;
+    if (kayKitRig) {
+      // KayKit weapons are authored for the hand slot: its origin is the grip point,
+      // and parenting there lets the slot's animation tracks drive every swing.
+      weapon.scale.setScalar(scale / modelScale); weapon.position.set(0, 0, 0); hand.add(weapon);
+      weapon.traverse((part) => { if (part instanceof T.Mesh) part.castShadow = true; });
+      return;
+    }
     // This sword's grip is near the positive-X end of its mesh. Anchor that point
     // at the hand and rotate the blade upward; centering its bounds pivots at the
     // blade midpoint and leaves the hilt floating away from the fingers.
