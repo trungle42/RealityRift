@@ -23,6 +23,8 @@ import { WeaponsHud } from './WeaponsHud';
 import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
+import { phoneAction, showPhonePairing } from './phoneActions';
+import type { PhoneCommand } from './phoneMath';
 import { CvInput } from './CvInput';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
@@ -240,11 +242,13 @@ export class Adventure {
     // Scenery between the camera and the hero dissolves instead of blocking the view.
     fadeOccluders(this.world.root, (o) => o.name === 'ground' || o.name === 'lake' || o.userData.noFade === true);
     document.getElementById('loading')?.remove();
-    const party = await this.ui.start(this.solo);
+    // The phone joins on the start screen (QR code) and can start, steer and act for the whole demo run without a keyboard.
+    this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone connected: drag to move · tap to act · Scan opens the rift' : 'Phone disconnected'), undefined, (command) => this.onPhone(command));
+    const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
+    const party = await starting;
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.shapes.subscribe((colour, shape) => this.onShape(colour, shape)); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
-    this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
-    this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
+    this.ui.toast(this.phone.phoneConnected ? 'Drag on your phone to move · tap it to act · draw with the wand · slash with the phone' : 'Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
     this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
     this.wandHud = new WandHud(this.cv, this.ui.root);
@@ -257,7 +261,7 @@ export class Adventure {
     this.yaw = 0; this.rig.snap(this.heroes[0].root.position);
     // No golden beacon here: it would stand right on top of Willow. The quest line and the E prompt lead the way.
     this.target = { ...this.demo.willow, name: 'Speak with Willow' }; this.world.marker.visible = false;
-    this.ui.quest('Speak with Willow', 'She waits just ahead on the path · walk up and press E');
+    this.ui.quest('Speak with Willow', `She waits just ahead on the path · walk up and ${this.pressAct()}`);
     this.ui.discover('The Whispering Wood');
   }
 
@@ -472,7 +476,7 @@ export class Adventure {
       await this.finish(this.state!.hearts > 0 && this.bossWon); return;
     }
     this.target = objectiveFor(this.beat); this.world.setObjective(this.target);
-    this.ui.quest(this.target.name, 'Find the golden beacon · press E nearby');
+    this.ui.quest(this.target.name, `Find the golden beacon · ${this.pressAct()} nearby`);
   }
 
   private async interact(): Promise<void> {
@@ -846,6 +850,16 @@ export class Adventure {
   }
 
   // ---- Reality Rift: scan an object, get a weapon ----
+  /** The phone's buttons (its stick is read every frame): a tap does what Enter / E would, Scan opens the rift, Roll rolls. */
+  private onPhone(command: PhoneCommand): void {
+    if (command === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
+    else if (command === 'scan') void this.openScan();
+    else if (!this.scanner.open) this.roll(0);
+  }
+
+  /** "tap your phone" once a phone is connected, else the key. */
+  private pressAct(): string { return this.phone?.phoneConnected ? 'tap your phone' : 'press E'; }
+
   private async openScan(): Promise<void> {
     if (!this.state || this.busy || this.ended || this.ui.blocked || this.scanner.open) return;
     this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();

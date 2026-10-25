@@ -1,9 +1,13 @@
 """Phone-as-joystick relay.
 
 A phone opens /joystick and streams a thumb-stick vector over /ws/joystick/{room}?role=phone. The game joins the
-same room with role=game and receives the validated vector. Only {"type":"move","x","y","sprint"} is forwarded:
-numbers are clamped to the unit disc and anything else is dropped, so a phone cannot push arbitrary data into the game.
-The room code is the only "auth", which is fine for a demo on a private network or tunnel.
+same room with role=game and receives the validated messages: {"type":"move","x","y","sprint"} (numbers clamped to the
+unit disc) and the phone's buttons {"type":"action"|"scan"|"roll"}; anything else is dropped, so a phone cannot push
+arbitrary data into the game, and nothing goes from the game to a phone.
+
+Phones join from anywhere on the network (that is the point). The game side is this laptop's own page only, the same rule
+as the camera relay (cv.client_allowed / cv.origin_allowed): otherwise another machine on the Wi-Fi, or another site open
+in the player's browser, could join as the game and read or spoof the controls. The room code is the only other "auth".
 """
 from __future__ import annotations
 
@@ -16,6 +20,8 @@ from typing import Dict, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+
+from .cv import client_allowed, origin_allowed
 
 router = APIRouter()
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -39,6 +45,16 @@ def clean_move(msg: object) -> Optional[dict]:
     if length > 1:
         x, y = x / length, y / length
     return {"type": "move", "x": round(x, 3), "y": round(y, 3), "sprint": msg.get("sprint") is True}
+
+
+COMMANDS = ("action", "scan", "roll")
+
+
+def clean_phone(msg: object) -> Optional[dict]:
+    """A move, or one of the phone's buttons (a quick tap = action, Scan, Roll), rebuilt; None for anything else."""
+    if isinstance(msg, dict) and msg.get("type") in COMMANDS:
+        return {"type": msg["type"]}
+    return clean_move(msg)
 
 
 def lan_ip() -> Optional[str]:
@@ -71,7 +87,8 @@ async def _send_all(targets: set, text: str) -> None:
 
 @router.websocket("/ws/joystick/{room}")
 async def joystick_ws(ws: WebSocket, room: str, role: str = "phone"):
-    if not ROOM_RE.match(room) or role not in ("phone", "game"):
+    game_refused = role == "game" and not (client_allowed(ws.client.host if ws.client else None) and origin_allowed(ws.headers.get("origin")))
+    if not ROOM_RE.match(room) or role not in ("phone", "game") or game_refused:
         await ws.close(code=1008)
         return
     await ws.accept()
@@ -89,7 +106,7 @@ async def joystick_ws(ws: WebSocket, room: str, role: str = "phone"):
             if len(text) > MAX_MSG or role != "phone":
                 continue
             try:
-                msg = clean_move(json.loads(text))
+                msg = clean_phone(json.loads(text))
             except ValueError:
                 continue
             if msg:

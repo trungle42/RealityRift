@@ -21,13 +21,20 @@
   .base.sprint { border-color: #9be8ff; box-shadow: 0 0 36px #9be8ff55 inset; }
   .knob { width: 74px; height: 74px; background: radial-gradient(circle at 35% 30%, #fff1c4, #d7ab55 70%); box-shadow: 0 4px 18px #0008; }
   .idle { opacity: 0.35; }
+  .btn { position: fixed; top: max(64px, calc(env(safe-area-inset-top) + 52px)); z-index: 2; touch-action: manipulation; padding: 12px 18px; border-radius: 999px; font: 600 15px Georgia, serif; letter-spacing: 0.06em; color: var(--ink); border: 0; box-shadow: 0 4px 16px #0007; }
+  .btn:active { transform: scale(0.94); }
+  #scan { right: 16px; background: linear-gradient(#f6e2a6, #d7ab55); }
+  #roll { left: 16px; background: #cfe3dc; }
+  #tap { position: fixed; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 3px solid var(--gold); opacity: 0; pointer-events: none; transform: scale(0.6); transition: opacity 260ms, transform 260ms; }
+  #tap.on { opacity: 0.9; transform: scale(1); transition: none; }
 </style>
 </head>
 <body>
 <div id="pad"></div>
 <header><h1>Storybound</h1><div id="status" class="bad">connecting…</div></header>
-<div class="base idle" id="base"></div><div class="knob idle" id="knob"></div>
-<div class="hint" id="hint">Touch anywhere and drag to move · push past the ring to sprint</div>
+<div class="base idle" id="base"></div><div class="knob idle" id="knob"></div><div id="tap"></div>
+<button class="btn" id="roll" type="button">Roll</button><button class="btn" id="scan" type="button">✦ Scan</button>
+<div class="hint" id="hint">Drag to move · push past the ring to sprint · tap to talk, start and choose · Scan opens the rift</div>
 <script>
 (() => {
   const params = new URLSearchParams(location.search);
@@ -55,6 +62,22 @@
   connect();
 
   function send() { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'move', x: +vec.x.toFixed(3), y: +vec.y.toFixed(3), sprint: vec.sprint })); }
+  // A quick tap without a drag is the game's action button (E / Enter); Scan and Roll are their own buttons.
+  const TAP_MS = 300, TAP_PX = 14, tapRing = document.getElementById('tap');
+  let downAt = 0, travel = 0;
+  function command(type) {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type }));
+    if (navigator.vibrate) navigator.vibrate(type === 'action' ? 12 : 25);
+  }
+  function tapped(x, y) {
+    command('action');
+    tapRing.style.left = x + 'px'; tapRing.style.top = y + 'px'; tapRing.classList.add('on');
+    requestAnimationFrame(() => requestAnimationFrame(() => tapRing.classList.remove('on')));
+  }
+  for (const [id, type] of [['scan', 'scan'], ['roll', 'roll']]) {
+    document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); command(type); });
+  }
   // Resend ~30 times a second while held so the game never mistakes a steady thumb for a lost signal.
   setInterval(() => { if (touchId !== null) send(); }, 33);
 
@@ -73,11 +96,13 @@
     touchId = e.pointerId; try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointer */ }
     origin = { x: e.clientX, y: e.clientY };          // floating stick: wherever the thumb lands
     place(base, origin.x, origin.y); base.classList.remove('idle'); knob.classList.remove('idle'); hint.style.opacity = 0;
+    downAt = performance.now(); travel = 0;
     update(e); send();
   });
-  pad.addEventListener('pointermove', (e) => { if (e.pointerId === touchId) update(e); });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === touchId) { travel = Math.max(travel, Math.hypot(e.clientX - origin.x, e.clientY - origin.y)); update(e); } });
   function release(e) {
     if (e.pointerId !== touchId) return;
+    if (e.type === 'pointerup' && performance.now() - downAt < TAP_MS && travel < TAP_PX) tapped(origin.x, origin.y);
     touchId = null; vec = { x: 0, y: 0, sprint: false }; send(); send();
     origin = { x: innerWidth / 2, y: innerHeight * 0.68 }; rest();
   }
