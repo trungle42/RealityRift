@@ -3,6 +3,8 @@
 Run from frontend/:
   python3 scripts/pack-ktx2.py in.glb out.glb
 The input may also be a .gltf with external buffer and image files; the output is always one GLB.
+`--alpha IMAGE_NAME=mask.png` gives the named image a separate alpha mask (for cut-out foliage whose
+colour map is a JPEG).
 Needs basisu on PATH (Homebrew: brew install basis_universal). The game must load the result
 through GLTFLoader with a KTX2Loader attached.
 
@@ -92,7 +94,7 @@ def roles(gltf):
     return found
 
 
-def main(src, dst):
+def main(src, dst, alphas=None):
     if not shutil.which("basisu"):
         raise SystemExit("basisu not found: brew install basis_universal")
     gltf, blob = read_gltf(src) if src.suffix == ".gltf" else read_glb(src)
@@ -103,7 +105,9 @@ def main(src, dst):
             suffix = ".png" if image.get("mimeType") == "image/png" else ".jpg"
             source, encoded = Path(work) / f"{index}{suffix}", Path(work) / f"{index}.ktx2"
             source.write_bytes(chunks[image["bufferView"]])
-            run = subprocess.run(["basisu", str(source), "-ktx2", "-output_file", str(encoded), "-no_stats", *CODECS[role]], capture_output=True, text=True)
+            mask = (alphas or {}).get(image.get("name"))
+            extra = ["-alpha_file", str(mask)] if mask else []
+            run = subprocess.run(["basisu", str(source), *extra, "-ktx2", "-output_file", str(encoded), "-no_stats", *CODECS[role]], capture_output=True, text=True)
             if run.returncode:
                 raise SystemExit(f"basisu failed on {image.get('name', index)}:\n{run.stdout}{run.stderr}")
             chunks[image["bufferView"]] = encoded.read_bytes()
@@ -118,4 +122,11 @@ def main(src, dst):
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    args = sys.argv[1:]
+    alphas = {}
+    while "--alpha" in args:
+        at = args.index("--alpha")
+        name, mask = args[at + 1].split("=", 1)
+        alphas[name] = Path(mask)
+        del args[at:at + 2]
+    main(Path(args[0]), Path(args[1]), alphas)

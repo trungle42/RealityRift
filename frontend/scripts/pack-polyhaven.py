@@ -20,8 +20,11 @@ GROUND = {
     "nor_gl": ["-uastc", "-quality", "90", "-effort", "4", "-normal_map", "-resample_factor", "0.5", "-mipmap", "-mip_renorm"],
 }
 
+# The fern's colour map is a JPEG, so its leaflet cut-outs come from Poly Haven's separate alpha mask.
+EXTRA = {"fern_02": ["--alpha", f"fern_02_diff-fern_02_alpha={ROOT / 'fern_02' / 'textures' / 'fern_02_alpha_2k.png'}"]}
+
 for model in ("fern_02", "rock_moss_set_01"):
-    subprocess.run([sys.executable, str(PACK), str(ROOT / model / f"{model}.gltf"), str(ROOT / model / f"{model}.glb")], check=True)
+    subprocess.run([sys.executable, str(PACK), str(ROOT / model / f"{model}.gltf"), str(ROOT / model / f"{model}.glb"), *EXTRA.get(model, [])], check=True)
 
 for ground in ("forest_floor", "mossy_cobblestone"):
     for name, codec in GROUND.items():
