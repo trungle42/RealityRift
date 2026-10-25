@@ -696,6 +696,7 @@ export class Adventure {
 
   private equip(weapon: Weapon): void {
     this.weapon = weapon; this.heroes[0].glowWeapon(weapon.spell.color);
+    this.state?.forge({ hero: 0, object: weapon.object, name: weapon.artifactName, element: weapon.element, ability: weapon.ability });
     const hero = this.heroes[0].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0)), color = weapon.spell.color;
     this.fx.shockwave(hero, color, 6, 1.0, 0.3); this.fx.shockwave(hero, 0xffffff, 3, 0.6, 0.15); this.fx.motes(at, color, 90, 1.2, 3.2, 0.3, 1.8); this.fx.sparks(at, color, 40, 7, 0.22, 0.8, 2);
     this.fx.flash(at, color, 26, 0.9); this.rig.addTrauma(0.3); this.sfx.chest();

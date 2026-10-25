@@ -38,6 +38,15 @@ class OutcomeIn(BaseModel):
     summary: str = Field(default="", max_length=300)
 
 
+class RelicIn(BaseModel):
+    """Reality Rift: a weapon a hero forged from a real object scanned with the webcam."""
+    hero: int = Field(default=0, ge=0, le=1)
+    object: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=40)
+    element: str = Field(default="", max_length=12)
+    ability: str = Field(default="", max_length=12)
+
+
 class HistoryIn(BaseModel):
     party: List[PlayerIn] = Field(min_length=2, max_length=2)
     hearts: int = Field(ge=0, le=3)
@@ -46,6 +55,7 @@ class HistoryIn(BaseModel):
     rewards: List[RewardIn] = Field(default_factory=list, max_length=8)
     outcomes: List[OutcomeIn] = Field(default_factory=list, max_length=30)
     environments: List[EnvId] = Field(default_factory=list, max_length=30)
+    relics: List[RelicIn] = Field(default_factory=list, max_length=8)
 
 
 class BeginRequest(BaseModel):
@@ -241,6 +251,11 @@ STYLE = (
 )
 
 
+def _relics(h: HistoryIn) -> str:
+    names = _names(h)
+    return "; ".join(f"{names[r.hero]} forged {r.name} ({r.element} {r.ability}) from a real {r.object}" for r in h.relics)
+
+
 def _memory(h: HistoryIn) -> str:
     return "; ".join(o.summary for o in h.outcomes[-6:] if o.summary) or "none yet"
 
@@ -292,6 +307,8 @@ def _beat_prompt(h: HistoryIn, last: Optional[OutcomeIn], skel: Dict[str, Any], 
         f"{STYLE}\n{extra}\nHeroes: {' and '.join(_names(h))}.\n"
         f"DATA - what happened so far: {_memory(h)}\n"
         f"DATA - what just happened: {last.summary if last else 'The adventure is just beginning.'}\n"
+        + (f"DATA - weapons the heroes forged from real objects in their own world: {_relics(h)}\n"
+           "When it fits the moment, let a forged weapon (and the real object it came from) appear in the narration.\n" if h.relics else "")
         + "\n".join(ask)
         + "\nKeep each narration paragraph under 280 characters."
     )
@@ -331,7 +348,9 @@ def storybook(req: StorybookRequest) -> Dict[str, Any]:
         f"Start with an 'Once Upon a Time' page and end with a page for the {'happy ending' if req.victory else 'unfinished tale'}. "
         f"Mention each hero by name ({' and '.join(_names(h))}; stars earned {h.stars[0]} and {h.stars[1]}), the real decisions they made, "
         f"what went wrong or right, and items/allies gained ({rewards}). The final battle {'was won' if req.victory else 'was lost'}.\n"
-        f"DATA - adventure log:\n{log}"
+        + ("Give the weapons forged from real-world objects their own page: name the real object and what it became.\n" if h.relics else "")
+        + f"DATA - adventure log:\n{log}"
+        + (f"\nDATA - weapons forged from real objects: {_relics(h)}" if h.relics else "")
     )
     out = gemini._generate(prompt, StorybookOut)
     if out is None:
