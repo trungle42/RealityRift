@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { Adventure } from '../src/adventure/Adventure';
 import { WAND_RECOVERY } from '../src/adventure/forge';
-import { objectiveFor } from '../src/adventure/terrain';
+import { heightAt, objectiveFor } from '../src/adventure/terrain';
 import type { BeatOutcome, StoryBeat } from '../src/contracts';
 import type { GameState } from '../src/game/GameState';
 
@@ -191,6 +191,38 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(enemy.hp <= 0, 'spell projectiles did not defeat enemy');
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
+    });
+    await check('Pip the fairy: a slot-2 phone flies it and a slot-2 wand shape damages a foe from where it hovers', async () => {
+      inner.trial = undefined; inner.busy = false; inner.invulnerable = 99; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
+      type Stick = { x: number; z: number; mag: number; sprint: boolean };
+      const still: Stick = { x: 0, z: 0, mag: 0, sprint: false };
+      const fairyGame = game as unknown as {
+        pipFairy: { active: boolean; root: T.Group; motion: { x: number; z: number }; phone?: unknown };
+        seats: readonly string[]; bolts: unknown[]; onSeat(slot: 2, joined: boolean): void; onShape(colour: string, shape: string): void; spawnEnemy(x: number, z: number): void;
+      };
+      const pip = fairyGame.pipFairy, seats = fairyGame.seats;
+      assert(pip && !pip.active, 'Pip showed up before a third player');
+      // A fake slot-2 phone: only player 2 has a stick, pushed forward.
+      let stick: Stick = { x: 0, z: -1, mag: 1, sprint: false };
+      const realPhone = pip.phone;
+      pip.phone = { read: (player = 0) => (player === 2 ? stick : still), connected: (player: number) => player === 2 };
+      try {
+        near(0, 34); fairyGame.onSeat(2, true);
+        assert(pip.active && pip.root.visible, 'slot 2 joining did not bring Pip in');
+        const from = pip.root.position.clone(); await holdFor(0.3);
+        assert(pip.root.position.z < from.z - 1, 'the slot-2 stick did not fly Pip forward');
+        const ground = heightAt(pip.root.position.x, pip.root.position.z);
+        assert(pip.root.position.y - ground >= 1.49 && pip.root.position.y - ground <= 2.51, 'Pip left its hover band');
+        // The third wand colour is Pip's: a square (wave) from Pip hits a foe on the open trail.
+        stick = still; near(0, 31); pip.motion.x = 0.6; pip.motion.z = 31; inner.update(0.02);
+        fairyGame.spawnEnemy(0, 25); const foe = inner.enemies[inner.enemies.length - 1]; const hp = foe.hp;
+        fairyGame.seats = ['yellow', 'blue', 'red'];
+        const bolts = fairyGame.bolts.length; fairyGame.onShape('red', 'square');
+        assert(fairyGame.bolts.length === bolts + 3, 'a red (slot 2) square did not cast a wave from Pip');
+        for (let i = 0; i < 8 && foe.hp >= hp; i++) { inner.time += 0.05; inner.update(0.05); }
+        assert(foe.hp < hp, "Pip's wave did not damage the foe");
+        assert(inner.state.hearts > 0, 'Pip cost a heart');
+      } finally { fairyGame.seats = seats; pip.phone = realPhone; inner.invulnerable = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
     });
     await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword; in combat only the requested rune casts', async () => {
       inner.trial = undefined; inner.busy = false; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
