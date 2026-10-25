@@ -40,6 +40,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
   };
   const near = (x: number, z: number) => { game.heroes.forEach((hero, i) => hero.root.position.set(x + i * 1.2, 0, z + i)); };
   const clearDialogue = async () => { while (game.ui.speaking) { game.ui.advance(); await wait(10); } };
+  // Hold for game time, not wall time, so a throttled background page still gets enough frames.
+  const holdFor = async (seconds: number) => { const from = inner.time; await until(() => inner.time - from > seconds, 'game clock stalled'); };
   const beginBeat = async (beat: StoryBeat) => {
     await inner.loadBeat(Promise.resolve(beat)); const at = objectiveFor(beat); near(at.x, at.z);
     const work = inner.interact(); await until(() => game.ui.speaking, 'dialogue missing'); await clearDialogue(); return work;
@@ -50,15 +52,14 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await start;
     inner.narrator.enabled = false; inner.sound = false;
     await check('Keyboard movement changes world position; camera follows', async () => {
-      // Hold for game time, not wall time, so a throttled background page still gets enough frames.
-      const before = game.heroes[0].root.position.clone(), from = inner.time; key('KeyW'); await until(() => inner.time - from > 0.22, 'game clock stalled'); key('KeyW', false);
+      const before = game.heroes[0].root.position.clone(); key('KeyW'); await holdFor(0.22); key('KeyW', false);
       assert(game.heroes[0].root.position.distanceTo(before) > 0.4, 'hero did not walk');
       assert(game.camera.position.distanceTo(game.heroes[0].root.position) < 20, 'camera lost the hero');
     });
     await check('Sprint spends stamina, camera can orbit, player two moves independently', async () => {
-      key('ShiftLeft'); key('KeyW'); await wait(160); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
-      const yaw = inner.yaw; key('KeyC'); await wait(120); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
-      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await wait(150); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
+      key('ShiftLeft'); key('KeyW'); await holdFor(0.16); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
+      const yaw = inner.yaw; key('KeyC'); await holdFor(0.12); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
+      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await holdFor(0.15); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
     });
     await check('Treasure can be claimed once and full health preserves healing springs', async () => {
       const chest = game.world.objects.find((o) => o.kind === 'chest')!; near(chest.x, chest.z); inner.update(0.02);
