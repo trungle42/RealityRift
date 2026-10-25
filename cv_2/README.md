@@ -15,13 +15,30 @@ tracker/
   capture.py   Camera: newest-frame-wins webcam thread
   detector.py  ColorDetector: HSV mask (red = two hue ranges) -> blob -> centroid/radius; strict to find, relaxed to follow
   calibrate.py suggest(): HSV samples -> thresholds (used by tools/tune.py)
+  shapes.py    ShapeRecognizer: closed path -> circle / triangle / square / star (Fourier descriptors) or unknown
   trace.py     DetectionGate (5 s on/off square wave), Trace (polyline segments, broken across lost-track gaps)
-  pipeline.py  Pipeline.process(frame, now) -> payload; one gate for all colours; clears every trace on the on->off edge
-  overlay.py   draw(...): per-colour fading trail + marker, ON/OFF banner + countdown bar; mask_view(...)
+  pipeline.py  Pipeline.process(frame, now) -> payload; one gate for all colours; clears every trace on the on->off edge;
+               advances the shape to draw (circle, triangle, square, star, ...) on every off->on edge and names each colour's drawing
+  overlay.py   draw(...): per-colour fading trail + marker, ON/OFF banner + countdown bar, the shape to draw + detected shape; mask_view(...)
 tools/demo.py  OpenCV window
 tools/tune.py  click-to-calibrate window: sample your objects, get thresholds to paste
 tests/         Synthetic frames and an injectable clock: no camera needed
 ```
+
+## Jump
+
+Stand about 1.5-2 m from the camera and jump: the demo shows **JUMPED!** for 2 seconds. It watches how much of the picture moves
+(optical flow) and fires when a big, fast upward burst is followed by a downward one, at the landing. Leaning, bending, sitting,
+standing up, waving and phone swings do not count. It is always on (independent of the wand's 5 s cycle); `YT_JUMP=0` turns it off and
+`python -m tools.demo --debug` shows the live motion values. Thresholds are in `Config.jump_*` (see `CLAUDE.md` for how they were measured).
+
+## Slash (phone)
+
+Bright lime-green tape on the front of the phone, held in the left hand, is tracked on every frame (even while the wand is paused). A
+big, fast downward swing (at least 30% of the picture height, with a burst of at least ~4.5 picture-heights/s) shows **SLASHED!** for 2 seconds; relaxed lowering and ordinary movement do not. **Framing matters:** a real slash takes ~3 frames, so
+keep the whole swing (say shoulder height to waist) **inside the picture** and pause briefly at the top and bottom; if the phone
+leaves the top of the frame the swing is not seen. Use a vivid, matte marker, good light, and re-run `tools.tune` (key `4`) if the
+colour is off. See `CLAUDE.md` for the measurements.
 
 ## Run
 
@@ -78,9 +95,12 @@ blue ≈ 110, red ≈ 0 and wraps around to 179, so red takes two ranges):
 | `YT_<COLOR>_S_MIN` | 90 / 62 / 117 | yellow / blue / red minimum saturation; raise to reject pale things (skin, walls) |
 | `YT_<COLOR>_V_MIN` | 90 / 88 / 97 | minimum brightness |
 | `YT_<COLOR>_MIN_AREA` | 0 / 0 / 0.002 | this colour's own smallest blob (fraction of frame; 0 = use `YT_MIN_AREA`). Red's floor (~600 px) sits above lips (~200-400 px) and well below a ball |
-| `YT_<COLOR>_MIN_CIRC` | 0 / 0 / 0.62 | roundness (1 = circle) a blob needs to be *found*; red uses it to ignore lips and skin, which are strips (~0.5). 0 = off |
+| `YT_<COLOR>_MIN_CIRC` | 0 / 0 / 0.58 | roundness (1 = circle) a blob needs to be *found*; red uses it to ignore lips and skin, which are strips (~0.5). 0 = off |
 | `YT_MIN_AREA` | 0.0006 | smallest blob, fraction of frame |
 | `YT_PERIOD` | 5 | seconds per on/off phase |
+| `YT_PHONE` | 1 | `0` turns the slash feature off |
+| `YT_JUMP` | 1 | `0` turns jump detection off |
+| `YT_PHONE_HUE` / `_S_MIN` / `_V_MIN` | `31-43` / 70 / 80 | the phone's lime tape (tune with `tools.tune`, key `4`) |
 | `YT_MIRROR` | 1 | selfie-style view |
 
 Notes: for each colour the largest blob wins, so keep other things of that colour out of view; sticks should not be any

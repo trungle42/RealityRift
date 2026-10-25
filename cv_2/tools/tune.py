@@ -1,7 +1,7 @@
 """Click-to-calibrate: measure your real objects and get thresholds for them.
 
 Run from cv_2/:  python -m tools.tune
-  1 / 2 / 3   choose yellow / blue / red (the order of the configured colours)
+  1 / 2 / 3   choose yellow / blue / red (the order of the configured colours); 4 = the phone's green strip
   click       sample the HSV of the object under the cursor (a 7x7 patch, median)
   p           print PowerShell lines for the chosen colour from all its samples
   c           forget the chosen colour's samples
@@ -32,10 +32,11 @@ def main() -> None:
     ap.add_argument("--camera", type=int, default=cfg.camera)
     args = ap.parse_args()
 
-    names = list(cfg.colors)
+    specs = {**cfg.colors, **({"phone": cfg.phone} if cfg.phone else {})}
+    names = list(specs)
     detectors = {n: ColorDetector(s, cfg.min_area_frac, cfg.track_hue_margin, cfg.track_relax, cfg.track_max_growth,
                                      cfg.track_min_shrink)
-                 for n, s in cfg.colors.items()}
+                 for n, s in specs.items()}
     samples: dict[str, list[tuple[int, int, int]]] = {n: [] for n in names}
     marks: dict[str, list[tuple[int, int]]] = {n: [] for n in names}
     state = {"sel": 0, "hsv": None, "mask": True, "last": None}  # hsv = latest frame's HSV
@@ -73,25 +74,25 @@ def main() -> None:
             view = cv2.flip(frame, 1) if cfg.mirror else frame.copy()
             for n in names:
                 for pt in marks[n]:
-                    cv2.circle(view, pt, 9, cfg.colors[n].bgr, 2, cv2.LINE_AA)
+                    cv2.circle(view, pt, 9, specs[n].bgr, 2, cv2.LINE_AA)
             cv2.rectangle(view, (0, 0), (view.shape[1], 30), (0, 0, 0), -1)
             msg = f"colour: {name} ({len(samples[name])} samples)"
             if state["last"]:
                 n, (h, s, v) = state["last"]
                 msg += f"   last {n}: H={h} S={s} V={v}"
-            cv2.putText(view, msg, (8, 21), FONT, 0.55, cfg.colors[name].bgr, 2, cv2.LINE_AA)
+            cv2.putText(view, msg, (8, 21), FONT, 0.55, specs[name].bgr, 2, cv2.LINE_AA)
             if state["mask"]:
                 m = detectors[name].mask(hsv)
                 m = cv2.flip(m, 1) if cfg.mirror else m
                 panel = np.zeros_like(frame)
-                panel[m > 0] = cfg.colors[name].bgr
+                panel[m > 0] = specs[name].bgr
                 view = cv2.hconcat([view, panel])
             cv2.imshow(win, view)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
-            if key in (ord("1"), ord("2"), ord("3")) and key - ord("1") < len(names):
+            if key in (ord("1"), ord("2"), ord("3"), ord("4")) and key - ord("1") < len(names):
                 state["sel"] = key - ord("1")
             elif key == ord("m"):
                 state["mask"] = not state["mask"]

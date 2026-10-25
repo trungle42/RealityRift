@@ -91,7 +91,7 @@
   <h1>Colour Tracker: user guide</h1>
   <p class="lead">Hold a yellow, a blue and a red object up to your webcam and watch each one leave a trail in its own colour. Detection pauses and resumes every 5 seconds, and every pause wipes all the trails, so each round starts on a clean screen.</p>
   <ul class="chips">
-    <li>Python 3.12</li><li>Yellow · blue · red</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>55 tests, no camera needed</li>
+    <li>Python 3.12</li><li>Yellow · blue · red</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>Shape recognition: circle · triangle · square · star</li><li>Phone slash gesture</li><li>Jump detection</li><li>211 tests, no camera needed</li>
   </ul>
   <nav aria-label="Sections">
     <a href="#what">What it does</a><a href="#start">Quick start</a><a href="#screen">The screen</a><a href="#cycle">On/off cycle</a><a href="#how">How it works</a><a href="#tuning">Tuning</a><a href="#trouble">Troubleshooting</a><a href="#data">Output data</a><a href="#files">Files &amp; tests</a>
@@ -239,6 +239,8 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
     <p>A new object needs the strict thresholds. Once found, it is followed with relaxed ones near its last position and kept for 0.5 s after a dropout, so uneven lighting does not make it flicker. See <a href="#tuning">Tuning</a>.</p></div>
   <div class="card"><h4>4. Trace</h4><div class="meta">trace.py</div>
     <p>Each colour has its own trace. Points are appended to the current line segment. A gap of more than 0.25 s ends the segment. At most 2000 points are kept per colour. The gate clears all traces when ON turns to OFF.</p></div>
+  <div class="card"><h4>5. Shape</h4><div class="meta">shapes.py</div>
+    <p>Each ON phase asks for the next shape: circle, triangle, square, star, then round again. Every frame, each colour's longest unbroken stroke is checked. Once it is big enough and has come back close to where it started, it is resampled to 64 evenly spaced points and compared with the four presets by its Fourier descriptor, which ignores where, how big, how rotated, where it started and which way round it was drawn. The nearest preset wins; if none is close the label is <em>unknown</em>. The panel shows what was asked and what was seen, and "OK" when they match. The recogniser never looks at the prompt, so the label is what it really sees. <strong>Once a colour's drawing matches the requested shape it stays marked complete (OK) until the round ends</strong>, even after the ball moves on or leaves the picture. A wrong shape is not locked in, so you can correct it before the round ends.</p></div>
 </div>
 
 <h2 id="tuning">Tuning</h2>
@@ -252,7 +254,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
 </ol>
 <p><kbd>c</kbd> forgets the chosen colour's samples, <kbd>m</kbd> toggles the panel showing what the strict detector counts as that colour.</p>
 <h3>Stays on once found</h3>
-<p>Detection is forgiving once it has locked on. An object is <em>found</em> with the strict thresholds below, then <em>followed</em> with relaxed ones (slightly wider hue, half the saturation and brightness floors) but only around where it was a moment ago, and it is searched for there for half a second if it drops out. A brand-new object must also be seen in three frames in a row (about a tenth of a second) before it counts, so a single-frame flash of skin or clothing never starts a trace. A followed blob must also be between about a third and twice the size of the last detection, so a lock cannot spread from a small red patch (lips) across the whole face, and a small patch next to the ball (lips) cannot steal it. So a ball that fades toward the bright or dark side keeps its trail instead of flickering, while skin or a wall elsewhere is still ignored because relaxed thresholds are never used to find a new object. Even lighting still helps most: light your face and the scene from the front rather than from one side, use a <strong>matte</strong> ball (shiny ones wash out), and switch off auto exposure and white balance in your camera app if it has them.</p>
+<p>Detection is forgiving once it has locked on. An object is <em>found</em> with the strict thresholds below, then <em>followed</em> by its own strong-colour blob near where it was a moment ago. Only if that blob fades does it fall back to relaxed thresholds (slightly wider hue, half the saturation and brightness floors), still only around the last position, and that fallback is dropped after 1.5 seconds without the strong colour. The relaxed range is never what the marker is centred on while the ball's strong colour is visible, so a hand or your face touching the ball cannot pull the marker away from it. A brand-new object must also be seen in three frames in a row (about a tenth of a second) before it counts, so a single-frame flash of skin or clothing never starts a trace. A followed blob must also be between about a third and twice the size of the ball's last strongly-coloured size (not the previous frame, so it cannot creep outward), so a lock cannot spread from a small red patch (lips) across the whole face, and a small patch next to the ball (lips) cannot steal it. So a ball that fades toward the bright or dark side keeps its trail instead of flickering, while skin or a wall elsewhere is still ignored because relaxed thresholds are never used to find a new object. Even lighting still helps most: light your face and the scene from the front rather than from one side, use a <strong>matte</strong> ball (shiny ones wash out), and switch off auto exposure and white balance in your camera app if it has them.</p>
 <h3>Manual settings</h3>
 <p>Webcams differ in white balance, so the exact yellow, blue and red differ too. If the tracker misses an object or latches onto something else, press <kbd>m</kbd> in the demo: the right-hand pane paints what each detector counts as its colour (yellow, blue or red) on black. Each object should be a solid blob of its own colour and nearly everything else black.</p>
 <p>Change settings with environment variables before starting the demo, for example in PowerShell: <code>$env:YT_YELLOW_HUE="18-35"; $env:YT_RED_S_MIN="150"; .venv\Scripts\python.exe -m tools.demo</code>.</p>
@@ -265,7 +267,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td><code>YT_YELLOW_S_MIN</code> / <code>YT_BLUE_S_MIN</code> / <code>YT_RED_S_MIN</code></td><td>90 / 62 / 117</td><td>Minimum saturation (0-255) for that colour. Raise it to reject pale, washed-out things such as skin and walls.</td></tr>
   <tr><td><code>YT_YELLOW_V_MIN</code> / <code>YT_BLUE_V_MIN</code> / <code>YT_RED_V_MIN</code></td><td>90 / 88 / 97</td><td>Minimum brightness (0-255) for that colour. Raise it to ignore dark, muddy shades and shadows.</td></tr>
   <tr><td><code>YT_YELLOW_MIN_AREA</code> / <code>YT_BLUE_MIN_AREA</code> / <code>YT_RED_MIN_AREA</code></td><td>0 / 0 / 0.002</td><td>That colour's own smallest blob as a fraction of the frame (0 uses <code>YT_MIN_AREA</code>). Red's is about 600 px, above lips (200-400 px) and well below a ball, so a red object must be reasonably large in the picture.</td></tr>
-  <tr><td><code>YT_YELLOW_MIN_CIRC</code> / <code>YT_BLUE_MIN_CIRC</code> / <code>YT_RED_MIN_CIRC</code></td><td>0 / 0 / 0.62</td><td>How round a blob must be to be <em>found</em> (1 is a perfect circle, a lip-shaped strip scores about 0.5; 0 turns the check off). Red uses it to ignore lips and skin. Once the object has been found it is followed even if a hand covers part of it.</td></tr>
+  <tr><td><code>YT_YELLOW_MIN_CIRC</code> / <code>YT_BLUE_MIN_CIRC</code> / <code>YT_RED_MIN_CIRC</code></td><td>0 / 0 / 0.58</td><td>How round a blob must be to be <em>found</em> (1 is a perfect circle, a lip-shaped strip scores about 0.5; 0 turns the check off). Red uses it to ignore lips and skin. Once the object has been found it is followed even if a hand covers part of it.</td></tr>
   <tr><td><code>YT_MIN_AREA</code></td><td>0.0006</td><td>Smallest blob that counts, as a fraction of the frame (about 185 px at 640×480).</td></tr>
   <tr><td><code>YT_PERIOD</code></td><td>5</td><td>Seconds in each ON and each OFF phase.</td></tr>
   <tr><td><code>YT_MIRROR</code></td><td>1</td><td>Selfie-style view. <code>0</code> shows the raw camera orientation.</td></tr>
@@ -274,6 +276,12 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
 </table></div>
 <p>Other values (smoothing weight, gap length, point limit) are fields of the <code>Config</code> dataclass in <code>tracker/config.py</code>.</p>
 
+<h2 id="jump">Jump</h2>
+<p>Stand about 1.5&ndash;2 metres from the camera and jump. The demo shows <strong>JUMPED!</strong> near the top of the picture for 2 seconds, then re-arms. It works by watching how much of the picture moves (optical flow), with no marker and no model: a jump is a big, fast burst of upward motion across much of the picture, followed by a downward burst, and it is announced at the landing. In testing, five jumps all fired and thirty seconds of ordinary movement (leaning, bending, waving, stepping, swinging the phone) did not. Standing up, sitting down, leaning, bending, a waving hand, or a phone swing do not count, because they either do not come back or move too little of the picture. It runs all the time, even while the wand is paused. <code>python -m tools.demo --debug</code> shows the live motion numbers behind it, and <code>YT_JUMP=0</code> turns it off.</p>
+<div class="note"><strong>If you jump and nothing happens,</strong> you are probably too far away or the picture is too dim for your body to fill enough of it (a jump measured about 40&ndash;50% of the picture moving; the detector needs at least 30%). Step closer or add light. Slashes are deliberately ignored while the whole picture is moving like that, so landing from a jump does not also count as a slash. This has been checked against jumps and ordinary movement but not yet against real slashes recorded alongside body-motion values, so say so if slashes stop firing.</div>
+<h2 id="slash">Slash (phone)</h2>
+<p>Put bright lime-green tape on the front of your phone and hold the phone in your left hand (the wand in your right). The strip is tracked on every frame, <strong>even while the wand is paused</strong>. When the phone swings down fast and mostly straight (a drop of at least 30% of the picture height, with a fast burst of at least about four and a half picture heights per second at some point, within about a second and a half), the demo shows <strong>SLASHED!</strong> across the middle for 2 seconds, then re-arms. Raising the phone, lowering it slowly or in a relaxed way, waving it sideways, or jittering it do not count. In testing, with the swing kept inside the picture, most deliberate slashes fired (all seven in one recording, three or four of five in another) and thirty seconds of ordinary movement (typing, looking at the phone, waving it, lowering it) never fired it. A swing is only caught if the camera sees part of it: raise the phone to about face height, not above the top of the picture.</p>
+<div class="note"><strong>Keep the whole swing in the picture.</strong> A real slash is very fast: on the development laptop it took about three frames (0.07 s), and the tape is smeared in the middle of it, so the tracker usually sees only the two ends (the phone high, then the phone low). If you hold the phone above the top of the picture and swing it down and out of the bottom, the camera never sees the swing at all. Sit back (or tilt the camera) so the swing from about shoulder height to waist height stays inside the picture, and pause for a moment at the top and at the bottom. A <strong>vivid, matte</strong> marker works much better than a pale one (a pale green strip faded to near grey in a swing and could not be tracked). To recalibrate the colour: <code>python -m tools.tune</code>, press <kbd>4</kbd>, click the tape in several places, press <kbd>p</kbd>. The camera&rsquo;s exposure cannot be changed from software on this machine.</div>
 <h2 id="trouble">Troubleshooting</h2>
 <div class="tablewrap"><table>
   <tr><th>Symptom</th><th>Likely cause and fix</th></tr>
@@ -309,6 +317,18 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
     ],
     "blue": [],
     "red": [[[0.31, 0.70], [0.30, 0.72]]]
+  },
+  "target": "circle",         // the shape to draw this round; advances each time ON starts
+  "next": "triangle",         // the shape for the next ON phase
+  "complete": { "yellow": true, "blue": false, "red": false },  // drawing matched the target; stays true for the rest of the round
+  "shapes": {                 // live, per colour; cleared with the traces
+    "yellow": { "shape": "circle", "score": 0.06 },  // lower score = closer to the preset
+    "blue": null,             // null: no closed stroke yet. "shape": null: closed but matches no preset
+    "red": null
+  },
+  "previous": {               // the finished round, kept through the OFF phase (null before the first)
+    "target": "star",
+    "shapes": { "yellow": { "shape": "star", "score": 0.14 }, "blue": null, "red": null }
   }
 }</code></pre>
 
@@ -318,13 +338,15 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td><code>tracker/config.py</code></td><td>All settings, the yellow/blue/red colour definitions and the <code>YT_*</code> environment variables.</td></tr>
   <tr><td><code>tracker/capture.py</code></td><td>Webcam reader that always hands over the newest frame.</td></tr>
   <tr><td><code>tracker/detector.py</code></td><td>Colour masks (red uses two hue ranges) and blob finding.</td></tr>
+  <tr><td><code>tracker/shapes.py</code></td><td>Names a closed path as circle, triangle, square or star (or unknown).</td></tr>
   <tr><td><code>tracker/trace.py</code></td><td>The 5-second on/off gate and the path storage.</td></tr>
   <tr><td><code>tracker/pipeline.py</code></td><td>Wires the stages together; produces the data above.</td></tr>
   <tr><td><code>tracker/overlay.py</code></td><td>Draws each colour's trail and marker, the banner, and the mask view.</td></tr>
   <tr><td><code>tracker/calibrate.py</code></td><td>Turns HSV samples of your object into suggested thresholds.</td></tr>
   <tr><td><code>tools/demo.py</code></td><td>The demo window.</td></tr>
   <tr><td><code>tools/tune.py</code></td><td>Click-to-calibrate window (see <a href="#tuning">Tuning</a>).</td></tr>
-  <tr><td><code>tests/test_tracker.py</code></td><td>55 tests on synthetic frames with a fake clock.</td></tr>
+  <tr><td><code>tests/test_tracker.py</code></td><td>82 tests on synthetic frames with a fake clock.</td></tr>
+  <tr><td><code>tests/test_shapes.py</code></td><td>36 tests: shape recognition on ideal and simulated hand-drawn paths, the shape cycle, and end to end through the pipeline.</td></tr>
 </table></div>
 <p>The tests draw yellow, blue and red balls on sticks (plus skin-, green-, cyan- and magenta-coloured decoys) and drive the clock by hand. They check, among other things, that each colour's path follows its own object without picking up the others, that every path is erased on <em>every</em> OFF switch over several cycles, that no detector runs while OFF, that red is found in both of its hue ranges, that a ball fading toward one side is still followed but not found from scratch, and that a lost object breaks the line. The tests use synthetic images, so they say nothing about your lighting. The default colour bands were hand-tuned on one laptop camera; run <code>python -m tools.tune</code> to fit them to yours.</p>
 <p>Developer notes and design decisions: <code>cv_2/CLAUDE.md</code>. Setup summary: <code>cv_2/README.md</code>.</p>

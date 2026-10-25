@@ -6,7 +6,7 @@ import pytest
 
 from tracker.calibrate import env_lines, suggest
 from tracker.config import ColorSpec, Config
-from tracker.detector import ColorDetector, to_hsv
+from tracker.detector import ColorDetector, Detection, to_hsv
 from tracker.overlay import draw, mask_view
 from tracker.pipeline import Pipeline
 from tracker.trace import DetectionGate, Trace
@@ -32,7 +32,7 @@ def scene(balls: dict[str, tuple[int, int]] | None = None, distractors: bool = F
     f = np.full((H, W, 3), 110, np.uint8)
     if distractors:
         cv2.circle(f, (100, 100), 40, (130, 160, 220), -1)   # skin tone
-        cv2.circle(f, (540, 100), 40, hsv_bgr(60), -1)       # green
+        cv2.circle(f, (540, 100), 40, hsv_bgr(135), -1)      # purple
         cv2.circle(f, (540, 400), 40, hsv_bgr(90), -1)       # cyan
         cv2.circle(f, (320, 420), 40, hsv_bgr(150), -1)      # magenta
     for name, (x, y) in (balls or {}).items():
@@ -67,7 +67,7 @@ def test_no_object_no_detection(name):
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_ignores_skin_green_cyan_and_magenta(name):
+def test_ignores_skin_purple_cyan_and_magenta(name):
     assert detector(name).detect(to_hsv(scene(distractors=True))) is None
 
 
@@ -453,46 +453,59 @@ def test_following_does_not_flood_into_skin():
     assert o is not None and o["radius"] * W < 30, f"tracked a {o['radius'] * W:.0f}px blob, not the ball"
 
 
-def test_growth_cap_can_be_widened():
-    c = cfg(track_max_growth=100.0)
-    p = Pipeline(c)
+def face_only(x: int = 300, y: int = 240) -> np.ndarray:
+    """Only the skin-like, relaxed-only patch is left: the ball has gone."""
+    f = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(f, (x, y), 85, hsv_bgr(3, dull_sat("red"), 220), -1)
+    return f
+
+
+def test_the_growth_cap_stops_a_lock_on_skin_once_the_ball_is_gone():
+    p = Pipeline(cfg())
     ball_only = np.full((H, W, 3), 110, np.uint8)
     cv2.circle(ball_only, (300, 240), 18, swatch("red"), -1)
     p.process(ball_only, now=0.0)
-    o = p.process(ball_in_skin(), now=0.05)["objects"]["red"]
-    assert o is not None and o["radius"] * W > 60      # with no cap the relaxed blob swallows the face
+    assert p.process(face_only(), now=0.05)["objects"]["red"] is None          # 20x the ball: not it
+
+
+def test_without_the_cap_the_lock_would_move_to_the_skin():
+    p = Pipeline(cfg(track_max_growth=100.0, track_min_shrink=0.0))
+    ball_only = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(ball_only, (300, 240), 18, swatch("red"), -1)
+    p.process(ball_only, now=0.0)
+    o = p.process(face_only(), now=0.05)["objects"]["red"]
+    assert o is not None and o["radius"] * W > 60
 
 
 def test_a_ball_that_grows_gradually_is_still_followed():
+    """Moving toward the camera: ~6.5x the area over a few frames. Each strict sighting re-anchors the size."""
     p = Pipeline(cfg())
-    for i, r in enumerate((18, 21, 25, 29, 34, 40, 46)):   # ~1.2-1.4x area per step: moving toward the camera
+    for i, r in enumerate((18, 21, 25, 29, 34, 40, 46)):
+        f = np.full((H, W, 3), 110, np.uint8)
+        cv2.circle(f, (300, 240), r, swatch("red"), -1)
+        assert p.process(f, now=i * 0.05)["objects"]["red"] is not None, f"lost at radius {r}"
+
+
+def test_a_faded_ball_is_followed_while_it_grows_within_the_size_limit():
+    p = Pipeline(cfg())
+    for i, r in enumerate((18, 19, 21, 23, 24)):                     # up to ~1.8x the last strict area
         f = np.full((H, W, 3), 110, np.uint8)
         cv2.circle(f, (300, 240), r, hsv_bgr(3, dull_sat("red"), 255) if i else swatch("red"), -1)
-        o = p.process(f, now=i * 0.05)["objects"]["red"]
-        assert o is not None, f"lost at radius {r}"
+        assert p.process(f, now=i * 0.05)["objects"]["red"] is not None, f"lost at radius {r}"
 
 
-def test_a_lip_sized_blob_beside_the_ball_is_not_followed():
-    """The ball vanishes (moved fast / left); a small red strip within reach of its last position
-    must not be picked up by the relaxed near-hint search."""
+def test_a_relaxed_only_lock_cannot_creep_outward():
+    """The reference size is the last strict sighting, not the previous frame, so growing 1.5x a frame is refused."""
     p = Pipeline(cfg())
-    ball = np.full((H, W, 3), 110, np.uint8)
-    cv2.circle(ball, (300, 240), 40, swatch("red"), -1)
-    assert p.process(ball, now=0.0)["objects"]["red"] is not None
-    lips_only = np.full((H, W, 3), 110, np.uint8)
-    cv2.ellipse(lips_only, (330, 300), (30, 11), 0, 0, 360, hsv_bgr(3, dull_sat("red"), 220), -1)  # relaxed-only strip
-    assert p.process(lips_only, now=0.05)["objects"]["red"] is None
-
-
-def test_min_shrink_can_be_disabled():
-    c = cfg(track_min_shrink=0.0)
-    p = Pipeline(c)
-    ball = np.full((H, W, 3), 110, np.uint8)
-    cv2.circle(ball, (300, 240), 40, swatch("red"), -1)
-    p.process(ball, now=0.0)
-    small = np.full((H, W, 3), 110, np.uint8)
-    cv2.circle(small, (330, 270), 20, hsv_bgr(3, dull_sat("red"), 220), -1)  # round, ~25% of the ball, relaxed-only
-    assert p.process(small, now=0.05)["objects"]["red"] is not None
+    first = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(first, (300, 240), 18, swatch("red"), -1)
+    p.process(first, now=0.0)
+    seen = []
+    for i, r in enumerate((20, 24, 29, 35, 42, 50, 60)):             # ~1.2-1.5x area per frame, all faded
+        f = np.full((H, W, 3), 110, np.uint8)
+        cv2.circle(f, (300, 240), r, hsv_bgr(3, dull_sat("red"), 255), -1)
+        seen.append(p.process(f, now=0.05 * (i + 1))["objects"]["red"] is not None)
+    assert seen[0] and not seen[-1]
 
 
 # --- per-colour minimum blob size (red vs lips) ------------------------------------
@@ -603,3 +616,46 @@ def test_reappearing_after_the_hold_time_needs_confirmation_again():
 def test_confirmation_can_be_turned_off():
     p = Pipeline(cfg(acquire_frames=1))
     assert p.process(ball_at(300), now=0.0)["objects"]["red"] is not None
+
+
+# --- following keeps the centre on the ball's own (strict) blob ----------------------
+
+def ball_with_hand(bx: int = 200, y: int = 240) -> np.ndarray:
+    """A strict-red ball with a skin-like, relaxed-only patch touching it on the right (a hand holding it)."""
+    f = np.full((H, W, 3), 110, np.uint8)
+    cv2.ellipse(f, (bx + 25, y), (40, 22), 0, 0, 360, hsv_bgr(3, dull_sat("red"), 220), -1)  # the hand: merged ~1.5x the ball
+    cv2.circle(f, (bx, y), 30, swatch("red"), -1)                                                     # the ball
+    return f
+
+
+def test_the_marker_stays_on_the_ball_when_a_hand_touches_it():
+    p = Pipeline(cfg())
+    ball = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(ball, (200, 240), 30, swatch("red"), -1)
+    p.process(ball, now=0.0)
+    for i in range(1, 8):
+        o = p.process(ball_with_hand(), now=0.04 * i)["objects"]["red"]
+        assert o is not None and abs(o["x"] * W - 200) < 8, f"frame {i}: marker at {o['x'] * W:.0f}px, ball at 200"
+
+
+def test_the_relaxed_mask_alone_would_have_dragged_the_marker_onto_the_hand():
+    """Guards the test above: ball + hand is one relaxed blob whose centre is well off the ball."""
+    c = cfg()
+    d = ColorDetector(c.colors["red"], c.min_area_frac)
+    ball = Detection(200, 240, 30, 2800, True, 2800)
+    relaxed_only = d._near(to_hsv(ball_with_hand()), ball, d._loose, False)
+    assert relaxed_only is not None and relaxed_only.x > 210 and relaxed_only.area < 2 * ball.area
+
+
+def test_no_lock_on_skin_after_the_ball_leaves_even_if_a_skin_patch_stays():
+    """A skin patch about the ball's size survives the size limits, so only the time limit ends the lock."""
+    c = cfg(track_relaxed_s=1.5)
+    p = Pipeline(c)
+    ball = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(ball, (300, 240), 30, swatch("red"), -1)
+    p.process(ball, now=0.0)
+    patch = np.full((H, W, 3), 110, np.uint8)
+    cv2.circle(patch, (300, 240), 32, hsv_bgr(3, dull_sat("red"), 220), -1)
+    early = [p.process(patch, now=0.1 + 0.05 * i)["objects"]["red"] is not None for i in range(4)]
+    late = [p.process(patch, now=2.0 + 0.05 * i)["objects"]["red"] is not None for i in range(4)]
+    assert early[0] and not any(late)
