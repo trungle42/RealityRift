@@ -344,8 +344,17 @@ export class Adventure {
     if (document.pointerLockElement) document.exitPointerLock();
     await this.cinema.result({
       victory, seconds, foes: demo.foes + (victory ? 1 : 0), hearts: this.state!.hearts, stars: this.state!.stars[0] + this.state!.stars[1], hero: this.state!.party[0].name,
-      closing: victory ? '“You did more than win a battle. You gave Evermere its spring back.” — Willow' : '“Rise, hero. The frost has not won — not yet.” — Willow',
+      closing: this.closingLine(victory),
     });
+  }
+
+  /** Willow's last words. A relic scanned on the way gets its moment: the real object, what it became, and its element. */
+  private closingLine(victory: boolean): string {
+    const relic = this.state?.relics.at(-1);
+    if (!relic) return victory ? '“You did more than win a battle. You gave Evermere its spring back.” — Willow' : '“Rise, hero. The frost has not won — not yet.” — Willow';
+    return victory
+      ? `“A ${relic.object} from your own world became ${relic.name}, and its ${relic.element} broke her frost. You gave Evermere its spring back.” — Willow`
+      : `“Rise, hero. Keep that ${relic.object} close: ${relic.name} will burn brighter next time.” — Willow`;
   }
 
   private async loadModels(): Promise<void> {
