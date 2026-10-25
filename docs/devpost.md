@@ -1,6 +1,6 @@
 # Devpost draft: Storybound
 
-Draft text for the HackTX 2026 Devpost page. Edit it into the team's own voice before pasting. Everything below describes what is on `main`, except lines marked `TODO(after merge)`: those cover work on another branch (networked multiplayer). Flip or delete them when it lands, and cut anything that did not make it.
+Draft text for the HackTX 2026 Devpost page. Edit it into the team's own voice before pasting. Everything below describes what is on `main`, except lines marked `TODO(after merge)`: those cover work that is not on `main` yet (per-player avatar skins). Flip or delete them when it lands, and cut anything that did not make it.
 
 Before submitting: add the demo video link, tick the prizes you are entering on Devpost (see "Prize tracks" for the ones that need a condition met first), and make sure the GitHub repo is public.
 
@@ -28,6 +28,7 @@ Storybound is a third-person 3D fairy-tale adventure that runs in the browser. Y
 - **The riddle door.** A door with carved eyes asks you to show it "a book" or "a bottle or a cup". Gemini checks your webcam photo, and tells you what it saw if you got it wrong.
 - **Your phone is the controller, and the sword.** The start screen shows a QR code. Scan it and the phone is the joystick: drag to move, tap to talk, start and accept, with Scan, Roll and Slash buttons. With lime tape on the phone and the webcam watching, swinging it down strikes with the sword. The whole demo run plays with just the phone and the wand, and a venue that blocks phones on its Wi-Fi can use a Cloudflare tunnel instead.
 - **Up to three players.** A second phone makes the companion a real second hero. A third player flies Pip the lantern fairy with their phone and casts from where Pip hovers with a third wand colour.
+- **Three laptops, one world.** Each player runs their own game, backend, tracker and phone, and the host's tunnel is the meeting point: you see the other two heroes move, swing and cast in your world.
 - **Camera-tracked body.** A separate OpenCV tracker follows the wand's colour, the phone and the body, and sends them to the game through the backend. The wand's shape casts its spell, the phone slash strikes, a real jump makes the hero jump (and dodge for a second), moving in front of the camera breaks the freeze spell, and a pose seal opens when you draw its rune. The camera's picture, with your wand trails drawn on it, shows inside the game, so one program owns the webcam. Keys 4-7 stand in for the wand when no camera is running.
 
 If the network or Gemini fails, the game keeps going: the story switches to a hand-written script for that scene, a scan returns a stand-in relic, and the riddle door lets you through.
@@ -39,7 +40,7 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 - **Who owns what:** the game engine owns the rules (combat, hearts, timing); Gemini owns the words. The backend picks each beat's structure from a catalog the engine can run, and Gemini only writes narration, prompts, names and the storybook. It cannot invent a mechanic the game cannot play.
 - **Phone controller:** the phone opens a page served by the backend and streams a stick position and button presses over a WebSocket. The backend gives each phone a player slot (up to three), validates every message, and relays it to the game; only the game's own page on this laptop may read the relay. For venues that block phones, `demo.sh --tunnel` puts the phone page on a Cloudflare quick tunnel with a random room code, and a guard lets the tunnel reach only the phone page and the phone socket, never the Gemini-backed API.
 - **Computer vision:** `cv_2/` is a Python + OpenCV tracker. It finds coloured objects by HSV thresholds (no model download), names the shape each wand draws using Fourier descriptors, spots a fast downward swing of a lime-taped phone, and spots a jump from optical flow. `python -m tools.publish` sends one small message per camera frame to a second backend relay, `/ws/cv/{room}`, which validates it and forwards it to the game. The game sends back which shape it wants, so a pose seal can ask for its own rune.
-- **Tests:** 89 backend tests, 102 frontend unit tests, 34 in-browser checks that drive the real renderer (17 for the full story, 12 for the demo run with every input at once, 5 for phone-only play), and 283 tracker tests that run on synthetic frames with no camera. The camera-to-game link is tested end to end with synthetic tracker frames; time with a live webcam is still limited.
+- **Tests:** 89 backend tests, 108 frontend unit tests, 46 in-browser checks that drive the real renderer (18 for the full story, 12 for the demo run with every input at once, 5 for phone-only play, 11 for three laptops on the presence relay), and 291 tracker tests that run on synthetic frames with no camera. The camera-to-game link is tested end to end with synthetic tracker frames; time with a live webcam is still limited.
 
 ## Challenges we ran into
 
@@ -51,7 +52,7 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 - **Drawing in the air.** A shape has to count the moment the loop closes, with no button. The tracker starts a stroke where the wand was held still, names the shape when it returns to that point, and lets the wand draw again under a second later. Shapes are recognised by Fourier descriptors, so size, rotation and where you start do not matter; we measured them on simulated hand drawing and are still tuning on real hands.
 - **Windows on ARM64.** OpenCV has no native build, so the tracker needs the x86_64 Python under emulation.
 - **Three people in one file.** `Adventure.ts` is the game's main loop and everyone touched it. We kept edits small and put new features in their own files (`Scanner.ts`, `weapon.ts`, `PhoneInput.ts`).
-- **Art we can own.** Some third-party models are kept out of the repo, so the game falls back to stand-in characters without them. We are rebuilding the models ourselves in Blender; the waystone shrine, sculpted at about 2 million triangles and baked down to 30,000, is the first one in the game. The characters and most props still come from the private pack.
+- **Art we can own.** Some third-party character models are kept out of the repo, so the game falls back to stand-in characters without them. We are rebuilding the models ourselves in Blender: the waystone shrine (sculpted at about 2 million triangles and baked down to 30,000), the lantern and the sword are ours and in the game. The characters still come from the private pack.
 
 ## Accomplishments that we're proud of
 
@@ -75,7 +76,7 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 - Aim spells by pointing the wand, not just by drawing it.
 - Test the camera link with more people, cameras and lighting, and tune the shape and slash thresholds on real hands.
 - Our own models for the whole world, so every asset is ours (and the hero's sword and wand show without the private art pack).
-- **Networked multiplayer** (in progress): each laptop runs its own game, and the players' heroes sync through the host's tunnel, so friends can join from their own machines. The relay and the launcher are written; the game's side, which draws the other laptops' heroes, is the last piece. `TODO(after merge)`: describe it and remove this tag when it lands.
+- Per-player avatar skins, so the other laptops' heroes look as different as their players. `TODO(after merge)`: remove this tag when it lands.
 - A hosted version, so a judge can play without cloning the repo.
 - More bosses and more elements, so more kinds of objects matter.
 
