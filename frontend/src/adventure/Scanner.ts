@@ -1,12 +1,11 @@
 import { addToArmory, browserStore, readArmory, weaponOf, writeArmory, type ArmoryEntry } from './armory';
 import type { PlayerIndex } from '../contracts';
-import { reforge, type WandShape } from './forge';
 import { parseVerifyResponse } from './quest';
-import { ABILITY_LABEL, fitWithin, makeWeapon, parseArtifactResponse, type Weapon } from './weapon';
+import { fitWithin, relicTier, makeWeapon, parseArtifactResponse, type Weapon } from './weapon';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 const REQUEST_SECONDS = 25;
-const THINKING = ['The rift is opening…', 'The storyteller is studying your object…', 'Something old is answering…', 'A weapon is taking shape…'];
+const THINKING = ['The rift is opening…', 'The storyteller is studying your object…', 'Something old is answering…', 'A relic is taking shape…'];
 
 type Phase = 'live' | 'thinking' | 'result' | 'error' | 'matched' | 'nomatch';
 interface Quest { object: string; prompt: string; resolve: (ok: boolean) => void }
@@ -33,10 +32,9 @@ export class Scanner {
   private quest?: Quest;
   private seen = '';
   private ticker = 0;
-  private readonly badge = document.createElement('div');
   /** Hero names when two play: the result card then lets either hero take the weapon. */
   private heroes: string[] = [];
-  /** Which hero the weapon on the card is for; a blue-wand shape claims it for hero two. */
+  /** Which hero the relic on the card is for. */
   private claim: PlayerIndex = 0;
 
   constructor(private readonly onEquip: (weapon: Weapon, hero: PlayerIndex) => void, private readonly onClose: () => void = () => {}) {
@@ -44,37 +42,11 @@ export class Scanner {
     this.video.playsInline = true; this.video.muted = true; this.video.autoplay = true; this.video.className = 'rift-video';
     this.panel.className = 'rift-panel';
     this.root.append(this.video, this.panel);
-    this.badge.className = 'weapon-badge'; this.badge.hidden = true;
-    document.body.append(this.root, this.badge);
+    document.body.append(this.root);
     window.addEventListener('keydown', this.onKey, true);
   }
 
   setHeroes(names: string[]): void { this.heroes = names.slice(0, 2); }
-
-  /** Small HUD pill showing each hero's equipped weapon. */
-  showBadges(weapons: readonly (Weapon | undefined)[]): void {
-    const held = weapons.map((weapon, hero) => ({ weapon, hero })).filter((h): h is { weapon: Weapon; hero: number } => !!h.weapon);
-    this.badge.hidden = !held.length; this.badge.textContent = '';
-    if (held[0]) this.badge.style.setProperty('--rift', hex(held[0].weapon.spell.color));
-    held.forEach(({ weapon, hero }, i) => {
-      if (i) this.badge.append(document.createTextNode('·'));
-      const name = document.createElement('b'); name.textContent = weapon.artifactName; name.style.color = hex(weapon.spell.color);
-      const meta = document.createElement('span'); meta.textContent = `${this.heroes.length > 1 ? `${this.heroes[hero]} · ` : ''}${weapon.element} · ${weapon.ability}`;
-      this.badge.append(name, meta);
-    });
-  }
-
-  /**
-   * A wand completed a shape while a weapon's card is showing: that shape sets its power (forge.ts), and the
-   * wand's hero claims it. Returns false when there is no card to shape, so the game can use the shape instead.
-   */
-  reshape(shape: WandShape, hero?: PlayerIndex): boolean {
-    if (!this.open || this.phase !== 'result' || !this.weapon || this.quest) return false;
-    this.weapon = reforge(this.weapon, shape); if (hero !== undefined && hero < Math.max(1, this.heroes.length)) this.claim = hero;
-    const w = this.weapon, artifact = { object: w.object, artifactName: w.artifactName, artifactType: w.artifactType, element: w.element, ability: w.ability, damage: w.damage, rarity: w.rarity, description: w.description };
-    this.armory = writeArmory(browserStore(), addToArmory(this.armory, { response: { artifact, source: w.source }, photo: this.photo, savedAt: Date.now() }));
-    this.render('result'); return true;
-  }
 
   /**
    * "Show me X" quest: same camera and photo-upload path, but the photo goes to /api/verify and the
@@ -98,7 +70,7 @@ export class Scanner {
     this.open = false; this.root.hidden = true; this.abort?.abort(); clearInterval(this.ticker); this.stopCamera(); this.onClose(); this.settle(false);
   }
 
-  dispose(): void { window.removeEventListener('keydown', this.onKey, true); this.close(); this.root.remove(); this.badge.remove(); }
+  dispose(): void { window.removeEventListener('keydown', this.onKey, true); this.close(); this.root.remove(); }
 
   private readonly onKey = (event: KeyboardEvent): void => {
     if (!this.open) return;
@@ -189,7 +161,7 @@ export class Scanner {
 
     if (phase === 'live') {
       const quest = this.quest;
-      this.panel.append(el('h2', '', quest ? 'The door is listening' : 'Open a rift'), el('p', 'lede', quest ? `${quest.prompt} Hold ${quest.object} up to the camera.` : 'Hold a real object up to the camera: a bottle, a phone, a pen, a shoe. Gemini will turn it into a weapon.'));
+      this.panel.append(el('h2', '', quest ? 'The door is listening' : 'Open a rift'), el('p', 'lede', quest ? `${quest.prompt} Hold ${quest.object} up to the camera.` : 'Hold a real object up to the camera: a bottle, a phone, a pen, a shoe. Gemini turns it into a relic that infuses your wand and sword.'));
       if (note) this.panel.append(el('p', 'note', note));
       const actions = el('div', 'actions');
       if (this.stream) actions.append(button(quest ? 'Show it' : 'Scan the object', 'Enter', () => void this.captureFromCamera(), true));
@@ -218,13 +190,10 @@ export class Scanner {
       if (this.photo) { const img = el('img'); img.src = this.photo; img.alt = `Your ${w.object}`; frame.append(img); } else frame.append(el('span', '', w.object));
       const damage = el('div', 'meter'); const fill = el('i'); fill.style.width = `${w.damage}%`; damage.append(fill);
       card.append(el('span', `rarity ${w.rarity}`, w.rarity), frame, el('h2', 'weapon-name', w.artifactName), el('p', 'from', `from your ${w.object}`),
-        el('p', 'chips', `${w.element} · ${w.artifactType}`), el('p', 'ability', ABILITY_LABEL[w.ability]), damage, el('p', 'desc', w.description));
+        el('p', 'chips', `Relic: infuses your wand and sword with ${w.element}`), el('p', 'ability', `Power ${'●'.repeat(relicTier(w))}${'○'.repeat(3 - relicTier(w))}`), damage, el('p', 'desc', w.description));
       this.panel.append(card);
-      const who = this.heroes[this.claim];
-      if (w.shape) this.panel.append(el('p', 'shaped', `Shaped by ${who ? `${who}'s` : 'your'} ${w.shape}`));
-      else this.panel.append(el('p', 'hint', 'Draw a circle, triangle, square or star with your wand to forge its power.'));
       if (this.armory.some((e) => e.response.artifact.artifactName === w.artifactName)) this.panel.append(el('p', 'saved', 'Kept in your armory'));
-      if (w.source === 'fallback') this.panel.append(el('p', 'note', 'Gemini was unavailable, so the rift conjured a stand-in weapon.'));
+      if (w.source === 'fallback') this.panel.append(el('p', 'note', 'Gemini was unavailable, so the rift conjured a stand-in relic.'));
       const actions = el('div', 'actions'), other = (1 - this.claim) as PlayerIndex;
       actions.append(button(this.heroes.length > 1 ? `Give to ${this.heroes[this.claim]}` : 'Take it', 'Enter', () => this.equip(), true));
       if (this.heroes.length > 1) actions.append(button(`Give to ${this.heroes[other]}`, '', () => { this.claim = other; this.equip(); }));

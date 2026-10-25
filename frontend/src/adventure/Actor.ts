@@ -396,6 +396,13 @@ export class Actor {
     weapon.traverse((part) => { if (part instanceof T.Mesh) part.castShadow = true; });
   }
 
+  /** The wand (built along +Y, origin at its grip) in the left fist, out of the thumb side: +X, mirroring the sword's -X. */
+  holdWand(wand: T.Object3D): void {
+    const hand = this.model?.getObjectByName('LeftHand'); if (!hand) return;
+    const handScale = hand.getWorldScale(new T.Vector3()).x / this.root.getWorldScale(new T.Vector3()).x;
+    wand.position.copy(this.palm(hand)); wand.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), new T.Vector3(1, 0, 0)); wand.scale.setScalar(1 / handScale); hand.add(wand);
+  }
+
   /** Tint the sword with the equipped weapon's element so a scanned weapon is visible in the hand. */
   glowWeapon(color: number | undefined): void {
     if (!this.grip) return;

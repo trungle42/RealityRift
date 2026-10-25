@@ -157,38 +157,47 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
     });
-    await check('Reality Rift: a blue wand shape forges the card for player two, the same shape surges, another reshapes', async () => {
-      inner.trial = undefined; inner.busy = false;
-      type Held = { ability: string; shape?: string; artifactName: string } | undefined;
-      const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: Held[] };
-      const phase = () => document.querySelector<HTMLElement>('.rift-scan')!.dataset.phase, panel = () => document.querySelector('.rift-panel')!.textContent ?? '';
+    await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword', async () => {
+      inner.trial = undefined; inner.busy = false; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
+      type Spellish = { element?: string; color: number; damage: number };
+      const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: unknown[]; strikes: Spellish[]; bolts: Spellish[]; hit: (...a: unknown[]) => void; strike(p: 0 | 1): void; resolveHits(): void };
+      const draw = (code: string) => { key(code); key(code, false); };
+      const hud = () => document.querySelector('.weapons-hud')?.textContent ?? '';
+      assert(hud().includes('Sword') && hud().includes('Wand') && hud().includes('No relic'), 'weapons HUD does not show sword, wand and no relic');
+      // Before any scan: a triangle drops an arcane meteor at once.
+      const before = rift.strikes.length; draw('Digit5');
+      const meteor = rift.strikes.at(-1);
+      assert(rift.strikes.length === before + 1 && meteor?.element === undefined && meteor?.damage === 2, 'a drawn triangle did not cast an arcane meteor without a relic');
+      assert(hud().includes('meteor'), 'HUD does not show the last shape');
+      draw('Digit5'); assert(rift.strikes.length === before + 1, 'the same shape cast again inside its cooldown');
+      const bolts = rift.bolts.length; draw('Digit6'); assert(rift.bolts.length === bolts + 3, 'a different shape (square: wave) was blocked by the triangle cooldown');
+      inner.trial = { elapsed: 0 }; const during = rift.bolts.length; draw('Digit7'); inner.trial = undefined;
+      assert(rift.bolts.length === during, 'a shape drawn during a trial also cast');
+      // Relic: a fire scan infuses both weapons.
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
       const photo = new File([await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))], 'mug.png', { type: 'image/png' });
       const realFetch = window.fetch;
       window.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith('/api/artifact')
         ? new Response(JSON.stringify({ artifact: { object: 'coffee mug', artifactName: 'Ember Chalice', artifactType: 'chalice', element: 'fire', ability: 'bolt', damage: 70, rarity: 'epic', description: 'Still warm.' }, source: 'gemini' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
         : realFetch(url, init)) as typeof fetch;
+      const realHit = rift.hit; const elements: unknown[] = [];
       try {
         localStorage.removeItem('storybound.armory.v1');
         void rift.scanner.show(); await until(() => rift.scanner.open, 'scanner did not open');
-        await rift.scanner.captureFromFile(photo); await until(() => phase() === 'result', 'relic card missing');
-        assert(!!document.querySelector('.relic-card .relic-photo img'), 'relic card has no photo of the object');
-        key('Digit9'); key('Digit9', false); // blue wand completes a triangle
-        await until(() => panel().includes('Shaped by') && panel().includes('Meteor'), 'triangle did not forge meteor on the card');
-        const p2 = inner.state.history().party[1].name;
-        assert(panel().includes(`Give to ${p2}`), 'blue wand did not claim the weapon for player two');
+        await rift.scanner.captureFromFile(photo); await until(() => !!document.querySelector('.relic-card'), 'relic card missing');
+        assert((document.querySelector('.rift-panel')!.textContent ?? '').includes('infuses your wand and sword with fire'), 'card does not say the relic infuses both weapons');
         key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
-        const held = (i: number): Held => rift.weapons[i];
-        assert(held(1)?.ability === 'meteor' && held(1)?.shape === 'triangle' && !held(0), 'player two did not receive the meteor weapon');
-        const relic = inner.state.history().relics?.find((r) => r.hero === 1);
-        assert(relic?.object === 'coffee mug' && relic.ability === 'meteor', 'storyteller history is missing the forged relic');
-        assert(JSON.parse(localStorage.getItem('storybound.armory.v1') ?? '[]')[0]?.response?.artifact?.ability === 'meteor', 'armory did not keep the forged weapon');
-        inner.spellCooldown[1] = 3; key('Digit9'); key('Digit9', false);
-        assert(inner.spellCooldown[1] > 0 && inner.spellCooldown[1] < 3, 'drawing the weapon shape did not fire a Rift Surge');
-        key('Digit8'); key('Digit8', false);
-        assert(held(1)?.ability === 'nova' && held(1)?.shape === 'circle', 'a different shape did not reshape the weapon');
-        assert(inner.state.history().relics?.filter((r) => r.hero === 1).length === 1, 'reshaping duplicated the relic');
-      } finally { window.fetch = realFetch; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; }
+        assert(hud().includes('Relic: Ember Chalice') && hud().includes('Sword · fire') && hud().includes('Wand · fire'), 'HUD does not show the relic infusing both weapons');
+        const chain = rift.bolts.length; draw('Digit7');
+        assert(rift.bolts.length === chain + 1 && rift.bolts.at(-1)?.element === 'fire', 'a drawn star did not cast a fire chain');
+        assert(inner.state.history().relics?.[0]?.object === 'coffee mug', 'storyteller history is missing the relic');
+        // The sword carries the element too, so boss weakness and resistance apply to slashes.
+        rift.hit = (...a: unknown[]) => { elements.push(a[4]); return realHit.apply(game, a); };
+        const p = game.heroes[0].root.position; (game as unknown as { spawnEnemy(x: number, z: number): void }).spawnEnemy(p.x, p.z + 1.3);
+        (inner as unknown as { attackCooldown: number[] }).attackCooldown[0] = 0;
+        rift.strike(0); for (let i = 0; i < 10; i++) { inner.update(0.05); }
+        assert(elements.includes('fire'), 'a sword hit did not carry the relic element');
+      } finally { window.fetch = realFetch; rift.hit = realHit; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
     });
     await check('Boss wards block damage during the warning and admit spells during recovery', async () => {
       inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); inner.state.hearts = 3;
