@@ -20,8 +20,10 @@ tracker/
   pipeline.py  Pipeline.process(frame, now) -> payload; one gate for all colours; clears every trace on the on->off edge;
                advances the shape to draw (circle, triangle, square, star, ...) on every off->on edge and names each colour's drawing
   overlay.py   draw(...): per-colour fading trail + marker, ON/OFF banner + countdown bar, the shape to draw + detected shape; mask_view(...)
+  game.py      game_message(payload): the small per-frame message the game receives
 tools/demo.py  OpenCV window
 tools/tune.py  click-to-calibrate window: sample your objects, get thresholds to paste
+tools/publish.py  sends the tracker to the game through the backend relay
 tests/         Synthetic frames and an injectable clock: no camera needed
 ```
 
@@ -59,6 +61,24 @@ python -m tools.demo --period 3           # different on/off period
 python -m tools.demo --no-window --frames 90   # headless smoke test
 python -m pytest
 ```
+
+## Send it to the game
+
+With the backend running (`backend/`, port 8000) and the game open:
+
+```
+python -m tools.publish                                   # ws://localhost:8000/ws/cv/storybound
+python -m tools.publish --window                          # also show the tracker's view (q quits)
+python -m tools.publish --api http://localhost:8020 --room demo
+```
+
+It runs the same tracker and sends a small message per frame through the backend relay (`/ws/cv/{room}`, see
+[../docs/api-contract.md](../docs/api-contract.md)). In the game a **slash swings the sword**, a **jump makes the hero jump** and
+**moving during the freeze spell** breaks it. The game must use the same room (`?room=demo` in its URL; both default to
+`storybound`). The terminal prints when the backend connects, when the game joins, and each slash/jump. Slashes count again after
+0.5 s here (`--slash-hold`), not the demo's 2 s. The wand round is sent too, read-only; shapes do not cast spells in the game yet.
+The tracker holds the webcam, so test the game's scanner (X) on the demo laptop with it running: macOS shares the camera, Windows
+may not.
 
 ## Tuning
 

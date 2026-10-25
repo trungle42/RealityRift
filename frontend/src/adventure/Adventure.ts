@@ -19,6 +19,7 @@ import { Scanner } from './Scanner';
 import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
+import { CvInput } from './CvInput';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
 
@@ -98,6 +99,7 @@ export class Adventure {
   private readonly scanner = new Scanner((weapon) => this.equip(weapon));
   /** Phone joystick (optional): analog movement for hero 0, with keyboard always winning. */
   private phone?: PhoneInput;
+  private cv?: CvInput;
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -211,6 +213,8 @@ export class Adventure {
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
+    // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
+    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); } });
     this.buildCamps();
     await this.loadBeat(this.story.begin(party));
   }
@@ -997,7 +1001,7 @@ export class Adventure {
     const trial = this.trial; if (!trial) return;
     trial.elapsed += dt;
     if (trial.type === 'freeze') {
-      if (this.active.some((hero) => hero.moving > 0.1)) trial.moved += dt;
+      if (this.active.some((hero) => hero.moving > 0.1) || this.cv?.moving()) trial.moved += dt;
       this.ui.challenge('Let the frost pass', `Stay still · ${Math.max(0, trial.duration - trial.elapsed).toFixed(1)} seconds`, trial.elapsed / trial.duration);
       if (trial.elapsed >= trial.duration) {
         const success = trial.moved < 0.25; this.trial = undefined;
@@ -1155,7 +1159,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.cv?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();

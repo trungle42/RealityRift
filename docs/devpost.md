@@ -26,7 +26,7 @@ Storybound is a third-person 3D fairy-tale adventure that runs in the browser. Y
 - **Reality Rift.** Press X, hold up a real object (a bottle, a mug, a pen) and Gemini vision turns it into a magical weapon: a name, an element, a spell shape and a rarity. Bosses take double damage from the element they fear and half from the one they resist, so what you pick up matters.
 - **The riddle door.** A door with carved eyes asks you to show it "a book" or "a bottle or a cup". Gemini checks your webcam photo, and tells you what it saw if you got it wrong.
 - **Your phone is the joystick.** Press H, open the URL on your phone, and drag your thumb to move. No app to install.
-- **Camera-tracked wands, slashes and jumps.** A separate OpenCV tracker follows coloured wands drawing a circle, triangle, square or star, spots a phone swung like a sword, and spots a jump. `TODO(after merge)`: phone slash, jump and body motion now drive the sword, the jump and the freeze trial in the game. Wand shapes casting spells come later; today the tracker runs in its own window.
+- **Camera-tracked wands, slashes and jumps.** A separate OpenCV tracker follows coloured wands drawing a circle, triangle, square or star, spots a phone swung like a sword, and spots a jump. In the game, the phone slash swings the hero's sword, a real jump makes the hero jump, and moving during the freeze spell breaks it. Wand shapes casting spells come later.
 
 If the network or Gemini fails, the game keeps going: the story switches to a hand-written script for that scene, a scan returns a stand-in weapon, and the riddle door lets you through.
 
@@ -66,7 +66,7 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 
 ## What's next
 
-- Finish wiring the tracker into the game: wand shapes casting spells, and wand shapes for the pose seals. `TODO(after merge)`
+- Finish wiring the tracker into the game: wand shapes casting spells, and wand shapes for the pose seals.
 - Reality Rift extras: the scanned weapon in the hero's hand, a clearer hint of what a boss fears, a story that remembers your objects, and carrying several weapons. `TODO(after merge)`
 - Our own models for the whole world, so every asset is ours.
 - A hosted version, so a judge can play without cloning the repo.
