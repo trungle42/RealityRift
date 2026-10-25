@@ -2,7 +2,7 @@
 
 **Don't just read the fairy tale. Become part of it.**
 
-Storybound is a third-person 3D fairy-tale adventure that runs in the browser, built for HackTX 2026 (theme: Fairy Tale). You explore a small kingdom, fight a witch or a shadow dragon, and a Gemini-powered storyteller writes each scene from what you actually did. Real life leaks into the game three ways: you hold a real object up to your webcam and Gemini turns it into a **relic** that powers up your weapons (**Reality Rift**); you draw shapes in the air with a coloured wand and each shape casts a spell; and you swing a real phone like a sword.
+Storybound is a third-person 3D fairy-tale adventure that runs in the browser, built for HackTX 2026 (theme: Fairy Tale). You explore a small kingdom, fight a witch or a shadow dragon, and a Gemini-powered storyteller writes each scene from what you actually did. Real life leaks into the game three ways: you hold a real object up to your webcam and Gemini turns it into a **relic** that powers up your weapons (**Reality Rift**); you draw shapes in the air with a coloured wand and each shape casts a spell; and your phone is the controller and the sword: scan a QR code to connect it, drag to move, tap to act, swing it to strike.
 
 The pitch: the story reacts to the players, and the players' real world reacts back. Your phone is the joystick and the sword, a stick with a coloured ball is the wand, your water bottle becomes a relic that makes both burn, and the game ends with a storybook of your exact playthrough.
 
@@ -32,8 +32,8 @@ What talks to what:
 - **Game -> backend, plain HTTP.** Story beats go to `/api/provider/*`. A scan photo goes to `/api/artifact`. A riddle-door photo goes to `/api/verify`. The backend calls Gemini; the browser never sees the API key.
 - **Backend -> Gemini.** One call per story beat, one per photo. Never per frame.
 - **If Gemini fails, the game keeps going.** The backend returns 503 for story calls and the browser uses the hand-written `ScriptedStory` for that beat. A scan returns a stand-in relic; the riddle door lets you through.
-- **Phone -> backend -> game.** The phone opens `/joystick` and streams a stick position over a WebSocket. The backend forwards only validated `move` messages to the game in the same room.
-- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, body motion into moving in the freeze trial (`?story=full`), and each shape a wand completes into a shape event (Reality Rift's spells, and the pose seals' runes). The game drives the wand in the other direction over the same socket: it is on for any shape while the game is open, and a pose seal asks for its own shape. Tested end to end with synthetic tracker frames, not yet with a live webcam.
+- **Phone -> backend -> game.** The phone opens `/joystick` (the start screen shows a QR code for it) and streams a stick position and button presses over a WebSocket. The backend forwards only validated messages to the game in the same room, stamped with the phone's player slot (up to three phones).
+- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, body motion into moving in the freeze trial (`?story=full`), and each shape a wand completes into a shape event (Reality Rift's spells, and the pose seals' runes). The game drives the wand in the other direction over the same socket: in a fight it asks for one shape at a time, and a pose seal asks for its own. The tracker also sends a small camera picture about 15 times a second, which the game shows in its wand panel and scans from, so the tracker is the only program that opens the webcam; only this laptop's own pages may join the camera relay. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 The rule behind the design: the engine owns the rules (combat, hearts, timing), Gemini owns the words. The backend fixes the structure of each beat from a catalog the engine can run, and Gemini only writes narration, prompts, names and the final storybook. It cannot invent a mechanic the game cannot run.
 
@@ -56,8 +56,8 @@ Each story beat is written by Gemini (`gemini-3.8-flash`, structured output, thi
 
 Every hero carries two weapons, and a HUD row at the bottom of the screen shows both (`Sword · steel`, `Wand · arcane · △ meteor`) plus the relic they hold.
 
-- **Sword (right hand):** **J** or left click for a three-hit combo. With the camera tracker running, a **phone slash** strikes too.
-- **Wand (left hand):** **draw a shape and it casts that shape's spell**, even before any scan. **F** still casts a plain bolt.
+- **Sword (right hand):** **J** or left click for a three-hit combo. A camera-tracked **phone slash**, or the **Slash** button on the phone page, strikes too.
+- **Wand (left hand):** **draw a shape and it casts that shape's spell**, even before any scan. **F** still casts a plain bolt (it is infused by a relic too).
 
 | Shape | Spell | Cooldown (per hero and shape) |
 |---|---|---|
@@ -66,13 +66,17 @@ Every hero carries two weapons, and a HUD row at the bottom of the screen shows 
 | square | wave: three bolts in a fan | 1.6 s |
 | star | chain: lightning that leaps between foes | 1.8 s |
 
-Shapes come from the camera tracker (hold the wand still, then draw; see the [cv_2](#cv_2-webcam-colour-tracker-working-wands-slash-jump-and-motion-connected-to-the-game) section) or from the keyboard stand-in: **4 5 6 7** draw circle, triangle, square, star for hero one (the yellow wand), and **8 9 0 -** do the same for hero two (the blue wand, `?players=2` only). A shape drawn while a freeze or pose challenge is running does not cast (during a pose seal, the tracker's shape opens the seal instead). With no relic, spells are a violet "arcane" colour at power 1.
+Shapes come from the camera tracker (hold the wand still, then draw; see the [cv_2](#cv_2-webcam-colour-tracker-working-wands-slash-jump-and-motion-connected-to-the-game) section) or from the keyboard stand-in: **4 5 6 7** draw circle, triangle, square, star for hero one's wand, and **8 9 0 -** do the same for hero two's wand (hero two has to be in play: a second phone or `?players=2`). Which wand colour belongs to which player comes from `?wand=` (default: yellow is hero one, blue is hero two). A shape drawn while a freeze or pose challenge is running does not cast (during a pose seal, the tracker's shape opens the seal instead). With no relic, spells are a violet "arcane" colour at power 1.
+
+**In a fight the game asks for the shape.** During an encounter or a boss (the demo run's wave and Morwen, and the full story's fights) a prompt near the top of the screen asks for one shape at a time, such as "▲ Draw a triangle · Meteor", with "the wand is ready" or "wand ready in 1.2 s". Only that shape casts. Any other shape gives a short shake and "Not that rune · draw ▲", and nothing happens. A cast, or 10 seconds without one, moves the request to a different shape. Two players each get their own request (hero two's sits under hero one's, tagged P2). The keyboard stand-in obeys the same request. Outside fights the wand is free: any shape casts.
+
+**The wand needs 2 seconds between spells,** whatever the shape, on top of each shape's own cooldown. While it recovers the tracker stops tracing, so a shape drawn during the pause cannot half-complete. `?runes=free` turns the requests off (any shape casts in a fight; the cooldowns and the 2 s recovery still apply), which helps when live tracking is weak.
 
 The sword and wand models in the hero's hands come with the private art pack. Without it the weapons still work and the HUD still shows them, but nothing is drawn in the hand.
 
 ### Reality Rift: scan an object, get a relic (working)
 
-Press **X** or click the **Scan** button. Hold a real object up to the webcam and press Enter (or "Scan the object"). The photo is shrunk to at most 512 px and sent to `/api/artifact`. Gemini returns a name, a type, an element, an ability, a damage rating (1-100) and a rarity, and the game shows a **relic card** framed around your own photo of the object.
+Press **X**, click the **Scan** button, or tap **Scan** on the phone. Hold a real object up to the webcam and press Enter (or "Scan the object"). The photo is shrunk to at most 512 px and sent to `/api/artifact`. Gemini returns a name, a type, an element, an ability, a damage rating (1-100) and a rarity, and the game shows a **relic card** framed around your own photo of the object.
 
 **A relic is a power-up for both weapons.** Its element colours and infuses the hero's wand spells, the F bolt and the sword, and its power (1-3, from the damage rating, one higher for a legendary) sets how hard the wand spells hit. The shape of the spell still comes from the shape you draw; Gemini's ability name is flavour and goes into the story.
 
@@ -104,11 +108,19 @@ After you pass the Chapter III pose gate, a second door with carved eyes wakes u
 - Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
 - Only `{type: "move", x, y, sprint}` (numbers clamped to the unit circle) and the buttons `{type: "action" | "scan" | "roll" | "slash"}` are forwarded, phone to game only, each stamped with the sender's `player` (0-2). Phones join from anywhere on the network; the game side must be this laptop's own page (loopback and the game's Origin, the same rule as the camera relay), so another machine or site cannot read or spoof the controls. The game reads each player through `PhoneInput`: `read(player)`, `on('slash' | 'action' | 'scan' | 'roll' | 'joined' | 'left', (player) => …)`, `players()`.
 
+### Up to three players: two heroes and Pip the fairy (working)
+
+- **Hero one** is the first phone and the first wand colour.
+- **Hero two** is the AI companion until a human takes over: a second phone that joins (its own stick, tap, Roll, Slash, Scan and wand, with its own rune request), or `?players=2` for the keyboard. If the second phone leaves, hero two goes back to being the companion.
+- **Pip the lantern fairy** is the third player: a small flying spellcaster beside the heroes. Pip appears when a third player shows up: `?fairy=1`, three colours in `?wand=`, a third phone, or the third wand drawing a shape. On the third phone, drag flies Pip (push past the ring to fly faster), **tap** throws a pixie-dust bolt and **Slash** dashes. The third wand's shapes cast that shape's spell from where Pip hovers, at the nearest foe, in Pip's pink (no relic, power 1, and no rune requests). Pip cannot be hurt and never costs a heart. With no third phone Pip drifts around hero one.
+- **Wand colours per player:** `?wand=red` makes red drive hero one, `?wand=red,blue` adds hero two, `?wand=red,blue,yellow` adds Pip. Colours are red, blue and yellow; anything else, a repeat, or more than three falls back to yellow for hero one and blue for hero two. The phone page shows the player and colour ("Player 2 · blue"), carried in the QR link. `./scripts/demo.sh --color red,blue,yellow` sets the camera and the game's `?wand=` to the same order (jump detection is off with more than one colour, since a jump in the picture is ambiguous).
+- One camera follows one phone tape, so the camera slash is for the first phone only. Players two and three use their phones' **Slash** button.
+
 ### cv_2: webcam colour tracker (working; wands, slash, jump and motion connected to the game)
 
 haicil's tracker is a Python + OpenCV program in `cv_2/`. No neural model: it finds objects by colour (HSV thresholds), so it needs no download and runs at camera speed.
 
-- **Coloured wands.** Hold up a yellow, a blue and a red ball on sticks. Each colour's path is drawn in its own colour. In the game, hold the wand still for a moment, then draw a circle, triangle, square or star: the shape counts the moment the loop closes back on the point where you rested, and the wand is ready again under a second later. The game's wand panel (bottom left) shows your trail, what to draw and the shape you made. In the game the **yellow** wand casts for hero one and the **blue** wand for hero two (`?players=2` only); red is not used, because the tracker mistakes lips and skin for it. Without a game, the tracker runs its own demo: detection switches on and off every 5 seconds, each ON phase asks for the next shape, and the traces clear when it turns off.
+- **Coloured wands.** Hold up a yellow, a blue and a red ball on sticks. Each colour's path is drawn in its own colour. In the game, hold the wand still for a moment, then draw a circle, triangle, square or star: the shape counts the moment the loop closes back on the point where you rested, and the wand is ready again under a second later. The game's wand panel (bottom left) shows your trail, what to draw and the shape you made. Each wand colour belongs to a player (`?wand=`; by default yellow is hero one and blue is hero two). Red is the touchiest colour, because skin and lips look like it, so the tracker only accepts a round red blob. Without a game, the tracker runs its own demo: detection switches on and off every 5 seconds, each ON phase asks for the next shape, and the traces clear when it turns off.
 - **Phone slash.** Bright lime tape on the front of a phone held in the left hand is tracked every frame. A big, fast downward swing shows **SLASHED!** for 2 seconds (in the game it strikes hero one's sword). Keep the whole swing inside the picture. The same phone can show the joystick page at the same time.
 - **Jump.** Stand 1.5-2 m back and jump; optical flow spots an up-then-down burst and shows **JUMPED!**.
 
@@ -123,24 +135,24 @@ Working (CV to game; tested end to end with synthetic tracker frames, not yet wi
 ### Also on `main`
 
 - **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her: in the demo run she gives the briefing). Her translucent echo waits in the castle and the cave with advice about that region's boss (its attacks and when to strike).
-- **Combat:** a three-hit sword combo, spells, roll, flash step, lock-on, and boss wards that reject damage during the warning and open afterwards.
+- **Combat:** a three-hit sword combo, spells, roll, flash step, lock-on, and boss wards that reject damage during the warning and open afterwards. A jump (keyboard, or a real jump seen by the camera) also dodges: 1 second of invulnerability, at most once every 2.5 seconds, so jump-spamming cannot chain it.
 - **Classic edition:** Rishaan's earlier 2.5D campaign (PixiJS) is still available at `http://localhost:5173/?mode=classic`.
-- **Solo or two players.** The default is one hero plus an AI companion. Add `?players=2` for a second human on the same keyboard.
+- **Solo, two heroes or three players.** The default is one hero plus an AI companion. A second phone makes hero two a real player, `?players=2` gives them the keyboard, and a third player flies Pip the lantern fairy (see the next section).
 
 ## Folder map
 
 | Path | What is in it | Owner |
 |---|---|---|
-| `frontend/src/adventure/` | The 3D game. `Adventure.ts` is the main loop, input, combat and story flow; `Scanner.ts` is the Reality Rift camera screen and relic card; `weapon.ts` turns an artifact into a relic's spell power and holds the boss elements; `forge.ts` has the wand shapes, their spells, cooldowns and the 4-7 / 8-0- keyboard stand-in; `armory.ts` is the in-browser relic shelf; `WandModel.ts` and `WeaponsHud.ts` draw the wand and the weapons row; `quest.ts` checks `/api/verify` replies; `PhoneInput.ts` and `phoneMath.ts` are the phone joystick client; `CvInput.ts`, `cvMath.ts` and `WandHud.ts` are the camera-tracker client and the wand panel; `World.ts`, `Willow.ts`, `Actor.ts`, `Fx.ts`, `Physics.ts` build and animate the world | Rishaan, and everyone (see team rules) |
+| `frontend/src/adventure/` | The 3D game. `Adventure.ts` is the main loop, input, combat and story flow; `Scanner.ts` is the Reality Rift camera screen and relic card; `weapon.ts` turns an artifact into a relic's spell power and holds the boss elements; `forge.ts` has the wand shapes, their spells, cooldowns and the 4-7 / 8-0- keyboard stand-in; `armory.ts` is the in-browser relic shelf; `WandModel.ts` and `WeaponsHud.ts` draw the wand and the weapons row; `quest.ts` checks `/api/verify` replies; `PhoneInput.ts`, `phoneMath.ts`, `phoneActions.ts` (what a tap does, and the QR pairing card), `qr.ts` and `players.ts` (phone slots to players) are the phone client; `Fairy.ts` and `fairyMath.ts` are Pip; `CvInput.ts`, `cvMath.ts` and `WandHud.ts` are the camera-tracker client and the wand panel; `Cinematics.ts` is Willow's briefing and the result screen; `World.ts`, `Willow.ts`, `Actor.ts`, `Fx.ts`, `Physics.ts` build and animate the world | Rishaan, and everyone (see team rules) |
 | `frontend/src/story/` | `ScriptedStory` (offline story) and `GeminiStory` (calls the backend, falls back per beat) | Rishaan and Trung |
 | `frontend/src/` (rest) | `contracts.ts` (types shared with the backend), `campaign/`, `game/`, `challenges/` and friends: the classic 2.5D edition and shared story data | Rishaan |
-| `frontend/tests/` | Unit tests (`*.test.mjs`) and the browser checks (`adventure.html`) | whoever changes the code |
-| `frontend/scripts/` | `build-3d-kit.py`: Blender source for our own GLB models | Rishaan |
-| `backend/app/` | FastAPI: `main.py` (routes), `provider.py` (story structure), `gemini.py` (Gemini calls), `fallbacks.py`, `joystick.py` (phone relay), `cv.py` (camera-tracker relay), `schemas.py`, `store.py` | Trung |
+| `frontend/tests/` | Unit tests (`*.test.mjs`) and the browser checks (`adventure.html`, `demorun.html`, `phonerun.html`) | whoever changes the code |
+| `frontend/scripts/` | `build-3d-kit.py` (Blender source for our own GLB kit), `build-waystone.py` (the waystone shrine) and `pack-ktx2.py` (compresses its textures) | Rishaan |
+| `backend/app/` | FastAPI: `main.py` (routes), `provider.py` (story structure), `gemini.py` (Gemini calls), `fallbacks.py`, `joystick.py` (phone relay), `cv.py` (camera-tracker relay), `tunnel.py` (the tunnel lockdown), `schemas.py`, `store.py` | Trung |
 | `backend/static/joystick.html` | The page the phone opens | Trung |
 | `backend/tests/`, `backend/tools/` | pytest suite; `live_smoke.py` and `test_photos.py` for real Gemini runs | Trung |
-| `cv_2/` | The webcam tracker (`tools.demo` window, `tools.publish` to feed the game), its own venv and tests | haicil |
-| `scripts/` | `install-art-pack.sh` / `.ps1`: install the private art pack | Trung |
+| `cv_2/` | The webcam tracker (`tools.demo` window, `tools.publish` to feed the game, `tools.autotune` for colours), its own venv and tests | haicil |
+| `scripts/` | `demo.sh` / `demo.ps1` (everything in one command), `install-art-pack.sh` / `.ps1` (install the private art pack) | Trung |
 | `docs/` | `api-contract.md`, `3d-adventure.md`, `art-direction.md`, this project's Devpost draft and demo script | everyone |
 
 The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, Gemini, integration, Reality Rift), **haicil / Allen Ai** (computer vision, on Windows ARM64).
@@ -195,9 +207,11 @@ Handy switches:
 | *(none)* | The short **demo run**: Willow's briefing, one shadow wave, then Morwen |
 | `?story=full` | The whole storyteller-driven tale: camps, freeze, vote, pose seals, riddle door, Gemini beats, storybook |
 | `?story=scripted` | Use the scripted story instead of Gemini. It only matters for the full tale, and it replaces `full`, so for an offline full run use `OFFLINE=1` on the backend or `VITE_STORY=scripted` |
-| `?players=2` | Second human player on the arrow keys |
+| `?players=2` | Hero two is a human on the keyboard (arrow keys, `/`, Right Shift). A second phone makes hero two a human too, with no switch |
+| `?wand=red,blue,yellow` | Which wand colour drives which player, in order: hero one, hero two, Pip the fairy. One, two or three of red, blue and yellow; the default is `yellow,blue`. The launcher sets it for you with `--color` |
+| `?fairy=1` | Bring Pip the lantern fairy in from the start (three colours in `?wand=`, or a third phone, also do it) |
 | `?runes=free` | Any wand shape casts its spell in combat, as before rune requests (no "Draw a …" prompt); cooldowns still apply. Handy when live tracking is weak. With the launcher: open `http://localhost:5173/?runes=free` |
-| `?room=NAME` | Phone joystick room (match it on the phone URL) |
+| `?room=NAME` | Phone and camera room (the phone URL and the tracker use the same name; the default is `storybound`, and `--tunnel` picks a random one) |
 | `?mode=classic` | The old 2.5D campaign |
 | `VITE_API_URL=...` (env) | Point the game at a different backend (default `http://localhost:8000`) |
 
@@ -275,40 +289,55 @@ It starts the backend (open to the local network, for the phone), the game and t
 
 ## Controls
 
-Checked against `bindInput()` and the movement code in `frontend/src/adventure/Adventure.ts`.
+Play with the phone and the wand first; the keyboard does everything too, as a fallback. Checked against `bindInput()` and the movement code in `frontend/src/adventure/Adventure.ts`, the phone page `backend/static/joystick.html` and `frontend/src/adventure/phoneActions.ts`.
+
+**On the phone** (open the link from the QR code on the start screen):
+
+| Touch | Action |
+|---|---|
+| Drag anywhere | Move; push past the ring to sprint |
+| Tap (a quick touch without dragging) | Whatever Enter or E does: start, talk to Willow, read on, accept the quest, take the photo and the relic in the scanner, Play again; otherwise interact |
+| **Scan** (top right) | Open the Reality Rift scanner |
+| **Roll** (top left) | Roll |
+| **Slash** (bottom right) | Strike with the sword. The camera does this too when you swing the phone; this button is the backup, and the only slash for players two and three (Pip dashes) |
+
+**With the camera** (`tools.publish` running): swing the lime-taped phone down to strike; jump to jump; draw the shape the screen asks for with the wand to cast it.
+
+**On the keyboard** (the fallback):
 
 | Key | Action |
 |---|---|
 | **W A S D** | Move (relative to the camera) |
 | **Shift** (left) | Sprint (uses stamina) |
-| **Space** | Jump (a real jump does it too, with the camera tracker) |
+| **Space** | Jump (a real jump does it too, with the camera tracker). It also gives 1 s of invulnerability, at most once every 2.5 s |
 | **J** or left click | Sword (three-hit combo). A camera-tracked phone slash does the same |
 | **F** | Cast a plain bolt (the colour of your relic's element, once you have one) |
-| **4 5 6 7** | Wand shapes for hero one: circle (nova), triangle (meteor), square (wave), star (chain). Stand-in for drawing with the camera wand |
-| **8 9 0 -** | The same four shapes for hero two (`?players=2` only) |
+| **4 5 6 7** | Wand shapes for hero one: circle (nova), triangle (meteor), square (wave), star (chain). Stand-in for drawing with the camera wand. In a fight only the shape the screen asks for casts |
+| **8 9 0 -** | The same four shapes for hero two (a second phone or `?players=2`) |
 | **Q** | Roll: 1 s of invulnerability from the start, 4 s cooldown |
 | **R** | Flash step: short dash, uses stamina, 6 s cooldown. Dodging at the last moment of an enemy attack slows time for a free flurry |
 | **X** | Scan an object for a relic (Reality Rift). Also the **Scan** button |
 | **E** | Interact: talk, open chests and springs, start the next story beat at the golden beacon. In the demo run, E near Willow starts her briefing |
-| **H** | Show the phone joystick URL |
+| **H** | Show the phone page URL as a toast |
 | **M** | Map and journal (**Esc** also opens it when the mouse is free) |
 | **Z** or **Tab**, right click | Lock on to the nearest foe, or release |
 | **C / V**, drag, scroll | Rotate and zoom the camera |
 | **1 / 2 / 3** (hold) | Rune poses: arms up, T-pose, crouch (freeze and pose challenges; crouch also dodges the shadow wave) |
 | Click the world | Capture the mouse for mouse-look. **Esc** releases it |
 
-Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shift** rolls, **I / O / P** are the poses. In the default solo mode the arrows also move your hero, and **/** and **Right Shift** cast and roll for you; the AI companion follows and helps. Phone stick and keyboard both work; the keyboard wins when a key is held.
+Second player on the keyboard (`?players=2` only): **arrow keys** move, **/** casts, **Right Shift** rolls, **I / O / P** are the poses. In the default solo mode the arrows also move your hero, and **/** and **Right Shift** cast and roll for you; the AI companion follows and helps. Phone stick and keyboard both work; the keyboard wins when a key is held.
 
 ## Testing
 
 | What | Command | Result on `main` |
 |---|---|---|
 | Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 78 pass |
-| Frontend unit tests | `cd frontend && npm test` | 89 pass |
+| Frontend unit tests | `cd frontend && npm test` | 101 pass |
 | Phone-only run | `npm run dev`, open `http://localhost:5173/tests/phonerun.html`, click **Run phone-only checks** | 5 checks: start, Willow and the wave, a scan and a roll with phone messages only, three players. The scan check can stall in a browser tab that is hidden (an image decode waits for it to be shown); keep the tab in view |
 | Type-check and build | `cd frontend && npm run build` | passes |
-| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 16 checks, listed as PASS / FAIL. They play the full story, not the demo run |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 247 pass (about 15-90 s on a Mac; no camera needed) |
+| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 17 checks, listed as PASS / FAIL. They play the full story, not the demo run |
+| Demo-run junction checks | `npm run dev`, open `http://localhost:5173/tests/demorun.html`, click **Run demo-run junction checks** | 12 checks of the default demo run with every input at once (phone, camera messages, keys, a stubbed scan): rune requests, wand recovery, `?runes=free`, a relic mid-fight, Morwen's fight timing, a second phone, jump i-frames |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 273 pass (about 15-90 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
@@ -330,25 +359,29 @@ The browser checks drive the real renderer with real key events, so they need a 
 - Gemini storyteller with a scripted fallback for every beat, and the personalised storybook (`?story=full`).
 - Reality Rift: scan an object into a relic (relic card with your photo, in-browser armory), boss element weaknesses, and a story and storybook that mention the real object.
 - The riddle door that checks a webcam photo with Gemini vision (`?story=full`).
-- Phone joystick through the backend relay.
-- cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump.
+- Phone control through the backend relay: a QR code on the start screen, drag to move, tap to act, Scan, Roll and Slash buttons, so the whole demo run plays with just the phone and the wand. Up to three phones; phones on any network through a Cloudflare tunnel (`--tunnel`), which only exposes the phone page and the phone socket.
+- Up to three players: a second phone makes hero two a human, and a third player flies Pip the lantern fairy. `?wand=` gives each player a wand colour.
+- cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump, and a no-keys colour autotune (`tools.autotune`, `demo.sh --tune`).
 - cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial, wand shapes to the game (any shape, the wand panel, and pose seals opened by their rune) (tested with synthetic tracker frames; not yet with a live webcam).
-- Two weapons per hero (sword and wand), drawn shapes casting spells, and relics infusing both weapons with their element. Keys 4-7 and 8-0- stand in for the camera wand.
+- Two weapons per hero (sword and wand), drawn shapes casting spells, and relics infusing both weapons with their element. In a fight the game asks for one shape at a time, and the wand needs 2 s between spells. Keys 4-7 and 8-0- stand in for the camera wand. A jump gives 1 s of invulnerability (at most once every 2.5 s).
+- The camera picture inside the game (the wand panel), also used by the scanner, so the tracker is the only program that opens the webcam.
+- The first of our own 3D models in the game: the waystone shrine, sculpted in Blender and baked to a light mesh with KTX2 textures. The characters and most props still come from the private art pack.
 - Classic 2.5D campaign at `?mode=classic`.
 
 **In progress (not on `main` yet)**
 
-- Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
+- **Networked multiplayer.** Each laptop runs its own game, and the players' avatars sync through the host's tunnel (a presence socket, `/ws/presence`, and a `demo.sh --join` option to join a host). Nothing of it is on `main` yet, so none of those names exist in the code. `TODO(after merge)`: describe the setup, and flip this to working.
+- **Lenient star recognition** when a star is the requested shape, and **tracing that stops whenever you cannot cast**. `TODO(after merge)`
+- Rebuilding the rest of our 3D models in Blender (the characters and props) so the team owns every model and the private art pack is optional. The waystone is done; see above.
 
 **Not done**
 
 - Aiming spells by pointing the wand.
-- No hosted version: the game runs locally (frontend and backend on one laptop).
+- No hosted version: the game runs locally (frontend and backend on one laptop). Phones can join through a tunnel, but the game itself is not deployed.
 - cv_2 shape and slash detection has not been validated across different lighting, cameras or people. Slash recall depends on keeping the whole swing in view.
 - The 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); they exist in the backend only.
 - Some supporting props and the boss models use simpler geometry than the forest.
-- Without the private art pack, the hero's sword and wand are not drawn in the hand (the weapons still work), and characters are plain stand-ins.
-- The camera tracker and the scanner both want the webcam. If the scanner cannot open the camera while `tools.publish` runs, scan first or use "Choose a photo".
+- Without the private art pack, the hero's sword and wand are not drawn in the hand (the weapons still work), and characters are plain stand-ins. (The waystone is ours and does not need the pack.)
 
 ## More docs
 
