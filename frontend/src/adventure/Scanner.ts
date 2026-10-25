@@ -20,6 +20,7 @@ export class Scanner {
   private readonly video = document.createElement('video');
   private readonly panel = document.createElement('div');
   private stream?: MediaStream;
+  private cameraRequest = 0;
   private phase: Phase = 'live';
   private weapon?: Weapon;
   private abort?: AbortController;
@@ -85,17 +86,22 @@ export class Scanner {
   // ---- camera ----
   private async startCamera(): Promise<void> {
     this.stopCamera(); this.render('live');
+    const request = this.cameraRequest;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play().catch(() => undefined);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      // Closed, restarted or already scanning a photo while the browser asked for the camera: let it go.
+      if (request !== this.cameraRequest || !this.open || this.phase !== 'live') { stream.getTracks().forEach((track) => track.stop()); return; }
+      this.stream = stream; this.video.srcObject = stream; await this.video.play().catch(() => undefined);
       this.root.classList.add('has-camera');
+      this.render('live');   // the first render ran before the camera existed, so it had no Scan button
     } catch {
+      if (request !== this.cameraRequest || !this.open) return;
       this.root.classList.remove('has-camera');
       this.render('live', 'No camera available. You can choose a photo of an object instead.');
     }
   }
 
-  private stopCamera(): void { this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.video.srcObject = null; }
+  private stopCamera(): void { this.cameraRequest++; this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.video.srcObject = null; }
 
   private async captureFromCamera(): Promise<void> {
     if (!this.stream || !this.video.videoWidth) return;

@@ -95,6 +95,24 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       await work; await until(() => inner.beat.id === 'show-me', 'pose sequence did not open the riddle door');
       assert(inner.state.outcomes.at(-1)?.success, 'pose success missing');
     });
+    await check('Scanner shows the Scan button once the camera starts, and closing always releases the camera', async () => {
+      const scanner = (game as unknown as { scanner: { open: boolean; show(): Promise<void>; close(): void } }).scanner;
+      const media = navigator.mediaDevices, real = media.getUserMedia;
+      const feed = document.createElement('canvas'); feed.width = 64; feed.height = 48; feed.getContext('2d')!.fillRect(0, 0, 64, 48);
+      const streams: MediaStream[] = [], opened = () => streams.length, ended = (s: MediaStream) => s.getTracks().every((t) => t.readyState === 'ended');
+      const labels = () => [...document.querySelectorAll('.rift-panel button')].map((b) => b.textContent ?? '');
+      media.getUserMedia = async () => { const s = feed.captureStream(5); streams.push(s); return s; };
+      try {
+        void scanner.show();
+        await until(() => labels().some((l) => l.startsWith('Scan the object')), `camera started but there was no Scan button (saw: ${labels().join(', ')})`);
+        scanner.close(); assert(opened() === 1 && ended(streams[0]), 'closing left the camera on');
+        // Closed while the browser is still asking for the camera: the late stream must be stopped, not kept.
+        let grant!: () => void; const asking = new Promise<void>((resolve) => { grant = resolve; });
+        media.getUserMedia = async () => { await asking; const s = feed.captureStream(5); streams.push(s); return s; };
+        const pending = scanner.show(); scanner.close(); grant(); await pending;
+        assert(opened() === 2 && ended(streams[1]), 'a camera granted after closing stayed on');
+      } finally { media.getUserMedia = real; scanner.close(); }
+    });
     await check('Show-me door: a wrong photo is refused with what Gemini saw, a right one opens it, and Skip fails without losing a heart', async () => {
       const scanner = (game as unknown as { scanner: { open: boolean; captureFromFile(f: File): Promise<void> } }).scanner;
       const phase = () => document.querySelector<HTMLElement>('.rift-scan')!.dataset.phase, panel = () => document.querySelector('.rift-panel')!.textContent ?? '';
