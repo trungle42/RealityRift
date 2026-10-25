@@ -15,6 +15,8 @@ import { GeminiStory } from '../story/GeminiStory';
 import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
+import { Scanner } from './Scanner';
+import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
@@ -45,7 +47,9 @@ const COMBO = [
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
 const FLASH_COOLDOWN = 6;
-interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex }
+interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex; color: number; element?: Element; damage: number; pierce: number; chain: number; chainRadius: number; hit: Set<Enemy> }
+/** A delayed area strike (meteor): telegraphed on the ground, lands after `delay`. */
+interface Strike { at: number; delay: number; pos: T.Vector3; radius: number; damage: number; color: number; element?: Element; player: PlayerIndex }
 interface Spark { mesh: T.Mesh; velocity: T.Vector3; life: number; max: number }
 interface Trial { type: 'freeze' | 'pose'; elapsed: number; duration: number; moved: number; held: number; poseIndex: number; poses: PoseId[]; secondsPerPose: number; before: number }
 const MOVE = [['KeyA', 'KeyD', 'KeyW', 'KeyS'], ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']];
@@ -84,6 +88,10 @@ export class Adventure {
   private readonly camps: Camp[] = [];
   private readonly pickups: Pickup[] = [];
   private readonly wheel = document.createElement('div');
+  /** Reality Rift: the scanned weapon (if any) that shapes hero 0's spell. */
+  private weapon?: Weapon;
+  private readonly strikes: Strike[] = [];
+  private readonly scanner = new Scanner((weapon) => this.equip(weapon));
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -232,7 +240,7 @@ export class Adventure {
     window.addEventListener('blur', () => { this.keys.clear(); this.drag = undefined; this.previous = 0; }, options);
     document.addEventListener('visibilitychange', () => { this.keys.clear(); this.previous = 0; }, options);
     window.addEventListener('keydown', (event) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || !this.state) return;
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || !this.state || this.scanner.open) return;
       if (['Space', 'Tab', ...MOVE.flat()].includes(event.code)) event.preventDefault();
       if (this.ui.speaking) {
         if (!event.repeat && ['Enter', 'Space', 'KeyE'].includes(event.code)) { event.preventDefault(); this.ui.advance(); }
@@ -249,6 +257,7 @@ export class Adventure {
       if (event.code === 'Slash') this.cast(this.solo ? 0 : 1);
       if (event.code === 'KeyQ') this.roll(0);
       if (event.code === 'KeyR') this.flashStep(0);
+      if (event.code === 'KeyX') void this.openScan();
       if (event.code === 'ShiftRight') this.roll(this.solo ? 0 : 1);
       if (event.code === 'Space') this.leap(0);
       if (event.code === 'KeyZ' || event.code === 'Tab') this.toggleLock();
@@ -282,7 +291,7 @@ export class Adventure {
     }, options);
     canvas.addEventListener('pointercancel', () => { this.drag = undefined; }, options);
     canvas.addEventListener('wheel', (event) => { event.preventDefault(); this.zoom = clamp(this.zoom + event.deltaY * 0.008, 4.5, 19); }, { ...options, passive: false });
-    this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onFlash = () => this.flashStep(0); this.ui.onMap = () => this.openJournal();
+    this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onScan = () => void this.openScan(); this.ui.onFlash = () => this.flashStep(0); this.ui.onMap = () => this.openJournal();
     this.ui.onSound = () => { this.sound = !this.sound; this.sfx.setMuted(!this.sound); this.narrator.enabled = this.sound; if (!this.sound) this.narrator.stop(); this.ui.sound(this.sound); };
     this.ui.onNarrate = (text) => this.narrator.speak(text); this.ui.onSilence = () => this.narrator.stop();
     this.ui.root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((button) => {
@@ -351,6 +360,12 @@ export class Adventure {
     if (beat.challenge?.type === 'vote') {
       const choice = await this.ui.choose(beat.challenge.prompt, beat.challenge.options);
       this.busy = false; await this.complete('vote', true, 0, `They chose ${beat.challenge.options.find((o) => o.id === choice)?.label ?? choice}.`, choice); return;
+    }
+    if (beat.challenge?.type === 'show') {
+      const { object, prompt } = beat.challenge; this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+      const ok = await this.scanner.ask(object, prompt); this.busy = false;
+      if (ok) this.ui.toast('The door swings open for you.');
+      await this.complete('show', ok, this.state!.hearts, ok ? `They showed the door ${object} from their own world.` : `They could not show the door ${object}.`); return;
     }
     this.busy = false;
     if (beat.challenge?.type === 'freeze') {
@@ -580,21 +595,96 @@ export class Adventure {
     if (pick) { this.lock = pick; this.sfx.lockOn(); } else this.ui.toast('No foe nearby to focus on');
   }
 
+  /** The spell hero `player` casts: a scanned weapon's for hero 0, otherwise the plain bolt. */
+  private spellOf(player: PlayerIndex): SpellSpec { return player === 0 && this.weapon ? this.weapon.spell : defaultSpell(player ? 0xf4d391 : 0xb2f6d5); }
+
   private cast(player: PlayerIndex): void {
     if (!this.canAct() || this.spellCooldown[player] > 0 || this.trial) return;
-    this.spellCooldown[player] = this.state!.has('quick-cast') ? 0.35 : 0.8;
+    const spell = this.spellOf(player);
+    this.spellCooldown[player] = spell.cooldown * (this.state!.has('quick-cast') ? 0.4375 : 1);
     const hero = this.heroes[player], p = hero.root.position;
     const locked = player === 0 && this.lock && this.lock.hp > 0 ? this.lock : undefined;
     const target = locked ?? this.closestEnemy(p, 19), direction = new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading));
     const start = p.clone().add(new T.Vector3(0, 1.25, 0));
     if (target) { direction.copy(target.root.position).add(new T.Vector3(0, target.boss ? 1.8 : 0.9, 0)).sub(start).normalize(); hero.heading = Math.atan2(direction.x, direction.z); }
-    const color = player ? 0xf4d391 : 0xb2f6d5;
-    const bolt = mesh(new T.IcosahedronGeometry(0.17, 1), new T.MeshBasicMaterial({ color: 0xffffff }), this.scene); bolt.castShadow = false;
-    const halo = new T.Mesh(new T.SphereGeometry(0.42, 12, 10), new T.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false })); bolt.add(halo);
-    bolt.position.copy(start); this.bolts.push({ mesh: bolt, velocity: direction.multiplyScalar(23), life: 1.1, player });
+    const color = spell.color;
+    if (spell.ability === 'nova') this.novaBurst(player, spell);
+    else if (spell.ability === 'meteor') {
+      const aim = target ? target.root.position : p.clone().addScaledVector(new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading)), 8);
+      const pos = new T.Vector3(aim.x, heightAt(aim.x, aim.z), aim.z);
+      this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color, element: spell.element, player });
+      this.fx.shockwave(pos, color, spell.radius, spell.delay, 0.12);
+    } else {
+      for (let k = 0; k < spell.count; k++) {
+        const dir = direction.clone().applyAxisAngle(new T.Vector3(0, 1, 0), (k - (spell.count - 1) / 2) * spell.spread);
+        this.launchBolt(start, dir, player, spell);
+      }
+    }
     hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackSerial++;
     this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2);
     if (player === 0) this.sfx.cast();
+  }
+
+  private launchBolt(start: T.Vector3, direction: T.Vector3, player: PlayerIndex, spell: SpellSpec): void {
+    const bolt = mesh(new T.IcosahedronGeometry(0.17, 1), new T.MeshBasicMaterial({ color: 0xffffff }), this.scene); bolt.castShadow = false;
+    const halo = new T.Mesh(new T.SphereGeometry(0.42, 12, 10), new T.MeshBasicMaterial({ color: spell.color, transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false })); bolt.add(halo);
+    bolt.position.copy(start);
+    this.bolts.push({ mesh: bolt, velocity: direction.clone().normalize().multiplyScalar(spell.speed), life: spell.life, player, color: spell.color, element: spell.element, damage: spell.damage, pierce: spell.pierce, chain: spell.chain, chainRadius: spell.radius, hit: new Set() });
+  }
+
+  /** Nova: everything around the hero is struck at once. */
+  private novaBurst(player: PlayerIndex, spell: SpellSpec): void {
+    const p = this.heroes[player].root.position, at = p.clone().add(new T.Vector3(0, 0.9, 0));
+    this.fx.shockwave(p, spell.color, spell.radius * 1.15, 0.55, 0.3); this.fx.shockwave(p, 0xffffff, spell.radius * 0.7, 0.3, 0.12);
+    this.fx.motes(at, spell.color, 46, spell.radius * 0.55, 1.4, 0.3, 0.8); this.fx.flash(at, spell.color, 20, 0.35); this.rig.addTrauma(0.3); this.sfx.burst();
+    for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, p) < spell.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, spell.damage, player, false, spell.element);
+  }
+
+  /** Lightning leaps from `from` to up to `jumps` more nearby foes. */
+  private chainFrom(from: Enemy, bolt: Bolt): void {
+    const visited = new Set<Enemy>([from, ...bolt.hit]); let current = from;
+    for (let j = 0; j < bolt.chain; j++) {
+      let best: Enemy | undefined, bestD = bolt.chainRadius;
+      for (const enemy of this.enemies) { if (enemy.hp <= 0 || visited.has(enemy)) continue; const d = distance(enemy.root.position, current.root.position); if (d < bestD) { best = enemy; bestD = d; } }
+      if (!best) break;
+      const a = current.root.position.clone().add(new T.Vector3(0, 0.9, 0)), b = best.root.position.clone().add(new T.Vector3(0, 0.9, 0));
+      for (let k = 0; k <= 8; k++) this.fx.trail(a.clone().lerp(b, k / 8).add(new T.Vector3((Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4)), bolt.color, 0.34);
+      this.fx.flash(b, bolt.color, 12, 0.18); this.hit(best, bolt.damage, bolt.player, false, bolt.element); visited.add(best); current = best;
+    }
+  }
+
+  /** HUD hint: which element the boss fears, so a scan can be chosen on purpose. */
+  private fearsLine(kind: string): string { const entry = BOSS_ELEMENTS[kind]; return entry ? ` · weak to ${entry.weak}` : ''; }
+
+  private updateStrikes(): void {
+    for (let i = this.strikes.length - 1; i >= 0; i--) {
+      const strike = this.strikes[i], remaining = strike.at - this.time;
+      if (remaining > 0) {
+        // A glowing meteor falls out of the sky onto the marked ground.
+        const fall = remaining / strike.delay;
+        this.fx.trail(strike.pos.clone().add(new T.Vector3(0, 1.5 + fall * 11, 0)), strike.color, 0.8); this.fx.trail(strike.pos.clone().add(new T.Vector3(0, 0.2, 0)), strike.color, 0.35);
+        continue;
+      }
+      this.strikes.splice(i, 1);
+      this.fx.shockwave(strike.pos, strike.color, strike.radius * 1.4, 0.55, 0.3); this.fx.sparks(strike.pos.clone().add(new T.Vector3(0, 0.5, 0)), strike.color, 40, 9, 0.26, 0.6, 7);
+      this.fx.puff(strike.pos, 0xb6ad8f, 10, strike.radius * 0.6, 0.6, 0.7); this.fx.flash(strike.pos.clone().add(new T.Vector3(0, 1, 0)), strike.color, 24, 0.35); this.rig.addTrauma(0.4); this.sfx.land(true);
+      for (const enemy of this.enemies) if (enemy.hp > 0 && distance(enemy.root.position, strike.pos) < strike.radius + (enemy.boss ? 1.5 : 0)) this.hit(enemy, strike.damage, strike.player, false, strike.element);
+    }
+  }
+
+  // ---- Reality Rift: scan an object, get a weapon ----
+  private async openScan(): Promise<void> {
+    if (!this.state || this.busy || this.ended || this.ui.blocked || this.scanner.open) return;
+    this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+    await this.scanner.show();
+  }
+
+  private equip(weapon: Weapon): void {
+    this.weapon = weapon; this.heroes[0].glowWeapon(weapon.spell.color);
+    const hero = this.heroes[0].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0)), color = weapon.spell.color;
+    this.fx.shockwave(hero, color, 6, 1.0, 0.3); this.fx.shockwave(hero, 0xffffff, 3, 0.6, 0.15); this.fx.motes(at, color, 90, 1.2, 3.2, 0.3, 1.8); this.fx.sparks(at, color, 40, 7, 0.22, 0.8, 2);
+    this.fx.flash(at, color, 26, 0.9); this.rig.addTrauma(0.3); this.sfx.chest();
+    this.ui.toast(`${weapon.artifactName} — ${weapon.element} ${weapon.ability}. ${weapon.description}`);
   }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
@@ -638,13 +728,16 @@ export class Adventure {
   private canAct(): boolean { return !!this.state && !this.busy && !this.ui.blocked && !this.ended; }
   private closestEnemy(p: T.Vector3, radius: number): Enemy | undefined { return this.enemies.filter((e) => e.hp > 0 && distance(e.root.position, p) < radius && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1.2, 0)), e.root.position.clone().add(new T.Vector3(0, e.boss ? 1.8 : 0.9, 0))) === undefined).sort((a, b) => distance(a.root.position, p) - distance(b.root.position, p))[0]; }
 
-  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false): void {
+  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false, element?: Element): void {
     if (enemy.hp <= 0 || this.ended) return;
     const at = enemy.root.position.clone().add(new T.Vector3(0, enemy.boss ? 2 : 1, 0));
     if (enemy.boss && (enemy.windup > 0 || enemy.cooldown <= 0)) {
       // Warded: sparks bounce off and the blade rings, so the player reads "not now".
       this.fx.sparks(at, 0xbfe0ff, 10, 5, 0.16, 0.35, 8); this.fx.number(at.clone().add(new T.Vector3(0, 0.6, 0)), 'Warded', '#bfe0ff'); this.sfx.lockOff(); return;
     }
+    // Reality Rift: a boss takes double from the element it fears and half from the one it resists.
+    const multiplier = enemy.boss ? elementMultiplier(enemy.boss.kind, element) : 1;
+    if (multiplier !== 1) damage = scaledDamage(damage, multiplier);
     enemy.hp -= damage;
     enemy.shown = 4; this.drawBar(enemy);
     if (!enemy.encounter && !enemy.boss) { if (enemy.ai === 'idle') this.alertCamp(enemy); enemy.ai = 'chase'; }
@@ -658,6 +751,11 @@ export class Adventure {
     this.fx.sparks(at, 0xffffff, 6, 10, 0.12, 0.2, 0);
     this.fx.flash(at, 0xffd59a, crit ? 16 : 10, 0.14);
     this.fx.number(at.clone().add(new T.Vector3(0, 0.7, 0)), String(damage), crit ? '#ffe27a' : '#fff4df', crit);
+    if (multiplier > 1) {
+      const color = this.weapon?.spell.color ?? 0xffd36b;
+      this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Weak point!', '#ffd36b', true); this.fx.shockwave(enemy.root.position, color, 5, 0.6, 0.25);
+      this.fx.sparks(at, color, 34, 9, 0.24, 0.7, 3); this.fx.flash(at, color, 22, 0.3); this.hitstop = Math.max(this.hitstop, 0.11); this.rig.addTrauma(0.35);
+    } else if (multiplier < 1) this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Resisted', '#9fb0b8');
     this.hitstop = Math.max(this.hitstop, heavy ? 0.085 : 0.05); this.rig.addTrauma(heavy ? 0.32 : 0.18);
     this.sfx.hit(heavy, crit); this.sfx.enemyHurt();
     if (enemy.actor) enemy.actor.stagger = 0.4;
@@ -706,9 +804,9 @@ export class Adventure {
     const real = this.previous ? Math.min(0.045, (timestamp - this.previous) / 1000) : 0;
     this.previous = timestamp;
     if (document.hidden) return;
-    const paused = this.ui.blocked || this.busy || this.ended;
+    const paused = this.ui.blocked || this.busy || this.ended || this.scanner.open;
     // Dialogue, choices and the journal need the cursor back.
-    if ((this.ui.blocked || this.ended) && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+    if ((this.ui.blocked || this.ended || this.scanner.open) && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
     // Hit-stop freezes the world for a few frames on contact; the camera and effects keep breathing.
     let dt = real;
     if (this.hitstop > 0) { this.hitstop -= real; dt = real * 0.04; }
@@ -868,7 +966,7 @@ export class Adventure {
       }
     }
     this.updateTrial(dt); if (this.ended) { this.physics?.step(dt); return; }
-    this.resolveHits(); this.updateEnemies(dt); this.updateBolts(dt); this.updateSparks(dt); this.updatePickups(dt); this.updateCamps(dt);
+    this.resolveHits(); this.updateEnemies(dt); this.updateBolts(dt); this.updateStrikes(); this.updateSparks(dt); this.updatePickups(dt); this.updateCamps(dt);
     if (this.lock && (this.lock.hp <= 0 || distance(this.lock.root.position, p) > 26)) { this.lock = undefined; this.sfx.lockOff(); }
     this.companionCast -= dt;
     if (!this.solo && this.companionCast <= 0 && this.time > this.companionUntil && !this.trial && this.closestEnemy(this.heroes[1].root.position, 13)) { this.cast(1); this.companionCast = this.state!.has('fairy-ally') ? 0.85 : 2.1; }
@@ -926,7 +1024,7 @@ export class Adventure {
       enemy.cooldown -= dt; enemy.core.position.y = (enemy.boss ? 1.9 : 0.9) + Math.sin(this.time * 3 + enemy.home.x) * 0.13;
       if (enemy.windup > 0) {
         enemy.windup -= dt; enemy.ring.visible = true; enemy.ring.scale.setScalar(1 + Math.sin(this.time * 11) * 0.04);
-        if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away');
+        if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away' + this.fearsLine(enemy.boss.kind));
         if (enemy.windup <= 0) {
           enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : 2;
           // Regular foes lunge into the strike.
@@ -971,7 +1069,7 @@ export class Adventure {
       if (enemy.bar) { enemy.shown -= dt; enemy.bar.visible = enemy.shown > 0 || this.lock === enemy; }
       if (enemy.visual) enemy.visual.rotation.z = Math.sin(this.time * 2 + enemy.home.x) * 0.025;
       if (enemy.actor) { enemy.actor.heading = 0; enemy.actor.moving = motion.length() / Math.max(dt, 0.001); enemy.actor.pose = enemy.windup > 0 ? 'arms-up' : ''; enemy.actor.update(dt, this.time); }
-      if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now');
+      if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now' + this.fearsLine(enemy.boss.kind));
       dt = real;
     }
   }
@@ -979,7 +1077,7 @@ export class Adventure {
   private updateBolts(dt: number): void {
     for (let i = this.bolts.length - 1; i >= 0; i--) {
       const bolt = this.bolts[i]; bolt.life -= dt; const from = bolt.mesh.position.clone(); bolt.mesh.position.addScaledVector(bolt.velocity, dt);
-      const color = bolt.player ? 0xf4d391 : 0xb2f6d5;
+      const color = bolt.color;
       for (let k = 0; k < 3; k++) this.fx.trail(from.clone().lerp(bolt.mesh.position, k / 3), color, 0.34);
       bolt.mesh.rotation.x += dt * 9; bolt.mesh.rotation.y += dt * 7;
       const wall = this.physics?.wallDistance(from, bolt.mesh.position);
@@ -988,10 +1086,13 @@ export class Adventure {
         if (enemy.hp <= 0) continue;
         const center = enemy.root.position.clone().add(new T.Vector3(0, enemy.boss ? 1.8 : 0.9, 0));
         const line = new T.Line3(from, bolt.mesh.position); const nearest = line.closestPointToPoint(center, true, new T.Vector3());
+        if (bolt.hit.has(enemy)) continue;
         if (nearest.distanceTo(center) < (enemy.boss ? 1.5 : 0.7)) {
-          this.hit(enemy, 1, bolt.player); bolt.life = 0;
+          this.hit(enemy, bolt.damage, bolt.player, false, bolt.element); bolt.hit.add(enemy);
           this.fx.sparks(nearest, color, 22, 7, 0.24, 0.5, 3); this.fx.shockwave(enemy.root.position, color, 2.2, 0.35); this.fx.flash(nearest, color, 14, 0.2); this.sfx.burst();
-          break;
+          if (bolt.chain > 0) this.chainFrom(enemy, bolt);
+          if (bolt.pierce > 0) { bolt.pierce--; continue; }
+          bolt.life = 0; break;
         }
       }
       if (wall !== undefined) { this.fx.sparks(bolt.mesh.position, color, 14, 5, 0.2, 0.4, 4); this.fx.puff(bolt.mesh.position, 0xb6ad8f, 4, 0.8, 0.35, 0.5); this.sfx.burst(); bolt.life = 0; }
@@ -1022,7 +1123,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();
