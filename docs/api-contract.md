@@ -178,12 +178,15 @@ to the game. The full per-frame data from `Pipeline.process()` is documented in 
 [`docs/yellow-tracker.html`](yellow-tracker.html); decisions and measurements are in [`cv_2/CLAUDE.md`](../cv_2/CLAUDE.md).
 
 ### `WS /ws/cv/{room}?role=tracker|game`
-Relay in `backend/app/cv.py`, the same pattern as `/ws/joystick/{room}`. `room` is 1-32 of `A-Za-z0-9_-` and is the only access
-control; the game uses its `?room=` URL parameter (default `storybound`), shared with the phone joystick. A bad room or role is
-closed with code 1008. Each side gets `{type:"peer", role, state:"joined"|"left"}` when the other side connects or leaves, and a
-newcomer is told who is already there. Every message is rebuilt from the fields below (types checked, numbers clamped, names
-limited to `^[a-z][a-z0-9_-]{0,15}$`, at most 8 colours and 400 trace points per colour, messages over 64 KB dropped), so
-neither side can push arbitrary data into the other.
+Relay in `backend/app/cv.py`, the same pattern as `/ws/joystick/{room}`. **Only this laptop may connect:** the backend listens on
+the network (`--host 0.0.0.0`) so the phone can reach `/joystick`, and the relay carries the player's webcam picture, so a client
+that is not loopback (`127.0.0.1`, `::1`) is refused (closed with 1008 before the handshake completes, HTTP 403) unless the backend
+runs with `CV_ALLOW_REMOTE=1`, for a deliberate multi-machine setup. The tracker and the game always run on the same laptop; the
+phone only uses `/ws/joystick`, which stays open to the network. `room` is 1-32 of `A-Za-z0-9_-`; the game uses its `?room=` URL
+parameter (default `storybound`), shared with the phone joystick. A bad room or role is closed with code 1008. Each side gets
+`{type:"peer", role, state:"joined"|"left"}` when the other side connects or leaves, and a newcomer is told who is already there.
+Every message is rebuilt from the fields below (types checked, numbers clamped, names limited to `^[a-z][a-z0-9_-]{0,15}$`, at most
+8 colours and 400 trace points per colour, pictures capped as below), so neither side can push arbitrary data into the other.
 
 Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames rather than queue them):
 ```json

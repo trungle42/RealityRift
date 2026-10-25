@@ -6,13 +6,19 @@ the camera picture {"type":"frame","w","h","jpeg"} (the tracker is the only prog
 full-size {"type":"snapshot","id","w","h","jpeg"}. Game -> tracker is {"type":"gate","on","target"}, which tools.publish applies
 (Pipeline.control: the game drives the wand while it is here), and {"type":"snapshot","id"} (the scanner wants a picture).
 Pictures are only passed on, never stored, and must be base64 JPEG under a size cap.
+
+Only this laptop may connect: the backend listens on the whole network (--host 0.0.0.0) so the phone can reach /joystick, and
+without this check anyone on the venue Wi-Fi could join the guessable room and watch the player's webcam. The tracker and the game
+always run on the same machine, so /ws/cv refuses non-loopback clients unless CV_ALLOW_REMOTE=1 (a deliberate multi-machine setup).
 Every message is rebuilt from known fields with types checked and sizes capped, so neither side can push arbitrary data into the
 other. The room code is the only "auth", as for the joystick.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import math
+import os
 import re
 from typing import Dict, Optional
 
@@ -147,6 +153,18 @@ def clean_control(msg: object) -> Optional[dict]:
     return {"type": "gate", "on": msg["on"], "target": _name(msg.get("target"))}
 
 
+def client_allowed(host: Optional[str]) -> bool:
+    """A loopback client (or Starlette's TestClient), or anyone when CV_ALLOW_REMOTE=1. Read per call, so it can be changed."""
+    if os.getenv("CV_ALLOW_REMOTE") == "1" or host == "testclient":
+        return True
+    try:
+        ip = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)   # ::ffff:127.0.0.1
+    return ip.is_loopback or bool(mapped and mapped.is_loopback)
+
+
 async def _send_all(targets: set, text: str) -> None:
     for ws in list(targets):
         try:
@@ -157,7 +175,7 @@ async def _send_all(targets: set, text: str) -> None:
 
 @router.websocket("/ws/cv/{room}")
 async def cv_ws(ws: WebSocket, room: str, role: str = "game"):
-    if not ROOM_RE.match(room) or role not in ("tracker", "game"):
+    if not ROOM_RE.match(room) or role not in ("tracker", "game") or not client_allowed(ws.client.host if ws.client else None):
         await ws.close(code=1008)
         return
     await ws.accept()

@@ -7,7 +7,7 @@ import json  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.cv import MAX_FRAME, MAX_POINTS, MAX_SNAPSHOT, clean_control, clean_tracker, clean_wand  # noqa: E402
+from app.cv import MAX_FRAME, MAX_POINTS, MAX_SNAPSHOT, clean_control, clean_tracker, clean_wand, client_allowed  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -150,10 +150,38 @@ def test_rooms_are_isolated_from_each_other_and_from_the_joystick(client):
             assert json.loads(game_b.receive_text())["jump"] == 9
 
 
+def refused(client, url) -> bool:
+    try:
+        with client.websocket_connect(url):
+            return False
+    except Exception as error:  # starlette raises WebSocketDisconnect on close code 1008
+        return "1008" in str(error) or "Disconnect" in type(error).__name__
+
+
 def test_bad_room_or_role_is_refused(client):
     for url in ("/ws/cv/bad room!?role=tracker", "/ws/cv/ok?role=phone"):
-        try:
-            with client.websocket_connect(url):
-                raise AssertionError("connection should have been refused")
-        except Exception as error:  # starlette raises WebSocketDisconnect on close code 1008
-            assert "1008" in str(error) or "Disconnect" in type(error).__name__
+        assert refused(client, url)
+
+
+def test_only_this_laptop_may_connect(monkeypatch):
+    monkeypatch.delenv("CV_ALLOW_REMOTE", raising=False)
+    for host in ("127.0.0.1", "127.0.1.1", "::1", "::ffff:127.0.0.1", "testclient"):
+        assert client_allowed(host), host
+    for host in ("192.168.1.20", "10.0.0.5", "::ffff:10.0.0.5", "fe80::1", "", None, "example.com"):
+        assert not client_allowed(host), host
+    monkeypatch.setenv("CV_ALLOW_REMOTE", "1")
+    assert client_allowed("192.168.1.20")
+
+
+def test_someone_else_on_the_wifi_cannot_watch_the_camera(monkeypatch):
+    # The backend listens on the network for the phone joystick; the webcam relay must not.
+    monkeypatch.delenv("CV_ALLOW_REMOTE", raising=False)
+    with TestClient(app, client=("192.168.1.77", 51000)) as stranger:
+        assert refused(stranger, "/ws/cv/storybound?role=game")
+        assert refused(stranger, "/ws/cv/storybound?role=tracker")
+        with stranger.websocket_connect("/ws/joystick/storybound?role=phone"):
+            pass                                                   # the phone joystick still works from the Wi-Fi
+    monkeypatch.setenv("CV_ALLOW_REMOTE", "1")
+    with TestClient(app, client=("192.168.1.77", 51000)) as invited:
+        with invited.websocket_connect("/ws/cv/remote?role=game"):
+            pass
