@@ -24,8 +24,11 @@ export class WandHud {
   private last?: Record<string, boolean>;
   private flash?: { text: string; colour: string; until: number };
   private frame = 0;
-  private readonly picture = new Image();
+  /** The last camera picture that finished decoding. A new one decodes off to the side and replaces it only when ready,
+   * so the panel never shows an empty frame between pictures (that blinked ~9 times a second). */
+  private picture?: HTMLImageElement;
   private pictureSeq = 0;
+  private shownSeq = 0;
   private readonly hint = document.createElement('div');
   private hintText = '';
   private hintSince = 0;
@@ -68,8 +71,13 @@ export class WandHud {
     if (hint !== this.hintText) { this.hintText = hint; this.hintSince = now; }
     this.hint.textContent = hint && now - this.hintSince >= HINT_SECONDS ? hint : '';
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    if (camera && camera.seq !== this.pictureSeq) { this.pictureSeq = camera.seq; this.picture.src = camera.url; }
-    if (camera && this.picture.complete && this.picture.naturalWidth) {
+    if (camera && camera.seq !== this.pictureSeq) {
+      const seq = camera.seq, next = new Image(); this.pictureSeq = seq;
+      // Any picture newer than the one shown replaces it, so a slow decode can never freeze the panel.
+      next.onload = () => { if (seq > this.shownSeq) { this.shownSeq = seq; this.picture = next; } };
+      next.src = camera.url;
+    }
+    if (camera && this.picture) {
       ctx.drawImage(this.picture, 0, 0, WIDTH, HEIGHT);
       ctx.fillStyle = 'rgba(11, 24, 19, 0.22)'; ctx.fillRect(0, 0, WIDTH, HEIGHT);   // keeps the trails readable on a bright room
     }
