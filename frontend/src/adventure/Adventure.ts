@@ -1133,9 +1133,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-<<<<<<< HEAD
     this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.renderer.setAnimationLoop(null);
->>>>>>> origin/feature/phone-joystick
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();
