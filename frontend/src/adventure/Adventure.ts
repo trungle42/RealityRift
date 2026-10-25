@@ -61,6 +61,11 @@ const COMBO = [
 ];
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
+/**
+ * A jump also dodges: JUMP_IFRAMES of invulnerability, like the roll. Jumping itself stays free, but its i-frames come at most
+ * once per JUMP_GUARD_COOLDOWN, so jump spam (a jump lands in ~0.7 s) cannot chain them into permanent invulnerability.
+ */
+const JUMP_IFRAMES = 1, JUMP_GUARD_COOLDOWN = 2.5;
 const FLASH_COOLDOWN = 6;
 /**
  * The demo run's single wave: three shadows close in first and three more arrive a few seconds later, so the fight
@@ -175,6 +180,7 @@ export class Adventure {
   /** Roll (Q): a tumbling dodge with invincibility frames. Flash step (R) is the old blink-dash, now a cooldown ability. */
   private rollTime = [0, 0];
   private rollIframes = [0, 0];
+  private jumpGuardAt = [-Infinity, -Infinity];
   private rollCooldown = [0, 0];
   private flashCooldown = [0, 0];
   private readonly movementVelocity = [new T.Vector3(), new T.Vector3()];
@@ -1017,6 +1023,10 @@ export class Adventure {
   private leap(player: PlayerIndex): void {
     if (this.canAct() && (this.physics?.isGrounded(player) ?? this.jump[player] === 0) && !this.trial) {
       this.velocityY[player] = 7; this.sfx.jump(); this.fx.puff(this.heroes[player].root.position, 0xb8ad86, 6, 1.4, 0.4, 0.5);
+      if (this.time - this.jumpGuardAt[player] >= JUMP_GUARD_COOLDOWN) {
+        this.jumpGuardAt[player] = this.time;
+        this.rollIframes[player] = Math.max(this.rollIframes[player], JUMP_IFRAMES); this.invulnerable = Math.max(this.invulnerable, JUMP_IFRAMES);
+      }
     }
   }
   private canAct(): boolean { return !!this.state && !this.busy && !this.ui.blocked && !this.ended; }

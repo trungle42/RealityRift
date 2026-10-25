@@ -22,10 +22,10 @@ const inRange = (seconds: number, [lo, hi]: number[]) => measuring || (seconds >
 interface Foe { root: T.Group; hp: number; maxHp: number; windup: number; cooldown: number; encounter: boolean; boss?: { kind: string }; dying: number }
 interface Inner {
   demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; foes: number }; enemies: Foe[]; time: number; busy: boolean; ended: boolean; invulnerable: number;
-  update(dt: number): void; resolveHits(): void; startWave(): void; hurt(defer?: boolean): void; spellCooldown: number[];
+  update(dt: number): void; resolveHits(): void; leap(player: 0 | 1): void; rollIframes: number[]; jump: number[]; startWave(): void; hurt(defer?: boolean): void; spellCooldown: number[];
   wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number; next(now: number): void }; runesTwo: { target?: WandShape; rng: () => number };
   seats: readonly string[]; companionFree: boolean; freeRunes: boolean; onSeat(slot: PlayerSlot, joined: boolean): void; onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void; closingLine(victory: boolean): string;
-  state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[]; party: { name: string }[] }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
+  state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[]; party: { name: string }[]; hearts: number }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
   strikes: unknown[]; bolts: unknown[]; weapons: ({ element: string } | undefined)[]; attackCooldown: number[]; encounterKind?: string;
   scanner: { open: boolean; captureFromFile(f: File): Promise<void> }; phone?: { socket?: WebSocket; read(): { mag: number } }; cv?: { socket?: WebSocket };
   fx: { number(at: unknown, text: string, color: string, big?: boolean): void }; rig: { viewYaw: number };
@@ -91,7 +91,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
 
   // One game step, as frame() does it, while the world is running; the hero is kept from dying so a long scripted fight
   // never ends early on a stray hit (hurting is covered by the other harness).
-  const step = (dt = 1 / 60) => { inner.invulnerable = 60; if (paused()) return; inner.time += dt; game.heroes.forEach((h) => h.update(dt, inner.time)); inner.update(dt); };
+  const step = (dt = 1 / 60, guard = true) => { if (guard) inner.invulnerable = 60; if (paused()) return; inner.time += dt; game.heroes.forEach((h) => h.update(dt, inner.time)); inner.update(dt); };
   const run = async (seconds: number, each?: () => boolean | void) => {
     const end = inner.time + seconds;
     for (let i = 0; inner.time < end; i++) { if (each?.() === true) return; step(); if (i % 20 === 19) await wait(0); if (paused() && !inner.scanner.open) await wait(5); }
@@ -371,6 +371,32 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(inner.wandCooldowns.ready(0, mine, inner.time) && inner.runes.target === mine, 'a yellow wand still cast with ?wand=red');
       drawAs('red', mine);
       assert(!inner.wandCooldowns.ready(0, mine, inner.time), `with ?wand=red a red-wand shape did not cast for hero one: ${JSON.stringify({ mine, target: inner.runes.target, seats: inner.seats, busy: inner.busy, ended: inner.ended, scanner: inner.scanner.open, blocked: game.ui.blocked, encounter: inner.encounterKind })}`);
+    });
+    await check('A jump dodges for 1 s: a shadow strike landing then does nothing, one after it hurts, and jump spam cannot chain it', async () => {
+      await boot(); inner.startWave();
+      const foes = wave(), foe = foes[0];
+      foes.slice(1).forEach((e) => { e.hp = 0; e.root.visible = false; });
+      inner.invulnerable = 0; inner.state.hearts = 3;
+      const raw = async (seconds: number, until?: () => boolean) => { const end = inner.time + seconds; while (inner.time < end && !until?.()) { step(1 / 60, false); await wait(0); } };
+      /** The shadow, right next to the hero, finishes its windup now: a real strike. */
+      const strike = async () => {
+        const p = game.heroes[0].root.position; foe.root.position.set(p.x + 1.4, p.y, p.z); foe.windup = 0.02; foe.cooldown = 5;
+        await raw(0.06);
+      };
+      await raw(0.5);                                    // settle on the ground
+      const hearts = inner.state.hearts;
+      inner.leap(0); const jumped = inner.time;
+      assert(inner.rollIframes[0] >= 0.99, 'the jump gave no i-frames');
+      await raw(1, () => inner.jump[0] === 0 && inner.time - jumped > 0.2);   // land
+      assert(inner.time - jumped < 0.95, `the hero took ${(inner.time - jumped).toFixed(2)} s to land`);
+      await strike();
+      assert(inner.state.hearts === hearts, 'a strike landing inside the jump\'s 1 s hurt the hero');
+      await raw(1.2 - (inner.time - jumped));
+      await strike();
+      assert(inner.state.hearts === hearts - 1, 'a strike after the jump\'s 1 s did no damage');
+      inner.invulnerable = 0;                            // as if the hurt flash had passed
+      inner.leap(0);
+      assert(inner.rollIframes[0] === 0 && inner.invulnerable === 0, 'a second jump inside the guard cooldown refreshed the i-frames');
     });
     status.textContent = `All ${results.children.length} demo-run checks passed. ${metrics.join(' · ')}`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = String(error); document.body.dataset.result = 'failed'; console.error(error); }
