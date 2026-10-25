@@ -23,7 +23,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from tracker.autotune import MIN_PIXELS, Sampler, band, centre_box, env_text, overlap, rate
+from tracker.autotune import MIN_PIXELS, Sampler, band, centre_box, env_text, hue_edges, rate, separate
 from tracker.capture import Camera
 from tracker.config import TUNED_ENV, Config
 from tracker.detector import ColorDetector, to_hsv
@@ -37,6 +37,7 @@ STEPS = (("yellow", "Hold the YELLOW WAND ball in the box", 0.22, 0.22),
          ("phone", "Hold the PHONE TAPE in the box", 0.36, 0.18))
 LABEL = {"yellow": "wand", "phone": "tape"}
 GOOD = 0.7   # below this detection rate the result is flagged
+KEEP = 0.5   # below this the new colours are not kept: the previous tuned.env (or the built-in values) come back
 
 
 class Quit(Exception):
@@ -93,6 +94,7 @@ def main() -> int:
     wrote = False
     try:
         bands: dict[str, dict] = {}
+        edges: dict[str, tuple[int, int]] = {}
         for name, prompt, w_frac, h_frac in STEPS:
             colour = cfg.phone.bgr if name == "phone" and cfg.phone else (0, 215, 255)
             say(f"{prompt}: sampling starts in {args.prep:.0f} s.")
@@ -111,17 +113,24 @@ def main() -> int:
                 say(f"autotune: could not see the {LABEL[name]} in the box ({len(pixels)} coloured pixels, need {MIN_PIXELS}). "
                     "Hold it closer so it fills the box, in good light, and run again. Nothing was written.")
                 return 1
-            bands[name] = band(pixels)
+            bands[name], edges[name] = band(pixels), hue_edges(pixels)
             hue = ",".join(f"{a}-{b}" for a, b in bands[name]["hue"])
             say(f"  {LABEL[name]}: hue {hue}, S>={bands[name]['s_min']}, V>={bands[name]['v_min']} from {len(pixels)} pixels "
                 f"over {sampler.frames if sampler else 0} frames")
-        if overlap(bands["yellow"]["hue"], bands["phone"]["hue"]):
-            say("autotune: warning - the wand and the tape came out the same colour, so one may be taken for the other. "
+        bands["yellow"], bands["phone"], too_close = separate(bands["yellow"], bands["phone"], edges["yellow"], edges["phone"],
+                                                              cfg.track_hue_margin)
+        if too_close:
+            say("autotune: warning - the wand and the tape look almost the same colour here, so one may be taken for the other. "
                 "Use a yellow ball and lime-green tape, and check the result below.")
 
+        # Keep the previous file: if the check below goes badly, it comes back.
+        backup = args.out.with_name(args.out.name + ".bak")
+        had_previous = args.out.exists()
+        if had_previous:
+            backup.write_bytes(args.out.read_bytes())
         args.out.write_text(env_text(bands, f"camera {args.camera}, {time.strftime('%Y-%m-%d %H:%M')}"), encoding="utf-8")
         wrote = True
-        say(f"Saved {args.out}.")
+        say(f"Saved {args.out}" + (f" (the previous one is in {backup.name})." if had_previous else "."))
 
         # Check: the real detector and tracking rules with the new thresholds (exactly what tools.publish will use).
         os.environ["YT_TUNED_ENV"] = str(args.out)
@@ -144,6 +153,17 @@ def main() -> int:
             live = ", ".join(f"{LABEL[n]} {rate(seen[n]):.0%}" for n in tracks)
             show(frame, None, "Move the wand and the phone around", f"Checking the new colours: {live}", progress=1 - left / args.check, marks=marks)
         result = ", ".join(f"{LABEL[n]} seen {rate(seen[n]):.0%}" for n in tracks)
+        if any(rate(seen[n]) < KEEP for n in tracks):
+            # A bad tune never replaces a working one.
+            if had_previous:
+                args.out.write_bytes(backup.read_bytes())
+                say(f"Result: {result}. That is too low, so your previous colours were put back ({args.out.name}). "
+                    "Run again closer to the camera, in better light, with the object filling the box.")
+            else:
+                args.out.unlink()
+                say(f"Result: {result}. That is too low, so nothing was kept: the built-in colours stay. "
+                    "Run again closer to the camera, in better light, with the object filling the box.")
+            return 2
         weak = [LABEL[n] for n in tracks if rate(seen[n]) < GOOD]
         say(f"Result: {result}." + (f" The {' and '.join(weak)} was hard to see: run again closer to the camera or in better light"
                                     " (or delete tuned.env to use the built-in colours)." if weak else " Ready."))

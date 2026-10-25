@@ -14,7 +14,7 @@ _file: dict[str, str] = {}
 
 
 def read_env_file(path: str | os.PathLike) -> dict[str, str]:
-    """KEY=VALUE lines ('#' comments, an optional 'export ' and surrounding quotes allowed); a missing file is empty."""
+    """KEY=VALUE lines ('#' comments, also after a value, an optional 'export ' and quotes allowed); a missing file is empty."""
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
@@ -25,7 +25,7 @@ def read_env_file(path: str | os.PathLike) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.removeprefix("export ").split("=", 1)
-        out[key.strip()] = value.strip().strip('"').strip("'")
+        out[key.strip()] = value.split("#", 1)[0].strip().strip('"').strip("'")   # values never contain '#'
     return out
 
 

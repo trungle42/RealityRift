@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from tracker.autotune import MIN_PIXELS, Sampler, band, centre_box, env_text, object_pixels, overlap, rate
+from tracker.autotune import MIN_PIXELS, SKIN_HUE, Sampler, band, centre_box, env_text, hue_edges, object_pixels, overlap, rate, separate
 from tracker.config import ColorSpec, Config, read_env_file
 from tracker.detector import ColorDetector, to_hsv
 from tracker.track import ColorTrack
@@ -161,14 +161,14 @@ def test_no_tuned_file_or_switched_off_means_built_in_values(tmp_path, monkeypat
 
 def test_env_file_reader_takes_comments_export_and_quotes(tmp_path):
     path = tmp_path / "x.env"
-    path.write_text('# note\nexport YT_A="1-2"\nYT_B = 3\n\nnot a line\nYT_C=\'4\'\n', encoding="utf-8")
+    path.write_text('# note\nexport YT_A="1-2"\nYT_B = 3   # a comment after the value\n\nnot a line\nYT_C=\'4\'\n', encoding="utf-8")
     assert read_env_file(path) == {"YT_A": "1-2", "YT_B": "3", "YT_C": "4"}
     assert read_env_file(tmp_path / "missing.env") == {}
 
 
 # --- the tool, end to end, with a fake camera -------------------------------------
 
-def test_autotune_tool_runs_on_timers_writes_tuned_env_and_reports_rates(tmp_path, monkeypatch, capsys):
+def run_tool(tmp_path, monkeypatch, capsys, show_in_check: bool):
     import time
 
     import tools.autotune as tool
@@ -176,7 +176,7 @@ def test_autotune_tool_runs_on_timers_writes_tuned_env_and_reports_rates(tmp_pat
     started = time.monotonic()
 
     class FakeCamera:
-        """Ball in the box, then the tape in the box, then both moving around (the phases the tool times)."""
+        """Ball in the box, then the tape in the box, then (if show_in_check) both moving around."""
         def __init__(self, *_): self.n = 0
         def start(self): return self
         def stop(self): pass
@@ -188,6 +188,8 @@ def test_autotune_tool_runs_on_timers_writes_tuned_env_and_reports_rates(tmp_pat
                 return self.n, held_ball(28, seed=self.n % 5)
             if t < 1.22:
                 return self.n, held_tape(40, seed=self.n % 5)
+            if not show_in_check:
+                return self.n, room(self.n % 5)
             f = held_ball(28, at=(140 + self.n % 40, 150), seed=self.n % 5, hand=False)
             cv2.rectangle(f, (380, 290), (500, 326), hsv_bgr(40), -1)
             return self.n, f
@@ -196,9 +198,68 @@ def test_autotune_tool_runs_on_timers_writes_tuned_env_and_reports_rates(tmp_pat
     monkeypatch.setattr(tool, "Camera", FakeCamera)
     monkeypatch.setenv("YT_TUNED_ENV", str(out))
     monkeypatch.setattr("sys.argv", ["autotune", "--no-window", "--prep", "0.3", "--sample", "0.3", "--check", "0.4", "--out", str(out)])
-    assert tool.main() == 0
-    text = capsys.readouterr().out
+    code = tool.main()
+    return code, out, capsys.readouterr().out
+
+
+def test_a_tune_that_cannot_see_the_objects_puts_the_previous_colours_back(tmp_path, monkeypatch, capsys):
+    previous = "YT_YELLOW_HUE=20-25\n"
+    (tmp_path / "tuned.env").write_text(previous, encoding="utf-8")
+    code, out, text = run_tool(tmp_path, monkeypatch, capsys, show_in_check=False)
+    assert code == 2 and out.read_text(encoding="utf-8") == previous and "previous colours were put back" in text, text
+    assert (tmp_path / "tuned.env.bak").read_text(encoding="utf-8") == previous
+
+
+def test_a_bad_first_tune_leaves_no_file_so_the_built_in_colours_stay(tmp_path, monkeypatch, capsys):
+    code, out, text = run_tool(tmp_path, monkeypatch, capsys, show_in_check=False)
+    assert code == 2 and not out.exists() and "built-in colours stay" in text, text
+
+
+def test_autotune_tool_runs_on_timers_writes_tuned_env_and_reports_rates(tmp_path, monkeypatch, capsys):
+    code, out, text = run_tool(tmp_path, monkeypatch, capsys, show_in_check=True)
     saved = read_env_file(out)
     lo, hi = (int(x) for x in saved["YT_YELLOW_HUE"].split("-"))
-    assert lo <= 28 <= hi and "YT_PHONE_HUE" in saved
+    assert code == 0 and lo <= 28 <= hi and "YT_PHONE_HUE" in saved
     assert "Result: wand seen" in text and "tape seen" in text and "Ready." in text, text
+
+
+
+# --- wand vs tape: apart even while followed ----------------------------------------
+
+def spread(hue_mean: float, hue_sd: float, n: int = 6000, seed: int = 0) -> np.ndarray:
+    """Object pixels with a real camera's hue spread (normal around the mean), bright and saturated."""
+    rng = np.random.default_rng(seed)
+    h = np.clip(np.round(rng.normal(hue_mean, hue_sd, n)), 0, 179).astype(int)
+    return np.stack([h, rng.integers(150, 230, n), rng.integers(150, 230, n)], axis=1)
+
+
+def tuned_pair(wand_hue, wand_sd, tape_hue, tape_sd):
+    wand_px, tape_px = spread(wand_hue, wand_sd, seed=1), spread(tape_hue, tape_sd, seed=2)
+    return separate(band(wand_px), band(tape_px), hue_edges(wand_px), hue_edges(tape_px), Config().track_hue_margin)
+
+
+def test_haicils_kit_tunes_without_a_warning_and_stays_apart_while_followed():
+    margin = Config().track_hue_margin
+    wand, tape, too_close = tuned_pair(22.5, 1.5, 36.5, 1.0)
+    (w_lo, w_hi), (t_lo, t_hi) = wand["hue"][0], tape["hue"][0]
+    assert not too_close
+    assert t_lo - w_hi >= margin + 1, (wand["hue"], tape["hue"])
+    assert w_hi + margin < t_lo and t_lo - margin > w_hi, "a followed object reaches the other one's strict band"
+    assert w_lo <= 20 and w_hi >= 25 and t_lo <= 35 and t_hi >= 38, "the trimmed bands no longer cover the objects"
+
+
+def test_padded_bands_that_touch_have_their_facing_edges_trimmed_to_split_the_gap():
+    margin = Config().track_hue_margin
+    wand, tape, too_close = separate({"hue": ((19, 29),), "s_min": 90, "v_min": 90}, {"hue": ((31, 42),), "s_min": 70, "v_min": 80},
+                                     (21, 25), (35, 38), margin)
+    assert not too_close and wand["hue"] == ((19, 27),) and tape["hue"] == ((32, 42),)   # the review's example: 25 and 35 -> ..-27 and 32-..
+
+
+def test_colours_too_close_to_tell_apart_are_flagged():
+    _, _, too_close = tuned_pair(28, 1.0, 31, 1.0)
+    assert too_close
+
+
+def test_the_wand_band_never_reaches_down_into_skin():
+    wand, _, _ = tuned_pair(18.5, 2.0, 37, 1.0)
+    assert wand["hue"][0][0] >= SKIN_HUE + 1

@@ -67,16 +67,48 @@ def object_pixels(hsv_patch: np.ndarray) -> np.ndarray:
     return mine[mine[:, 1] >= 0.5 * np.median(mine[:, 1])]
 
 
+def hue_edges(pixels: np.ndarray) -> tuple[int, int]:
+    """The object's own hue spread: 3rd and 97th percentiles, measured away from the red wrap as suggest() does."""
+    shifted = (pixels[:, 0] + 90) % 180
+    lo, hi = (int(round(np.percentile(shifted, p))) for p in (3, 97))
+    return (lo - 90) % 180, (hi - 90) % 180
+
+
 def band(pixels: np.ndarray) -> dict:
     """Thresholds (calibrate.suggest format: hue ranges, s_min, v_min) covering the bulk of an object's pixels. Percentiles,
-    not extremes, so a few stray pixels cannot widen the band; suggest() then adds its own slack."""
+    not extremes, so a few stray pixels cannot widen the band, and only 1 step of hue slack on top: ColorDetector already
+    follows a found object with every range widened by Config.track_hue_margin (4), so a wider strict band would let the
+    followed wand reach the tape's colour (see separate())."""
     if len(pixels) < MIN_PIXELS:
         raise ValueError(f"only {len(pixels)} object pixels; need {MIN_PIXELS}")
-    shifted = (pixels[:, 0] + 90) % 180   # hue measured away from the red wrap, as suggest() does
-    lo, hi = ((int(round(np.percentile(shifted, p))) - 90) % 180 for p in (3, 97))
+    lo, hi = hue_edges(pixels)
     s5, v5 = (int(np.percentile(pixels[:, i], 5)) for i in (1, 2))
-    sug = suggest([(lo, s5, v5), (hi, s5, v5)], hue_pad=4, floor_pad=15)
+    sug = suggest([(lo, s5, v5), (hi, s5, v5)], hue_pad=1, floor_pad=15)
     return {**sug, "s_min": max(FLOOR, sug["s_min"]), "v_min": max(FLOOR, sug["v_min"])}
+
+
+def separate(wand: dict, tape: dict, wand_edges: tuple[int, int], tape_edges: tuple[int, int], margin: int) -> tuple[dict, dict, bool]:
+    """Keep the yellow wand and the lime tape apart even while they are being followed (each range widened by `margin`,
+    Config.track_hue_margin), as default_phone() promises: the tape's lowest hue must sit at least margin + 1 above the
+    wand's highest. If the padded bands are closer, the two facing edges are trimmed to split the space between the
+    objects' own colours. Also keeps the wand above skin hue. Returns (wand, tape, too_close): too_close only when the
+    objects' own colours leave no room for that gap, i.e. one may really be taken for the other."""
+    if len(wand["hue"]) != 1 or len(tape["hue"]) != 1:   # a band across the red wrap: not this kit, leave it
+        return wand, tape, overlap(wand["hue"], tape["hue"])
+    (w_lo, w_hi), (t_lo, t_hi) = wand["hue"][0], tape["hue"][0]
+    w_lo = max(w_lo, SKIN_HUE + 1)
+    need = margin + 1
+    too_close = False
+    if w_hi < t_lo and t_lo - w_hi < need:
+        space = tape_edges[0] - wand_edges[1]
+        if space >= need:
+            w_hi = wand_edges[1] + (space - need) // 2
+            t_lo = w_hi + need
+        else:
+            too_close = True
+    elif w_hi >= t_lo:
+        too_close = True
+    return {**wand, "hue": ((w_lo, w_hi),)}, {**tape, "hue": ((t_lo, t_hi),)}, too_close
 
 
 class Sampler:

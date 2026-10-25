@@ -106,7 +106,9 @@ spread into thresholds with the same `calibrate.suggest()` the click tool uses, 
 rules and prints e.g. `Result: wand seen 96 %, tape seen 91 %`. The result goes to `cv_2/tuned.env` (git-ignored), which
 `Config.from_env()` reads automatically, so `tools.publish`, `tools.demo` and `tools.tune` all use it. Real `YT_*` environment
 variables still win; `YT_TUNED_ENV=0` ignores the file (the tests do) and `YT_TUNED_ENV=<path>` reads another one; delete it to
-go back to the built-in values. Under 70 % means: closer to the camera, better light, and run it again. `../scripts/demo.sh
+go back to the built-in values. Under 70 % means: closer to the camera, better light, and run it again; under 50 % the new
+colours are not kept (the previous file comes back from `tuned.env.bak`, or the built-in values stay). The wand and tape bands
+are kept at least `track_hue_margin + 1` apart, so neither reaches the other's colour while it is being followed. `../scripts/demo.sh
 --tune` runs it before the demo. Only the yellow wand and the tape are tuned (the solo setup); blue and red keep their values.
 
 **Most control: measure your own objects by clicking.** Webcam lighting is rarely even (on the dev laptop the brightness differs 2x from one
