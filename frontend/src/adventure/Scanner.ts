@@ -1,7 +1,7 @@
 import { addToArmory, browserStore, readArmory, weaponOf, writeArmory, type ArmoryEntry } from './armory';
 import type { PlayerIndex } from '../contracts';
 import { parseVerifyResponse } from './quest';
-import { fitWithin, relicTier, makeWeapon, parseArtifactResponse, type Weapon } from './weapon';
+import { ELEMENT_ICON, fitWithin, matchupLines, relicTier, makeWeapon, parseArtifactResponse, type Weapon } from './weapon';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 const REQUEST_SECONDS = 25;
@@ -23,9 +23,9 @@ interface Quest { object: string; prompt: string; resolve: (ok: boolean) => void
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 /**
- * Reality Rift scan screen: hold a real object up to the webcam, Gemini turns it into a weapon.
- * Self-contained overlay; the game only needs `show()` and the equip callback. Camera trouble never
- * blocks play: a photo can be chosen instead, and Escape always closes it.
+ * Reality Rift scanner: hold a real object up to the webcam, Gemini turns it into a relic. A small panel docked at the side
+ * of the screen: the game keeps running underneath (moving, fighting, casting), and only Enter (scan / take it) and Escape
+ * (close) belong to the panel. Camera trouble never blocks play: a photo can be chosen instead.
  */
 export class Scanner {
   open = false;
@@ -52,9 +52,11 @@ export class Scanner {
   private heroes: string[] = [];
   /** Which hero the relic on the card is for. */
   private claim: PlayerIndex = 0;
+  /** The bosses whose weakness / resistance the relic card spells out (the demo run only meets Morwen). */
+  private bosses?: readonly string[];
 
   constructor(private readonly onEquip: (weapon: Weapon, hero: PlayerIndex) => void, private readonly onClose: () => void = () => {}) {
-    this.root.className = 'rift-scan'; this.root.hidden = true; this.root.setAttribute('role', 'dialog'); this.root.setAttribute('aria-modal', 'true'); this.root.setAttribute('aria-label', 'Scan an object');
+    this.root.className = 'rift-scan'; this.root.hidden = true; this.root.setAttribute('role', 'dialog'); this.root.setAttribute('aria-modal', 'false'); this.root.setAttribute('aria-label', 'Scan an object');
     this.video.playsInline = true; this.video.muted = true; this.video.autoplay = true; this.video.className = 'rift-video';
     this.feed.className = 'rift-video'; this.feed.alt = ''; this.feed.style.display = 'none'; this.feed.style.transform = 'none';   // the tracker mirrors it already
     this.panel.className = 'rift-panel';
@@ -64,6 +66,7 @@ export class Scanner {
   }
 
   setHeroes(names: string[]): void { this.heroes = names.slice(0, 2); }
+  setBosses(kinds: readonly string[]): void { this.bosses = kinds; }
 
   /** Use another program's camera pictures whenever it is live (see FrameSource). */
   setFrameSource(source: FrameSource): void { this.source = source; }
@@ -94,12 +97,12 @@ export class Scanner {
   dispose(): void { window.removeEventListener('keydown', this.onKey, true); this.close(); this.root.remove(); }
 
   private readonly onKey = (event: KeyboardEvent): void => {
-    if (!this.open) return;
-    // Immediate: the game's own window key handler must not see it either (Esc closing the scanner also opened the journal).
-    event.stopImmediatePropagation();
-    if (event.code === 'Escape') { event.preventDefault(); this.close(); return; }
-    if (event.repeat || !['Enter', 'Space'].includes(event.code)) return;
-    event.preventDefault();
+    // Only Enter and Escape are the panel's; every other key keeps playing the game while it is open.
+    if (!this.open || !['Enter', 'Escape'].includes(event.code)) return;
+    // Immediate: the game's own window key handler must not see these (Esc closing the scanner also opened the journal).
+    event.stopImmediatePropagation(); event.preventDefault();
+    if (event.code === 'Escape') { this.close(); return; }
+    if (event.repeat) return;
     if (this.phase === 'live') void this.captureFromCamera();
     else if (this.phase === 'result') this.equip();
     else if (this.phase === 'matched') this.finishQuest();
@@ -239,8 +242,12 @@ export class Scanner {
       const frame = el('div', 'relic-photo');
       if (this.photo) { const img = el('img'); img.src = this.photo; img.alt = `Your ${w.object}`; frame.append(img); } else frame.append(el('span', '', w.object));
       const damage = el('div', 'meter'); const fill = el('i'); fill.style.width = `${w.damage}%`; damage.append(fill);
+      // What you get, first and big: the element, what it does to both weapons, and which boss it matters against.
+      const gain = el('div', 'relic-gain'); gain.append(el('span', 'relic-icon', ELEMENT_ICON[w.element]), el('b', '', w.element));
+      const matchups = matchupLines(w.element, this.bosses).map(({ text, effect }) => el('p', `matchup ${effect}`, text));
       card.append(el('span', `rarity ${w.rarity}`, w.rarity), frame, el('h2', 'weapon-name', w.artifactName), el('p', 'from', `from your ${w.object}`),
-        el('p', 'chips', `Relic: infuses your wand and sword with ${w.element}`), el('p', 'ability', `Power ${'●'.repeat(relicTier(w))}${'○'.repeat(3 - relicTier(w))}`), damage, el('p', 'desc', w.description));
+        gain, el('p', 'chips', `Relic: infuses your wand and sword with ${w.element}: your spells and slashes now deal ${w.element}`), ...matchups,
+        el('p', 'ability', `Power ${'●'.repeat(relicTier(w))}${'○'.repeat(3 - relicTier(w))}`), damage, el('p', 'desc', w.description));
       this.panel.append(card);
       if (this.armory.some((e) => e.response.artifact.artifactName === w.artifactName)) this.panel.append(el('p', 'saved', 'Kept in your armory'));
       if (w.source === 'fallback') this.panel.append(el('p', 'note', 'Gemini was unavailable, so the rift conjured a stand-in relic.'));
