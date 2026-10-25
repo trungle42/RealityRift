@@ -182,6 +182,21 @@
 .rift-panel .meter { width: 240px; height: 8px; border-radius: 4px; background: #ffffff1c; overflow: hidden; }
 .rift-panel .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--rift), #fff); border-radius: 4px; }
 .rift-panel .desc { margin: 4px 0 0; font-size: 16px; line-height: 1.5; font-style: italic; color: var(--game-muted); }
+/* Reality Rift relic card: the player's own photo framed as a collectible. */
+.relic-card { --glow: color-mix(in srgb, var(--rift) 55%, transparent); position: relative; width: min(320px, 86vw); display: grid; gap: 8px; justify-items: center; padding: 18px 18px 20px; border-radius: 18px; border: 2px solid var(--rift); background: radial-gradient(circle at 50% 22%, color-mix(in srgb, var(--rift) 26%, #10241c), #0b1813 72%); box-shadow: 0 0 46px var(--glow), inset 0 0 30px #00000066; animation: relic-reveal 0.7s cubic-bezier(0.2, 0.8, 0.2, 1.2) both; }
+.relic-card .weapon-name { font-size: 30px; }
+.relic-photo { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; border: 1px solid var(--rift); box-shadow: 0 0 24px var(--glow); background: #0006; display: grid; place-items: center; color: var(--game-muted); font-style: italic; text-transform: capitalize; }
+.relic-photo img { width: 100%; height: 100%; object-fit: cover; filter: saturate(1.15) contrast(1.05); }
+.relic-card.legendary::after, .relic-card.epic::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(115deg, transparent 35%, #ffffff30 50%, transparent 65%) 0 0 / 250% 100%; animation: relic-shine 3.2s ease-in-out infinite; }
+@keyframes relic-reveal { from { opacity: 0; transform: perspective(700px) rotateY(-70deg) scale(0.85); } }
+@keyframes relic-shine { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.rift-panel .saved { margin: 0; font-size: 13px; color: var(--game-muted); letter-spacing: 0.06em; }
+.rift-panel .armory-label { margin: 10px 0 0; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--game-muted); }
+.rift-panel .armory { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 520px; }
+.rift-panel .armory-item { --rift: var(--game-gold); flex-direction: column; gap: 4px; padding: 6px; width: 92px; border-radius: 12px; border-color: color-mix(in srgb, var(--rift) 70%, transparent); font-size: 11px; line-height: 1.2; }
+.rift-panel .armory-item img { width: 78px; height: 58px; object-fit: cover; border-radius: 8px; }
+.rift-panel .armory-item span { color: var(--rift); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .relic-card, .relic-card::after { animation: none; } }
 .weapon-badge { --rift: #f0d48e; position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 20; display: flex; gap: 10px; align-items: baseline; padding: 6px 16px; border-radius: 999px; background: #0f2019cc; border: 1px solid var(--rift); box-shadow: 0 0 18px color-mix(in srgb, var(--rift) 45%, transparent); color: var(--game-text); font: 13px Georgia, serif; pointer-events: none; }
 .weapon-badge[hidden] { display: none; }
 .weapon-badge b { color: var(--rift); font-size: 14px; letter-spacing: 0.03em; }
