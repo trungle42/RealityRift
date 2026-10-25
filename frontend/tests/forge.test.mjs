@@ -70,3 +70,22 @@ test('the keyboard stand-in emits the same events as the tracker', () => {
   stop(); press('Digit4'); source.dispose();
   assert.deepEqual(seen, ['yellow:triangle', 'blue:star']);
 });
+
+test('the game never asks for the same rune twice in a row, and every rune comes up', () => {
+  let seed = 7; const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let prev; const seen = new Set();
+  for (let i = 0; i < 200; i++) { const next = F.nextRune(prev, rng); assert.notEqual(next, prev); assert.ok(F.WAND_SHAPES.includes(next)); seen.add(next); prev = next; }
+  assert.equal(seen.size, 4);
+  assert.equal(F.nextRune(undefined, () => 0.999), F.WAND_SHAPES[3]);
+  assert.equal(F.nextRune('circle', () => 0), 'triangle');
+});
+
+test('a requested rune changes after a cast, or after it waits too long', () => {
+  const caller = new F.RuneCaller(() => 0);
+  const first = caller.update(0);
+  assert.equal(caller.update(F.RUNE_PATIENCE - 0.1), first, 'the request holds while the player draws');
+  const second = caller.update(F.RUNE_PATIENCE);
+  assert.notEqual(second, first, 'a rune nobody drew is swapped');
+  caller.next(20); assert.notEqual(caller.target, second, 'a cast asks for a different rune');
+  caller.clear(); assert.equal(caller.target, undefined);
+});

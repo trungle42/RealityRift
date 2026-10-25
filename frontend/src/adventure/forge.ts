@@ -45,6 +45,34 @@ export function heroFor(colour: WandColour, solo: boolean): PlayerIndex | undefi
  */
 export const WAND_RECOVERY = 2;
 
+/** Seconds a requested rune waits to be drawn before the game asks for a different one, so the player is never stuck. */
+export const RUNE_PATIENCE = 10;
+export const SHAPE_ICON: Record<WandShape, string> = { circle: '●', triangle: '▲', square: '■', star: '★' };
+
+/** A random shape other than `prev` (any of the four when there is none). `rng` returns 0..1, like Math.random. */
+export function nextRune(prev: WandShape | undefined, rng: () => number = Math.random): WandShape {
+  const choices = WAND_SHAPES.filter((shape) => shape !== prev);
+  return choices[Math.min(choices.length - 1, Math.floor(rng() * choices.length))];
+}
+
+/**
+ * In combat the game asks for one rune at a time: only that shape casts. A cast (or RUNE_PATIENCE seconds without one)
+ * moves the request to a different shape. Pure state on the game clock; `rng` is public so a test can seed it.
+ */
+export class RuneCaller {
+  target?: WandShape;
+  private since = 0;
+  constructor(public rng: () => number = Math.random) {}
+  /** Ask for a rune if none is asked yet, or a new one if the current one waited too long. Returns the rune asked for. */
+  update(now: number): WandShape {
+    if (!this.target || now - this.since >= RUNE_PATIENCE) this.next(now);
+    return this.target!;
+  }
+  /** The requested rune was cast (or skipped): ask for a different one. */
+  next(now: number): void { this.target = nextRune(this.target, this.rng); this.since = now; }
+  clear(): void { this.target = undefined; }
+}
+
 /** Per hero and shape cooldowns plus the wand's recovery, on the game clock (so a paused game does not tick them). */
 export class ShapeCooldowns {
   private readonly until = new Map<string, number>();

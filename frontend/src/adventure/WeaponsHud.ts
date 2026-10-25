@@ -1,9 +1,8 @@
 import type { PlayerIndex } from '../contracts';
-import { SHAPE_ABILITY, type WandShape } from './forge';
+import { SHAPE_ABILITY, SHAPE_ICON, type WandShape } from './forge';
 import { ARCANE_COLOR, ELEMENT_COLOR, type Weapon } from './weapon';
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
-const SHAPE_ICON: Record<WandShape, string> = { circle: '○', triangle: '△', square: '□', star: '☆' };
 
 /**
  * Both of each hero's weapons at a glance: the sword (phone slash or J) and the wand (drawn shapes or F), the relic
@@ -12,6 +11,10 @@ const SHAPE_ICON: Record<WandShape, string> = { circle: '○', triangle: '△', 
  */
 export class WeaponsHud {
   readonly root = document.createElement('aside');
+  /** The rune the game is asking for in combat: big, near the top of the screen, with a wait while the wand recovers. */
+  readonly prompt = document.createElement('div');
+  private shown = '';
+  private wrongTimer = 0;
   private names: string[] = [''];
   private readonly relics: (Weapon | undefined)[] = [];
   private readonly last: (WandShape | undefined)[] = [];
@@ -25,7 +28,8 @@ export class WeaponsHud {
 
   constructor(parent: HTMLElement = document.body) {
     this.root.className = 'weapons-hud'; this.root.setAttribute('aria-label', 'Weapons'); this.root.hidden = true;
-    parent.append(this.root); this.sizes.observe(this.root); window.addEventListener('resize', this.publish);
+    this.prompt.className = 'rune-request'; this.prompt.hidden = true; this.prompt.setAttribute('role', 'status');
+    parent.append(this.root, this.prompt); this.sizes.observe(this.root); window.addEventListener('resize', this.publish);
   }
 
   setHeroes(names: string[]): void { this.names = names.length ? names.slice(0, 2) : ['']; this.root.hidden = false; this.root.classList.toggle('duo', this.names.length > 1); this.render(); this.publish(); }
@@ -38,7 +42,25 @@ export class WeaponsHud {
     if (bar) bar.style.animation = `wand-cool ${cooldown}s linear forwards`;
   }
 
-  dispose(): void { this.sizes.disconnect(); window.removeEventListener('resize', this.publish); this.root.remove(); document.documentElement.style.removeProperty('--weapons-hud-top'); }
+  /** Show the requested rune (or hide it with undefined). `wait` > 0 while the wand or that shape is still recovering. */
+  rune(shape: WandShape | undefined, wait = 0): void {
+    const key = shape ? `${shape}:${wait > 0 ? Math.ceil(wait * 10) : 0}` : '';
+    if (key === this.shown) return;
+    this.shown = key; this.prompt.hidden = !shape; this.prompt.classList.toggle('waiting', wait > 0);
+    if (!shape) return;
+    const el = (cls: string, text: string) => { const node = document.createElement('span'); node.className = cls; node.textContent = text; return node; };
+    this.prompt.replaceChildren(el('rune-icon', SHAPE_ICON[shape]), el('rune-label', `Draw a ${shape} · ${SHAPE_ABILITY[shape][0].toUpperCase()}${SHAPE_ABILITY[shape].slice(1)}`),
+      el('rune-wait', wait > 0 ? `wand ready in ${wait.toFixed(1)} s` : 'the wand is ready'));
+  }
+
+  /** A shape other than the requested one was drawn: a short shake and a reminder, nothing cast. */
+  notRune(asked: WandShape): void {
+    this.prompt.classList.remove('wrong'); void this.prompt.offsetWidth; this.prompt.classList.add('wrong');
+    this.prompt.dataset.hint = `Not that rune · draw ${SHAPE_ICON[asked]}`;
+    clearTimeout(this.wrongTimer); this.wrongTimer = window.setTimeout(() => { this.prompt.classList.remove('wrong'); delete this.prompt.dataset.hint; }, 1200);
+  }
+
+  dispose(): void { clearTimeout(this.wrongTimer); this.prompt.remove(); this.sizes.disconnect(); window.removeEventListener('resize', this.publish); this.root.remove(); document.documentElement.style.removeProperty('--weapons-hud-top'); }
 
   private render(): void {
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => { const node = document.createElement(tag); if (cls) node.className = cls; if (text) node.textContent = text; return node; };
