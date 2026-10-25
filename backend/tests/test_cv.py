@@ -4,12 +4,20 @@ os.environ["OFFLINE"] = "1"
 
 import json  # noqa: E402
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.cv import MAX_POINTS, clean_control, clean_tracker, clean_wand  # noqa: E402
 from app.main import app  # noqa: E402
 
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    # One TestClient context runs every socket on one event loop. A bare TestClient gives each websocket_connect its own
+    # loop and thread, and a message one handler sends to another session's socket can then fail to wake that session's
+    # pending receive: these tests hung in about 1 run in 10 under load.
+    with TestClient(app) as c:
+        yield c
 
 WAND = {
     "active": True, "secondsLeft": 3.21, "target": "circle", "next": "triangle",
@@ -63,7 +71,7 @@ def test_clean_control():
         assert clean_control(bad) is None
 
 
-def test_tracker_frames_reach_the_game_only_sanitized():
+def test_tracker_frames_reach_the_game_only_sanitized(client):
     with client.websocket_connect("/ws/cv/c1?role=game") as game:
         with client.websocket_connect("/ws/cv/c1?role=tracker") as tracker:
             assert json.loads(game.receive_text()) == {"type": "peer", "role": "tracker", "state": "joined"}
@@ -74,10 +82,12 @@ def test_tracker_frames_reach_the_game_only_sanitized():
             tracker.send_text(json.dumps({"type": "move", "x": 1, "y": 0}))
             tracker.send_text(json.dumps(frame(slash=3)))
             assert json.loads(game.receive_text())["slash"] == 3
-        assert json.loads(game.receive_text()) == {"type": "peer", "role": "tracker", "state": "left"}
+            # Close inside the block: leaving it cancels the server handler, which can then die before saying "left".
+            tracker.close()
+            assert json.loads(game.receive_text()) == {"type": "peer", "role": "tracker", "state": "left"}
 
 
-def test_the_game_can_send_control_messages_to_the_tracker():
+def test_the_game_can_send_control_messages_to_the_tracker(client):
     with client.websocket_connect("/ws/cv/c2?role=tracker") as tracker:
         with client.websocket_connect("/ws/cv/c2?role=game") as game:
             assert json.loads(tracker.receive_text())["role"] == "game"
@@ -87,7 +97,7 @@ def test_the_game_can_send_control_messages_to_the_tracker():
             assert json.loads(tracker.receive_text()) == {"type": "gate", "on": True, "target": "square"}
 
 
-def test_rooms_are_isolated_from_each_other_and_from_the_joystick():
+def test_rooms_are_isolated_from_each_other_and_from_the_joystick(client):
     with client.websocket_connect("/ws/cv/roomB?role=game") as game_b:
         with client.websocket_connect("/ws/cv/roomA?role=tracker") as tracker_a:
             tracker_a.send_text(json.dumps(frame()))
@@ -99,7 +109,7 @@ def test_rooms_are_isolated_from_each_other_and_from_the_joystick():
             assert json.loads(game_b.receive_text())["jump"] == 9
 
 
-def test_bad_room_or_role_is_refused():
+def test_bad_room_or_role_is_refused(client):
     for url in ("/ws/cv/bad room!?role=tracker", "/ws/cv/ok?role=phone"):
         try:
             with client.websocket_connect(url):

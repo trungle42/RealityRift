@@ -117,6 +117,15 @@ class Config:
     shape_closure: float = 0.15
     shape_min_size: float = 0.12
     shape_max_dist: float = 0.5
+    # Game mode (Pipeline.control, driven by the game through tools/publish.py): the wand stays on while the game says so,
+    # instead of on the 5 s timer. A stroke starts where the wand was last held still (within wand_still_dist frame heights
+    # for wand_pause_s), so a shape can be drawn at any moment without a stray lead-in, and is named when it comes back to
+    # that point. A completed shape stays "complete" for wand_rearm_s (long enough for the game to see it), then that colour's
+    # trace is erased and it can draw the next one. wand_trace_points caps a stroke (about 5 s at 30 fps).
+    wand_pause_s: float = 0.4
+    wand_still_dist: float = 0.025
+    wand_rearm_s: float = 0.8
+    wand_trace_points: int = 150
     # Slash: the phone marker moving DOWN, judged over the whole stroke (see SlashDetector). It must drop slash_min_drop
     # (fraction of frame height) within slash_window_s, peak at >= slash_min_peak_speed (frame heights per second) and average
     # >= slash_min_speed, stay mostly vertical (sideways travel <= slash_max_sideways x the drop) and mostly downward

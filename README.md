@@ -33,7 +33,7 @@ What talks to what:
 - **Backend -> Gemini.** One call per story beat, one per photo. Never per frame.
 - **If Gemini fails, the game keeps going.** The backend returns 503 for story calls and the browser uses the hand-written `ScriptedStory` for that beat. A scan returns a stand-in weapon; the riddle door lets you through.
 - **Phone -> backend -> game.** The phone opens `/joystick` and streams a stick position over a WebSocket. The backend forwards only validated `move` messages to the game in the same room.
-- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, and body motion into moving in the freeze trial. Tested end to end with synthetic tracker frames, not yet with a live webcam.
+- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, body motion into moving in the freeze trial, and each shape a wand completes into a shape event (Reality Rift's spells, and the pose seals' runes). The game drives the wand in the other direction over the same socket: it is on for any shape while the game is open, and a pose seal asks for its own shape. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 The rule behind the design: the engine owns the rules (combat, hearts, timing), Gemini owns the words. The backend fixes the structure of each beat from a catalog the engine can run, and Gemini only writes narration, prompts, names and the final storybook. It cannot invent a mechanic the game cannot run.
 
@@ -62,12 +62,11 @@ So the object you pick is a real choice: a hot drink tends to come back as fire,
 
 Reality Rift extras:
 
-<!-- TODO(after merge): flip the lines marked below to working once feature/rift-weapons is on main. -->
 - **Relic card and armory (working):** the relic card is framed around your own photo of the object, and every relic you scan is kept in an armory in this browser (up to 8, never uploaded). Pick one from the scanner to equip it again.
 - **The story remembers your objects (working):** relics travel in the story history, so Gemini's narration and the storybook name the real object and what it became (the scripted story adds a "Reality Rift" page).
-- **Two weapons:** every hero carries a **sword** (phone slash, or J / click) and a **wand** in the off hand (draw a shape, or F for a plain bolt). A HUD shows both, the element infusing them and the wand's last shape. `TODO(after merge)`
-- **Draw a shape, cast its spell:** circle = nova, triangle = meteor, square = wave, star = chain, cast the moment the wand closes the shape, even before any scan (arcane, power 1). Each shape has its own short cooldown, and shapes drawn during a trial go to the pose seal instead. The cv_2 tracker drives it through the CV link; keys 4-7 (yellow wand, hero one) and 8, 9, 0, - (blue wand, hero two) stand in when no tracker runs. `TODO(after merge)`
-- **A relic is the power-up:** scanning an object gives a relic that infuses both weapons with its element: wand spells take its colour and element, and sword hits carry it too, so a boss's weakness (x2) and resistance (x0.5) apply to slashes. Rarity and damage set the power (1-3). Either hero can take a relic. `TODO(after merge)`
+- **Two weapons (working):** every hero carries a **sword** (phone slash, or J / click) and a **wand** in the off hand (draw a shape, or F for a plain bolt). A HUD shows both, the element infusing them and the wand's last shape.
+- **Draw a shape, cast its spell (working):** any shape the player draws casts its spell: circle = nova, triangle = meteor, square = wave, star = chain, the moment the wand closes the shape, even before any scan (arcane, power 1). Each shape has its own short cooldown, and shapes drawn during a trial go to the pose seal instead. The cv_2 tracker drives it through the CV link (hold the wand still, then draw); keys 4-7 (yellow wand, hero one) and 8, 9, 0, - (blue wand, hero two) stand in when no tracker runs.
+- **A relic is the power-up (working):** scanning an object gives a relic that infuses both weapons with its element: wand spells take its colour and element, and sword hits carry it too, so a boss's weakness (x2) and resistance (x0.5) apply to slashes. Rarity and damage set the power (1-3). Either hero can take a relic.
 
 ### The "show me X" riddle door (working)
 
@@ -82,11 +81,11 @@ Press **H** in the game. A toast shows a URL like `http://192.168.x.x:8000/joyst
 - Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
 - Only `{type: "move", x, y, sprint}` is forwarded, with numbers clamped to the unit circle. The room code is the only access control, which is fine for a demo.
 
-### cv_2: webcam colour tracker (working; slash, jump and motion connected to the game)
+### cv_2: webcam colour tracker (working; wands, slash, jump and motion connected to the game)
 
 haicil's tracker is a Python + OpenCV program in `cv_2/`. No neural model: it finds objects by colour (HSV thresholds), so it needs no download and runs at camera speed.
 
-- **Coloured wands.** Hold up a yellow, a blue and a red ball on sticks. Each colour's path is drawn in its own colour. Detection switches on and off every 5 seconds, and each ON phase asks for the next shape: circle, triangle, square, star. The tracker names the shape each colour drew, and clears the traces when it turns off.
+- **Coloured wands.** Hold up a yellow, a blue and a red ball on sticks. Each colour's path is drawn in its own colour. In the game, hold the wand still for a moment, then draw a circle, triangle, square or star: the shape counts the moment the loop closes back on the point where you rested, and the wand is ready again under a second later. The game's wand panel (bottom left) shows your trail, what to draw and the shape you made. Without a game, the tracker runs its own demo: detection switches on and off every 5 seconds, each ON phase asks for the next shape, and the traces clear when it turns off.
 - **Phone slash.** Bright lime tape on a phone held in the left hand is tracked every frame. A big, fast downward swing shows **SLASHED!** for 2 seconds. Keep the whole swing inside the picture.
 - **Jump.** Stand 1.5-2 m back and jump; optical flow spots an up-then-down burst and shows **JUMPED!**.
 
@@ -95,7 +94,8 @@ It was tuned on one webcam. Expect to re-run `python -m tools.tune` (click your 
 Working (CV to game; tested end to end with synthetic tracker frames, not yet with a live webcam):
 
 - A backend relay (`backend/app/cv.py`) plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. Start it with `python -m tools.publish` in `cv_2/` while the backend runs.
-- Wand shapes cast spells in the game (see Reality Rift extras). `TODO(after merge)` Wand shapes for the pose seals are being built on the CV branch.
+- **Wand shapes -> spells**: the game takes the wand, so any shape the player draws casts its spell (see "Draw a shape, cast its spell" above), and the wand panel (bottom left) shows the trail, what to draw and the shape made. **Pose seals** also open to their rune: triangle for arms up, square for the T-pose, circle for the crouch (keys 1, 2, 3 still work).
+- Not started: aiming spells by pointing the wand.
 
 ### Also on `main`
 
@@ -225,7 +225,7 @@ uv pip install --python .venv/bin/python -r requirements.txt               # onc
 .venv/bin/python -m tools.publish --api http://localhost:8020 --room demo  # another backend or room; open the game with ?room=demo
 ```
 
-The terminal prints when the backend connects, when the game joins, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). Tested end to end with synthetic tracker frames, not yet with a live webcam. The tracker holds the webcam while it runs, so check that the scanner (**X**) still opens the camera on the demo laptop.
+The terminal prints when the backend connects, when the game joins (it takes the wand: "wand on, any shape"), what the game asks for, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). To draw, hold the wand still for a moment, then draw the shape back to where you started. Tested end to end with synthetic tracker frames, not yet with a live webcam. The tracker holds the webcam while it runs, so check that the scanner (**X**) still opens the camera on the demo laptop.
 
 ## Controls
 
@@ -255,11 +255,11 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 
 | What | Command | Result on `main` |
 |---|---|---|
-| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 42 pass |
-| Frontend unit tests | `cd frontend && npm test` | 67 pass |
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 44 pass |
+| Frontend unit tests | `cd frontend && npm test` | 81 pass |
 | Type-check and build | `cd frontend && npm run build` | passes |
-| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 13 checks, listed as PASS / FAIL |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 225 pass (about 12 s on a Mac; no camera needed) |
+| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 15 checks, listed as PASS / FAIL |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 243 pass (about 15 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
@@ -282,17 +282,17 @@ The browser checks drive the real renderer with real key events, so they need a 
 - The riddle door that checks a webcam photo with Gemini vision.
 - Phone joystick through the backend relay.
 - cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump.
-- cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial (tested with synthetic tracker frames; not yet with a live webcam).
+- cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial, wand shapes to the game (any shape, the wand panel, and pose seals opened by their rune) (tested with synthetic tracker frames; not yet with a live webcam).
+- Two weapons per hero (sword + wand), drawn shapes casting spells, and relics infusing both weapons with their element.
 - Classic 2.5D campaign at `?mode=classic`.
 
 **In progress (not on `main` yet)**
 
-- Two weapons per hero (sword + wand), drawn shapes casting spells, and relics infusing both weapons with their element. `TODO(after merge)`
 - Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
 
 **Not done**
 
-- Wand shapes for the pose seals (on the CV branch).
+- Aiming spells by pointing the wand.
 - No hosted version: the game runs locally (frontend and backend on one laptop).
 - cv_2 shape and slash detection has not been validated across different lighting, cameras or people. Slash recall depends on keeping the whole swing in view.
 - The 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); they exist in the backend only.
