@@ -62,6 +62,36 @@ def test_a_named_target_only_completes_on_that_shape():
     assert right["target"] == "triangle" and right["complete"]["yellow"] is True
 
 
+def test_a_sloppy_star_casts_when_the_game_asks_for_a_star_though_it_reads_as_a_square_otherwise():
+    """Through the whole pipeline (ball frames, tracking, smoothing): one of the simulator's stars, drawn without a request,
+    is named a square; with a star requested it completes as a star. Before the fix it did nothing, labelled "square"."""
+    import numpy as np
+
+    from tests.test_shapes import ASPECT, hand_drawn
+    rng, rec = np.random.default_rng(7), S.ShapeRecognizer(max_dist=0.5)
+    sloppy = next(p for p in (hand_drawn("star", rng) for _ in range(300))
+                  if rec.classify(p, ASPECT).shape == "square" and rec.classify(p, ASPECT, prefer="star").shape == "star"
+                  and play_points(game(), p)["shapes"]["yellow"] is not None)
+    free = play_points(game(), sloppy)
+    assert free["shapes"]["yellow"]["shape"] == "square"
+    asked = play_points(game("star"), sloppy)
+    assert asked["complete"]["yellow"] is True and asked["shapes"]["yellow"]["shape"] == "star"
+    assert play_points(game("triangle"), sloppy)["complete"]["yellow"] is False       # a different request is not forgiven
+
+
+def test_a_clean_triangle_does_not_cast_a_requested_star():
+    out = play(game("star"), 0.0, "triangle")
+    assert out["complete"]["yellow"] is False and out["shapes"]["yellow"]["shape"] == "triangle"
+
+
+def play_points(pipe: Pipeline, points) -> dict:
+    """The ball follows normalised points at 25 fps; returns the last payload."""
+    out = {}
+    for i, (x, y) in enumerate(points):
+        out = pipe.process(scene({"yellow": (int(x * 640), int(y * 480))}), i * DT)
+    return out
+
+
 def test_an_unknown_target_means_any_shape():
     out = play(game("hexagon"), 0.0, "circle")
     assert out["target"] is None and out["complete"]["yellow"] is True

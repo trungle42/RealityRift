@@ -156,6 +156,27 @@
 
 /* ---- Reality Rift: scan an object ---- */
 .rift-scan { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #1d3a2ef2, #0a1612fa 70%); color: var(--game-text); font-family: Georgia, 'Times New Roman', serif; padding: 16px; }
+/* Docked: a side panel over the running game instead of a full-screen pause (the game keeps playing underneath). Right side,
+   clear of the minimap above, the wand panel on the left and the weapons HUD below. */
+.rift-scan { inset: auto 16px calc(var(--weapons-hud-top, 112px) + 10px) auto; width: min(330px, calc(100vw - 32px)); max-height: calc(100vh - var(--weapons-hud-top, 112px) - 150px); min-height: 220px; overflow-y: auto; place-items: stretch; padding: 12px; border-radius: 16px; background: #0d1d17ee; border: 1px solid #f0d48e66; box-shadow: 0 10px 40px #0008; }
+.rift-scan .rift-video { width: 100%; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 0 24px #f0d48e33; }
+.rift-scan .rift-panel { gap: 7px; }
+.rift-scan .rift-panel h2 { font-size: 20px; }
+.rift-scan .rift-panel .lede { font-size: 14px; }
+.rift-scan .rift-panel button { padding: 8px 14px; font-size: 13px; }
+.rift-scan .rift-panel .ring { width: 44px; height: 44px; }
+.rift-scan .relic-card { width: 100%; padding: 12px; gap: 6px; }
+.rift-scan .relic-card .weapon-name { font-size: 22px; }
+.rift-scan .relic-photo { width: 130px; aspect-ratio: 4 / 3; }
+.rift-scan .relic-card .meter, .rift-scan .relic-card .desc { display: none; }   /* docked: what you get first, the lore is in the armory */
+.rift-scan .rift-panel .chips { font-size: 13px; }
+/* The buttons stay in view however much the card has to scroll on a short screen. */
+.rift-scan .rift-panel .actions { position: sticky; bottom: -12px; margin: 0 -12px -12px; padding: 10px 12px 12px; background: #0d1d17; }
+.relic-gain { display: flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 999px; background: color-mix(in srgb, var(--rift) 22%, #0b1813); border: 1px solid var(--rift); box-shadow: 0 0 18px color-mix(in srgb, var(--rift) 45%, transparent); }
+.relic-gain .relic-icon { font-size: 22px; line-height: 1; }
+.relic-gain b { font-size: 18px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--rift); }
+.rift-panel .matchup { margin: 0; font-size: 14px; font-weight: 600; }
+.rift-panel .matchup.weak { color: #ffd36b; } .rift-panel .matchup.resists { color: #9fb0b8; } .rift-panel .matchup.none { color: var(--game-muted); font-weight: 400; }
 .rift-scan[hidden] { display: none; }
 .rift-video { display: none; width: min(560px, 86vw); aspect-ratio: 4 / 3; object-fit: cover; transform: scaleX(-1); border-radius: 50%; border: 2px solid var(--game-gold); box-shadow: 0 0 80px #f0d48e44, 0 0 0 10px #f0d48e18; margin-bottom: 18px; }
 .rift-scan.has-camera[data-phase='live'] .rift-video, .rift-scan.has-camera[data-phase='thinking'] .rift-video { display: block; }

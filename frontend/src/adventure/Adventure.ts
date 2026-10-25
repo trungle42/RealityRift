@@ -21,7 +21,7 @@ import { colourOf, KeyboardShapes, RuneCaller, WAND_SHAPES, SHAPE_ABILITY, SHAPE
 import { listenPlayers, stickOf, type PhoneButton, type PlayerSlot } from './players';
 import { WandModel } from './WandModel';
 import { WeaponsHud } from './WeaponsHud';
-import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
+import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, matchupLines, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
 import { phoneAction, showPhonePairing } from './phoneActions';
@@ -266,6 +266,7 @@ export class Adventure {
     const willow = this.world.objects.find((o) => o.id === 'forest:lore') ?? { x: 0.5, z: -2 };
     const spot = { x: willow.x, z: willow.z + 5.5 };
     this.heroes.forEach((hero, i) => { const x = spot.x + (i ? 1.6 : 0), z = spot.z + (i ? 1 : 0); hero.root.position.set(x, heightAt(x, z) + 0.2, z); hero.heading = Math.PI; hero.root.rotation.y = Math.PI; });
+    if (!fullStory()) this.scanner.setBosses(['frost-witch']);   // the demo run only meets Morwen
     if (!fullStory()) this.demo = { stage: 'briefing', started: 0, foes: 0, willow: { x: willow.x, z: willow.z } };
     if (this.solo) { this.heroes[1].root.position.set(500, 0, 500); this.heroes[1].root.visible = false; }
     this.heroes.forEach((hero) => physics.addCharacter(hero.root.position));
@@ -276,7 +277,7 @@ export class Adventure {
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone connected: drag to move · tap to act · Scan opens the rift' : 'Phone disconnected'), undefined, (command) => this.onPhone(command));
     listenPlayers(this.phone, { joined: (slot) => this.onSeat(slot, true), left: (slot) => this.onSeat(slot, false), button: (kind, slot) => this.onPlayerButton(kind, slot) });
     this.pip = this.pipFairy = new Fairy(this.scene, {
-      now: () => this.time, hero: () => this.heroes[0].root.position, canAct: () => this.canAct() && !this.trial && !this.scanner.open,
+      now: () => this.time, hero: () => this.heroes[0].root.position, canAct: () => this.canAct() && !this.trial,
       target: (from) => this.closestEnemy(from, 19), bolt: (start, direction, spell) => this.launchBolt(start, direction, 0, spell),
       strike: (at, spell) => { const pos = new T.Vector3(at.x, heightAt(at.x, at.z), at.z); this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color: spell.color, element: spell.element, player: 0 }); this.fx.shockwave(pos, spell.color, spell.radius, Math.max(0.3, spell.delay), 0.12); },
       sparkle: (at, color, size) => this.fx.trail(at, color, size), toast: (text) => this.ui.toast(text),
@@ -287,7 +288,7 @@ export class Adventure {
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast(this.phone.phoneConnected ? 'Drag on your phone to move · tap it to act · draw with the wand · slash with the phone' : 'Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
-    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
+    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => this.strike(0), jump: () => this.leap(0), complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
     this.wandHud = new WandHud(this.cv, this.ui.root);
     this.scanner.setFrameSource(this.cv);   // while the tracker runs, scans use its camera pictures: one program owns the webcam
     // The default is the short run (about a minute): talk to Willow, hold the glade against one wave, then the boss
@@ -438,7 +439,8 @@ export class Adventure {
     window.addEventListener('blur', () => { this.keys.clear(); this.drag = undefined; this.previous = 0; }, options);
     document.addEventListener('visibilitychange', () => { this.keys.clear(); this.previous = 0; }, options);
     window.addEventListener('keydown', (event) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || !this.state || this.scanner.open) return;
+      // The scanner is a docked panel now: the game keeps playing while it is open (it takes only Enter and Escape).
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || !this.state) return;
       if (['Space', 'Tab', ...MOVE.flat()].includes(event.code)) event.preventDefault();
       if (this.ui.speaking) {
         if (!event.repeat && ['Enter', 'Space', 'KeyE'].includes(event.code)) { event.preventDefault(); this.ui.advance(); }
@@ -891,7 +893,7 @@ export class Adventure {
   private onPhone(command: PhoneCommand): void {
     if (command === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
     else if (command === 'scan') void this.openScan();
-    else if (!this.scanner.open) this.roll(0);
+    else this.roll(0);
   }
 
   /** Buttons from the per-player phones: slot 1 drives hero two, slot 2 goes to the fairy; slot 0 only sends its slash here. */
@@ -900,7 +902,7 @@ export class Adventure {
     if (slot === 1 && kind !== 'action' && !this.seated) return;
     if (kind === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
     else if (kind === 'scan') void this.openScan(slot);
-    else if (!this.scanner.open) { if (kind === 'roll') this.roll(slot); else this.strike(slot); }
+    else if (kind === 'roll') this.roll(slot); else this.strike(slot);
   }
 
   /** A phone took or left a slot. Slot 1 makes hero two a real player (and, when it leaves, the companion again). */
@@ -940,7 +942,8 @@ export class Adventure {
     const hero = this.heroes[player].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0));
     this.fx.shockwave(hero, color, 6, 1.0, 0.3); this.fx.shockwave(hero, 0xffffff, 3, 0.6, 0.15); this.fx.motes(at, color, 90, 1.2, 3.2, 0.3, 1.8); this.fx.sparks(at, color, 40, 7, 0.22, 0.8, 2);
     this.fx.flash(at, color, 26, 0.9); this.rig.addTrauma(0.3); this.sfx.chest();
-    this.ui.toast(`Relic: ${weapon.artifactName} infuses your wand and sword with ${weapon.element}. ${weapon.description}`);
+    const matchup = matchupLines(weapon.element, this.demo ? ['frost-witch'] : undefined)[0];
+    this.ui.toast(`Relic: ${weapon.artifactName} · your wand and sword now deal ${weapon.element}${matchup.effect === 'none' ? '' : ` · ${matchup.text}`}`);
   }
 
   /**
@@ -949,7 +952,7 @@ export class Adventure {
    */
   private onShape(colour: WandColour, shape: WandShape): void {
     const slot = wandSlot(colour, this.seats);
-    if (slot === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    if (slot === undefined || !this.state || this.ended || this.trial) return;
     if (slot === 2) { this.pip?.cast(shape); return; }   // the third wand plays Pip the fairy
     if (slot === 1 && this.solo) return;
     const player: PlayerIndex = slot;
@@ -967,9 +970,11 @@ export class Adventure {
    */
   private updateRunes(): void {
     if (this.trial) return;
-    if (!this.encounterKind || this.ended) { this.endRunes(); return; }
-    if (this.freeRunes) {
-      // No requests: any shape casts. The tracker still stops tracing while every playing wand is recovering.
+    // A wand that cannot cast right now (dialogue, a cinematic, the scanner, the end) does not trace either: no trail is the cue.
+    if (!this.canAct()) { this.endRunes(); this.cv?.gate(false); return; }   // the docked scanner does not stop the wand
+    if (!this.encounterKind || this.freeRunes) {
+      // No request (out of combat, or ?runes=free): any shape casts. After a spell the tracker still stops tracing
+      // while every playing wand is recovering, so a shape drawn during the cooldown neither shows nor counts.
       this.endRunes();
       const recovering = (hero: PlayerIndex) => WAND_SHAPES.every((shape) => !this.wandCooldowns.ready(hero, shape, this.time));
       this.cv?.gate(!(recovering(0) && (!this.twoAsks || recovering(1))));
@@ -1125,9 +1130,9 @@ export class Adventure {
     const real = this.previous ? Math.min(0.045, (timestamp - this.previous) / 1000) : 0;
     this.previous = timestamp;
     if (document.hidden) return;
-    const paused = this.ui.blocked || this.busy || this.ended || this.scanner.open;
+    const paused = this.ui.blocked || this.busy || this.ended;
     // Dialogue, choices and the journal need the cursor back.
-    if ((this.ui.blocked || this.ended || this.scanner.open) && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
+    if ((this.ui.blocked || this.ended) && document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
     // Hit-stop freezes the world for a few frames on contact; the camera and effects keep breathing.
     let dt = real;
     if (this.hitstop > 0) { this.hitstop -= real; dt = real * 0.04; }
@@ -1137,7 +1142,8 @@ export class Adventure {
     this.world.update(paused ? 0 : dt, this.time, this.heroes[0].root.position);
     this.heroes.forEach((hero) => hero.update(paused ? 0 : dt, this.time));
     if (this.state) {
-      if (!paused) this.update(dt);
+      // Paused (dialogue, a cinematic, the scanner, the end) means no spell can be cast, so the wand does not trace either.
+      if (!paused) this.update(dt); else if (!this.trial) this.cv?.gate(false);
       this.updateCamera(real);
       this.ui.update(this.state, this.stamina);
       this.updateWheel(); this.ui.cooldowns(this.rollCooldown[0] / ROLL.cooldown, this.flashCooldown[0] / FLASH_COOLDOWN);

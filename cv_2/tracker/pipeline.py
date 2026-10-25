@@ -128,7 +128,9 @@ class Pipeline:
                 self._still[name].clear()
                 continue
             stroke = trace.segments[-1] if trace.segments else None
-            result = self.recognizer.classify(stroke, aspect) if stroke else None
+            # Lenient toward the requested rune only (shapes.PREFER_MARGIN): a sloppy star the plain reading calls a triangle
+            # still casts when the game asked for a star. No request, no leniency.
+            result = self.recognizer.classify(stroke, aspect, prefer=target) if stroke else None
             self._shapes[name] = result
             if result is not None and result.shape is not None and (target is None or result.shape == target):
                 self._done[name], self._done_at[name] = result, now

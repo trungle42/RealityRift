@@ -94,3 +94,11 @@ test('a scanned weapon carries its element so hits can use it, the default spell
   assert.equal(W.spellFor(artifact({ element: 'fire' })).element, 'fire');
   assert.equal(W.defaultSpell(0xffffff).element, undefined);
 });
+
+test('the relic card spells out each boss matchup: weak x2, resists x1/2, or none', () => {
+  assert.deepEqual(W.matchupLines('fire', ['frost-witch']), [{ text: 'Morwen is weak to fire · ×2 damage', effect: 'weak' }]);
+  assert.deepEqual(W.matchupLines('ice', ['frost-witch']), [{ text: 'Morwen resists ice · ×½ damage', effect: 'resists' }]);
+  assert.deepEqual(W.matchupLines('water', ['frost-witch']), [{ text: 'No boss here fears or resists water', effect: 'none' }]);
+  assert.deepEqual(W.relicMatchups('light').map((m) => [m.name, m.effect]), [['Umbraxis', 'weak']]);
+  assert.ok(W.ELEMENTS.every((e) => typeof W.ELEMENT_ICON[e] === 'string'));
+});

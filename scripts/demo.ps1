@@ -7,6 +7,9 @@
 #   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
 #   .\scripts\demo.ps1 -Tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
 #   .\scripts\demo.ps1 -Color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
+#   .\scripts\demo.ps1 -Color blue -Name Rishaan -Join https://<words>.trycloudflare.com -Room abcdef
+#                                                     join a teammate's game: your own backend, game, tracker and phone; your hero in theirs
+#   .\scripts\demo.ps1 -Tunnel -Color red -Name Trung  host one: prints the line each teammate runs
 #   .\scripts\demo.ps1 -ApiPort 8020 -WebPort 5220    other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -17,7 +20,11 @@ param(
     [switch]$Tune,
     [switch]$Tunnel,
     [string]$Room = '',
-    [string]$Color = '',
+    # string[]: typed in PowerShell, -Color red,blue arrives as an array (a [string] would turn it into "red blue");
+    # through powershell -File it arrives as the one string "red,blue". Both are joined and split on commas below.
+    [string[]]$Color = @(),
+    [string]$Name = '',
+    [string]$Join = '',
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -33,6 +40,15 @@ $publicUrlFile = Join-Path $repoRoot 'backend\.public_url'
 
 # The room code the game, the phones and the tracker share. With -Tunnel the phone page is on the internet, so each launch
 # gets a fresh random one (6 letters, in the QR link) that a stranger cannot guess; -Room picks one instead.
+# -Join: a teammate's laptop. The host's tunnel link is the meeting point (the presence relay); the room is the host's.
+$presence = ''
+if ($Join) {
+    $m = [regex]::Match($Join, '^(https?)://([A-Za-z0-9.-]+(:[0-9]+)?)')
+    if (-not $m.Success) { throw "-Join takes the host's link, e.g. https://<words>.trycloudflare.com" }
+    $presence = $(if ($m.Groups[1].Value -eq 'https') { 'wss://' } else { 'ws://' }) + $m.Groups[2].Value
+    if (-not $Room) { $r = [regex]::Match($Join, '[?&]room=([A-Za-z0-9_-]+)'); if ($r.Success) { $Room = $r.Groups[1].Value } }
+    if (-not $Room -or $Room -eq 'storybound') { throw "-Join needs the host's room code: -Room <code> (printed by the host's demo -Tunnel)" }
+}
 if (-not $Room) {
     $Room = 'storybound'
     if ($Tunnel) {
@@ -46,14 +62,25 @@ if ($Room -notmatch '^[A-Za-z0-9_-]{1,32}$') { throw '-Room must be 1-32 letters
 # Wand colours, one per player in order (player 1's first). The tracker detects only these (YT_COLORS), and the game is told
 # the order (?wand=), so each colour drives its own hero. With more than one person in view a whole-picture jump is ambiguous,
 # so jump detection is off then.
-if (-not $Color) { $Color = if ($env:YT_COLORS) { $env:YT_COLORS } else { 'yellow' } }
-$colorList = @($Color.ToLower().Replace(' ', '').Split(',') | Where-Object { $_ })
+if (-not $Color) { $Color = @($(if ($env:YT_COLORS) { $env:YT_COLORS } else { 'yellow' })) }
+$colorList = @(($Color -join ',').ToLower().Replace(' ', '').Split(',') | Where-Object { $_ })
 if ($colorList.Count -eq 0) { throw '-Color needs at least one colour' }
 foreach ($c in $colorList) { if ($c -notin @('red', 'blue', 'yellow')) { throw "-Color takes red, blue and yellow (got '$c')" } }
 if (@($colorList | Select-Object -Unique).Count -ne $colorList.Count) { throw '-Color lists a colour twice' }
 $colors = $colorList -join ','
 $jump = if ($colorList.Count -gt 1) { '0' } else { '1' }
 $query = if ($Room -ne 'storybound') { "?room=$Room&wand=$colors" } else { "?wand=$colors" }
+# Networked play (presence): this laptop's game shows the other laptops' heroes. Hosting with -Tunnel or -Name turns it on (the
+# host's own game meets the others on its own backend); -Join meets them on the host's.
+if (-not $presence -and ($Tunnel -or $Name)) { $presence = "ws://localhost:$ApiPort" }
+$gameQuery = $query
+if ($presence) {
+    if (-not $Name) { $Name = if ($env:USERNAME) { $env:USERNAME } else { 'Player' } }
+    $Name = (($Name -replace '[^A-Za-z0-9 _-]', '').Trim())
+    if ($Name.Length -gt 16) { $Name = $Name.Substring(0, 16) }
+    if (-not $Name) { $Name = 'Player' }
+    $gameQuery = "$query&presence=$presence&name=$($Name.Replace(' ', '%20'))"
+}
 
 function Test-Up([string]$Url) {
     try { Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 | Out-Null; return $true } catch { return $false }
@@ -83,7 +110,7 @@ if ($startBackend -and -not (Test-Path $backendPy)) {
     throw 'backend\.venv is missing. Set it up once: cd backend; py -m venv .venv; .venv\Scripts\pip install -r requirements.txt'
 }
 if ($startWeb) {
-    if (-not (Test-Path $viteJs)) { throw 'frontend\node_modules is missing. Install it once: cd frontend; npm install' }
+    if (-not (Test-Path $viteJs)) { throw 'frontend\node_modules is missing. Install it once: cd frontend; npm.cmd install' }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js (node) is not on PATH. Install Node 20.19+ and reopen the terminal.' }
 }
 $cloudflared = $null
@@ -169,10 +196,18 @@ try {
     $story = 'scripted story, no Gemini key loaded'
     try { if ((Invoke-RestMethod -Uri "$api/api/health" -TimeoutSec 2).gemini) { $story = 'Gemini storyteller' } } catch { }
     Write-Host ''
-    Write-Host "  Game:            $web/$query   ($story)"
+    Write-Host "  Game:            $web/$gameQuery   ($story)"
     if ($publicUrl) {
         Write-Host "  Phone joystick:  $publicUrl/joystick$query   (any network; or scan the QR code in the game)"
         Write-Host "  Room:            $Room   (new each launch; up to 3 phones)"
+        if (-not $Join) {
+            Write-Host "  Teammates' laptops (each its own game, tracker and phone; up to 3 players): send each one their line"
+            foreach ($c in @('red', 'blue', 'yellow')) {
+                if ($colorList -contains $c) { continue }
+                Write-Host "    ${c}:  powershell -ExecutionPolicy Bypass -File .\scripts\demo.ps1 -Color $c -Name <name> -Join $publicUrl -Room $Room"
+                Write-Host "          macOS: ./scripts/demo.sh --color $c --name <name> --join $publicUrl --room $Room"
+            }
+        }
     } elseif ($lanIp) {
         Write-Host "  Phone joystick:  http://${lanIp}:$ApiPort/joystick$query   (phone on the same Wi-Fi or hotspot)"
     } else {
@@ -193,16 +228,17 @@ try {
         Write-Host 'Tracker: one is already running, leaving it alone.'
         if ($Room -ne 'storybound') { Write-Host "         It may be on another room: to see it in this game, stop it and run this again (room $Room)." }
     }
-    if (-not $NoBrowser) { Start-Process "$web/$query" }
+    if (-not $NoBrowser) { Start-Process "$web/$gameQuery" }
 
     Write-Host 'Running. Press Ctrl-C to stop what this script started.'
     $reported = @{}
     while ($true) {
-        foreach ($name in @($started.Keys)) {
-            if ($started[$name].HasExited -and -not $reported[$name]) {
-                $reported[$name] = $true
-                if ($name -eq 'tracker') { Write-Host 'demo: the tracker stopped (its messages are above). The backend and game keep running; Ctrl-C to stop.' }
-                else { Write-Host "demo: the $name stopped. Logs: $logs" }
+        # $key, not $name: PowerShell variables ignore case, so a loop over $name would overwrite the player's -Name.
+        foreach ($key in @($started.Keys)) {
+            if ($started[$key].HasExited -and -not $reported[$key]) {
+                $reported[$key] = $true
+                if ($key -eq 'tracker') { Write-Host 'demo: the tracker stopped (its messages are above). The backend and game keep running; Ctrl-C to stop.' }
+                else { Write-Host "demo: the $key stopped. Logs: $logs" }
             }
         }
         Start-Sleep -Seconds 1

@@ -285,7 +285,49 @@ Once the setup above is done (`backend/.venv`, `frontend/node_modules`, `cv_2/.v
 .\scripts\demo.ps1           # Windows
 ```
 
-It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--color red,blue,yellow` (`-Color red,blue,yellow`) for the wand colour of each player in order (default `yellow`): the tracker detects only those colours, jump is off when there is more than one, the game opens with `?wand=` in that order, and `--tune` tunes those colours; `--tunnel` (`-Tunnel` on Windows) for phones on any network through a Cloudflare quick tunnel (it prints the phone link and a fresh room code, opens the game in that room, starts the tracker in it, and stops only the `cloudflared` it started; `ROOM=name` / `-Room name` picks the room), `--tune` (`-Tune` on Windows) to first tune the tracker's colours to this camera and room (the no-keys setup above; it refuses if a tracker is already running, since it needs the camera), `--no-tracker` (`-NoTracker`) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+It starts the backend (open to the local network, for the phone), the game and the tracker (no window of its own: its camera picture shows in the game), opens the game in your default browser, and prints the game URL and the phone joystick URL. Anything already running on port 8000 or 5173, or a tracker that is already open, is left alone, and **Ctrl-C stops only what the script started**. A missing `.venv` or `node_modules` stops it before anything starts, with the command that fixes it. Backend and game logs go to a temporary folder it prints; the tracker prints its slashes and jumps in the same terminal. It never reads `backend/.env`. Options: `--name <you>` and `--join <host link> --room <code>` (`-Name`, `-Join`, `-Room`) for [3 players on 3 laptops](#join-from-your-laptop-3-players-3-laptops); `--color red,blue,yellow` (`-Color red,blue,yellow`) for the wand colour of each player in order (default `yellow`): the tracker detects only those colours, jump is off when there is more than one, the game opens with `?wand=` in that order, and `--tune` tunes those colours; `--tunnel` (`-Tunnel` on Windows) for phones on any network through a Cloudflare quick tunnel (it prints the phone link and a fresh room code, opens the game in that room, starts the tracker in it, and stops only the `cloudflared` it started; `ROOM=name` / `-Room name` picks the room), `--tune` (`-Tune` on Windows) to first tune the tracker's colours to this camera and room (the no-keys setup above; it refuses if a tracker is already running, since it needs the camera), `--no-tracker` (`-NoTracker`) to run without the webcam, `--no-browser` (`-NoBrowser`) to not open the browser, and other ports with `API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh` (`-ApiPort 8020 -WebPort 5220`). The macOS script was tested (starting, leaving running servers alone, a missing setup, a tracker that cannot open the camera, Ctrl-C); the Windows script has not been run yet.
+
+## Join from your laptop (3 players, 3 laptops)
+
+Each player runs their **own** game, backend, tracker (their own wand colour) and phone on their own laptop, and sees the other two
+heroes in their world. The host's backend is the meeting point, reached through its internet tunnel, so any network works.
+
+**Host** (macOS): `./scripts/demo.sh --tunnel --color red --name Trung` (Windows: `.\scripts\demo.ps1 -Tunnel -Color red -Name Trung`).
+It prints the room code and one line per teammate, with the link and room filled in. Send each teammate their line.
+
+**Teammate on Windows, once** (about 10 minutes). Install [Git](https://git-scm.com/download/win), [Node.js 20.19+ LTS](https://nodejs.org),
+[Python 3.12](https://www.python.org/downloads/) (on an ARM laptop take the x86-64 installer) and [uv](https://docs.astral.sh/uv/)
+(`winget install astral-sh.uv`). Close and reopen PowerShell so they are on the PATH, then:
+
+```powershell
+git clone https://github.com/trungle42/Storybound.git
+cd Storybound
+powershell -ExecutionPolicy Bypass -File .\scripts\install-art-pack.ps1 C:\Users\you\Downloads\storybound-art-pack.zip   # optional: the zip from Trung or Rishaan
+cd backend;  py -3 -m venv .venv;  .venv\Scripts\pip install -r requirements.txt;  cd ..
+cd frontend; npm.cmd install;  cd ..
+cd cv_2;     uv venv --python cpython-3.12-windows-x86_64-none .venv;  uv pip install --python .venv\Scripts\python.exe -r requirements.txt;  cd ..
+```
+
+No Gemini key is needed on a teammate's laptop (the story falls back to the scripted one). Two Windows traps this avoids:
+running a `.ps1` directly is blocked by Windows' default script policy (hence `powershell -ExecutionPolicy Bypass -File ...`,
+which applies to that one run and changes no setting), and so is `npm`'s own `npm.ps1` (hence `npm.cmd`).
+
+**Each time**, paste the line the host sent (it looks like this):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\demo.ps1 -Color blue -Name Rishaan -Join https://<words>.trycloudflare.com -Room <code>
+```
+
+It starts your backend, game and tracker (your colour only) and opens your game already connected to the others (`?presence=` the
+host's link). Scan the QR code with your phone as usual. The first time, Windows asks whether Python may use the network: allow it
+on private networks, or the phone cannot reach your laptop. If the venue Wi-Fi blocks your phone anyway, add `-Tunnel` (your phone
+then uses your own tunnel; the room stays the host's; install it once with `winget install --id Cloudflare.cloudflared`). Paste
+the host's line as it is; if you type a link that contains `&` yourself, put it in quotes, since PowerShell treats `&` as an operator. macOS teammates run the same with `./scripts/demo.sh --color blue --name Rishaan --join
+<link> --room <code>`. `-ExecutionPolicy Bypass` applies to that one run only; it changes no setting.
+
+What crosses the internet: each hero's position, animation and health, and cosmetic spell / slash effects, through
+`/ws/presence/{room}` on the host (`backend/app/presence.py`: three players at most, every message rebuilt and clamped, 30 a second,
+nothing stored). The host's tunnel still answers nothing else but the phone page and the phone and presence sockets.
 
 ## Controls
 

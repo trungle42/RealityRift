@@ -58,6 +58,26 @@ export const BOSS_ELEMENTS: Record<string, { weak: Element; resists: Element }> 
 export const WEAK_MULTIPLIER = 2;
 export const RESIST_MULTIPLIER = 0.5;
 
+/** What the relic card and toast call each boss. */
+export const BOSS_NAME: Record<string, string> = { 'frost-witch': 'Morwen', 'shadow-dragon': 'Umbraxis' };
+export const ELEMENT_ICON: Record<Element, string> = { fire: '🔥', water: '💧', lightning: '⚡', ice: '❄️', nature: '🌿', shadow: '🌑', light: '✨' };
+
+/** How a relic's element fares against each boss that matters: weak (x2) or resists (x0.5). Bosses it does not affect are left out. */
+export function relicMatchups(element: Element, bosses: readonly string[] = Object.keys(BOSS_ELEMENTS)): { boss: string; name: string; effect: 'weak' | 'resists' }[] {
+  return bosses.flatMap((boss) => {
+    const entry = BOSS_ELEMENTS[boss];
+    const effect = entry?.weak === element ? 'weak' as const : entry?.resists === element ? 'resists' as const : undefined;
+    return effect ? [{ boss, name: BOSS_NAME[boss] ?? boss, effect }] : [];
+  });
+}
+
+/** One line per matchup, e.g. "Morwen is weak to fire · ×2 damage", or a line saying no boss here cares. */
+export function matchupLines(element: Element, bosses?: readonly string[]): { text: string; effect: 'weak' | 'resists' | 'none' }[] {
+  const found = relicMatchups(element, bosses);
+  if (!found.length) return [{ text: `No boss here fears or resists ${element}`, effect: 'none' }];
+  return found.map(({ name, effect }) => ({ text: effect === 'weak' ? `${name} is weak to ${element} · ×2 damage` : `${name} resists ${element} · ×½ damage`, effect }));
+}
+
 /** Damage multiplier for an element hitting a boss kind: x2 if it is weak to it, x0.5 if it resists, else x1. */
 export function elementMultiplier(bossKind: string | undefined, element: Element | undefined): number {
   const entry = bossKind ? BOSS_ELEMENTS[bossKind] : undefined;
