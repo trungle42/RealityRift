@@ -106,6 +106,23 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(outsideInput === 0, `${outsideInput} real key / pointer event(s) reached the game`);
     });
 
+    await check('Three phones: each has its own stick and buttons; only player 1 drives the old single-phone path', async () => {
+      const input = inner.phone as unknown as import('../src/adventure/PhoneInput').PhoneInput;
+      const heard: string[] = [];
+      const stop = (['slash', 'action', 'roll', 'joined', 'left'] as const).map((event) => input.on(event, (player) => heard.push(`${event}:${player}`)));
+      const rolls = inner.rollTime[0];
+      for (const player of [1, 2]) phone({ type: 'peer', role: 'phone', state: 'joined', player });
+      assert(input.players().join() === '0,1,2' && input.connected(2), `players ${input.players().join()}`);
+      phone({ type: 'move', x: 1, y: 0, player: 1 }); phone({ type: 'move', x: 0, y: 1, player: 2 });
+      assert(input.read(1).x > 0.9 && input.read(2).z < -0.9 && input.read(0).mag === 0, 'the sticks are not kept per player');
+      phone({ type: 'slash', player: 2 }); phone({ type: 'roll', player: 1 }); phone({ type: 'slash', player: 7 });
+      assert(inner.rollTime[0] === rolls, "player 2's Roll rolled player 1's hero");
+      phone({ type: 'peer', role: 'phone', state: 'left', player: 1 });
+      assert(input.phoneConnected && !input.connected(1) && input.read(1).mag === 0, 'one phone leaving disconnected the others');
+      assert(heard.join() === 'joined:1,joined:2,slash:2,roll:1,left:1', `events: ${heard.join()}`);
+      stop.forEach((off) => off());
+    });
+
     status.textContent = `All ${results.children.length} phone-only checks passed.`;
   } catch (error) {
     status.textContent = `Error: ${String(error)}`;

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
 
-from . import cv, gemini, joystick, provider, store  # noqa: E402
+from . import cv, gemini, joystick, provider, store, tunnel  # noqa: E402
 from .schemas import (  # noqa: E402
     ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
     GameEvent, ScoreSubmission, StoryEventResponse, StoryState, VerifyRequest, VerifyResponse,
@@ -27,6 +27,8 @@ app.add_middleware(
     allow_origin_regex=os.getenv("CORS_ORIGIN_REGEX", r"http://(localhost|127\.0\.0\.1)(:\d+)?"),
     allow_methods=["*"], allow_headers=["*"],
 )
+# Added last so it runs first: through the internet tunnel only the phone page and the phone's socket answer (see tunnel.py).
+app.add_middleware(tunnel.TunnelGuard)
 
 
 @app.get("/api/health")

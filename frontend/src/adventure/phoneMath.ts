@@ -29,6 +29,20 @@ export function parseCommand(raw: unknown): PhoneCommand | undefined {
   return type === 'action' || type === 'scan' || type === 'roll' ? type : undefined;
 }
 
+/** Up to three phones play at once; the relay stamps each message with its sender's slot, `player` 0-2. */
+export const MAX_PLAYERS = 3;
+/** Every phone button, including Slash (a backup for the camera slash, and the only slash for players 2 and 3). */
+export type PhoneButton = PhoneCommand | 'slash';
+export function parseButton(raw: unknown): PhoneButton | undefined {
+  return parseCommand(raw) ?? (typeof raw === 'object' && raw !== null && (raw as { type?: unknown }).type === 'slash' ? 'slash' : undefined);
+}
+/** The message's player slot: missing means 0 (a relay from before player slots); anything else invalid is undefined. */
+export function parsePlayer(raw: unknown): number | undefined {
+  const player = typeof raw === 'object' && raw !== null ? (raw as { player?: unknown }).player : undefined;
+  if (player === undefined) return 0;
+  return Number.isInteger(player) && (player as number) >= 0 && (player as number) < MAX_PLAYERS ? player as number : undefined;
+}
+
 /** The stick to apply right now: the latest one, or none if it has gone stale. */
 export function currentStick(latest: StickMove | undefined, receivedAt: number, now: number): StickMove {
   return latest && now - receivedAt <= STICK_STALE_SECONDS ? latest : NO_STICK;

@@ -5,6 +5,7 @@
 #   .\scripts\demo.ps1                                backend :8000, game :5173, tracker, browser
 #   .\scripts\demo.ps1 -NoTracker -NoBrowser          no webcam tracker / do not open the browser
 #   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
+#   .\scripts\demo.ps1 -Tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
 #   .\scripts\demo.ps1 -ApiPort 8020 -WebPort 5220    other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -13,6 +14,8 @@ param(
     [switch]$NoTracker,
     [switch]$NoBrowser,
     [switch]$Tune,
+    [switch]$Tunnel,
+    [string]$Room = '',
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -23,6 +26,22 @@ $api = "http://localhost:$ApiPort"
 $web = "http://localhost:$WebPort"
 # Only these processes are ever stopped: each one was started by this script.
 $started = [ordered]@{}
+$publicUrl = $null
+$publicUrlFile = Join-Path $repoRoot 'backend\.public_url'
+
+# The room code the game, the phones and the tracker share. With -Tunnel the phone page is on the internet, so each launch
+# gets a fresh random one (6 letters, in the QR link) that a stranger cannot guess; -Room picks one instead.
+if (-not $Room) {
+    $Room = 'storybound'
+    if ($Tunnel) {
+        $letters = 'abcdefghjkmnpqrstuvwxyz'
+        $bytes = New-Object byte[] 6
+        [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $Room = -join ($bytes | ForEach-Object { $letters[$_ % $letters.Length] })
+    }
+}
+if ($Room -notmatch '^[A-Za-z0-9_-]{1,32}$') { throw '-Room must be 1-32 letters, digits, - or _' }
+$query = if ($Room -ne 'storybound') { "?room=$Room" } else { '' }
 
 function Test-Up([string]$Url) {
     try { Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 | Out-Null; return $true } catch { return $false }
@@ -55,6 +74,11 @@ if ($startWeb) {
     if (-not (Test-Path $viteJs)) { throw 'frontend\node_modules is missing. Install it once: cd frontend; npm install' }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js (node) is not on PATH. Install Node 20.19+ and reopen the terminal.' }
 }
+$cloudflared = $null
+if ($Tunnel) {
+    $cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+    if (-not $cloudflared) { throw '-Tunnel needs cloudflared. Install it once: winget install --id Cloudflare.cloudflared' }
+}
 if ($startTracker -and -not (Test-Path $trackerPy)) {
     throw 'cv_2\.venv is missing. Set it up once (see cv_2\README.md; Windows on ARM needs the x86_64 Python), or run with -NoTracker.'
 }
@@ -71,7 +95,7 @@ if ($Tune) {
 }
 
 $logs = Join-Path ([IO.Path]::GetTempPath()) ("storybound-demo-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-if ($startBackend -or $startWeb) { New-Item -ItemType Directory -Path $logs | Out-Null }
+if ($startBackend -or $startWeb -or $Tunnel) { New-Item -ItemType Directory -Path $logs | Out-Null }
 $savedApiUrl = $env:VITE_API_URL
 
 try {
@@ -97,14 +121,47 @@ try {
         Write-Host "Game: already running at $web, leaving it alone."
     }
 
+    # -Tunnel: a Cloudflare quick tunnel to the backend. Its requests arrive from 127.0.0.1, so the backend locks them down by
+    # their Cloudflare headers (backend\app\tunnel.py): only the phone page and a phone's socket. Never open one to a backend
+    # without that lockdown (an older one still running), or the API and the camera relay would be on the internet.
+    if ($Tunnel) {
+        $code = 0
+        try { Invoke-WebRequest -Uri "$api/api/health" -Headers @{ 'cf-ray' = 'demo-check' } -UseBasicParsing -TimeoutSec 3 | Out-Null; $code = 200 }
+        catch { if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode } }
+        if ($code -ne 403) { throw "The backend at $api does not lock down tunnel requests (it runs older code). Stop it, then run .\scripts\demo.ps1 -Tunnel again." }
+        Write-Host 'Tunnel: starting cloudflared so phones can join from any network ...'
+        $tunnelLog = Join-Path $logs 'tunnel.log'
+        $started['tunnel'] = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$ApiPort", '--no-autoupdate') `
+            -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $logs 'tunnel.out.log') -RedirectStandardError $tunnelLog
+        $deadline = (Get-Date).AddSeconds(40)
+        while (-not $publicUrl) {
+            if ($started['tunnel'].HasExited) { throw "cloudflared stopped while starting. Log: $tunnelLog" }
+            if ((Get-Date) -gt $deadline) { throw "cloudflared printed no tunnel address within 40 s. Log: $tunnelLog" }
+            Start-Sleep -Milliseconds 500
+            $text = (Get-Content -Raw -ErrorAction SilentlyContinue $tunnelLog) + (Get-Content -Raw -ErrorAction SilentlyContinue (Join-Path $logs 'tunnel.out.log'))
+            $match = [regex]::Match([string]$text, 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com')
+            if ($match.Success) { $publicUrl = $match.Value }
+        }
+        Set-Content -Path $publicUrlFile -Value $publicUrl -Encoding ascii
+        $seen = $null
+        try { $seen = (Invoke-RestMethod -Uri "$api/joystick/info" -TimeoutSec 2).public_url } catch { }
+        if ($seen -ne $publicUrl) {
+            Write-Host "demo: the backend at $api does not see the tunnel address (started from another folder?): the game's QR code shows"
+            Write-Host '      the Wi-Fi address. Give the phones the tunnel link below instead.'
+        }
+    }
+
     $lanIp = $null
     try { $lanIp = (Invoke-RestMethod -Uri "$api/joystick/info" -TimeoutSec 2).lan_ip } catch { }
     $story = 'scripted story, no Gemini key loaded'
     try { if ((Invoke-RestMethod -Uri "$api/api/health" -TimeoutSec 2).gemini) { $story = 'Gemini storyteller' } } catch { }
     Write-Host ''
-    Write-Host "  Game:            $web/   ($story)"
-    if ($lanIp) {
-        Write-Host "  Phone joystick:  http://${lanIp}:$ApiPort/joystick   (phone on the same Wi-Fi or hotspot)"
+    Write-Host "  Game:            $web/$query   ($story)"
+    if ($publicUrl) {
+        Write-Host "  Phone joystick:  $publicUrl/joystick$query   (any network; or scan the QR code in the game)"
+        Write-Host "  Room:            $Room   (new each launch; up to 3 phones)"
+    } elseif ($lanIp) {
+        Write-Host "  Phone joystick:  http://${lanIp}:$ApiPort/joystick$query   (phone on the same Wi-Fi or hotspot)"
     } else {
         Write-Host "  Phone joystick:  no network address found. Join a Wi-Fi or hotspot, then open http://<laptop-ip>:$ApiPort/joystick"
     }
@@ -114,12 +171,13 @@ try {
 
     if ($startTracker) {
         Write-Host "Tracker: starting; its camera picture shows in the game's wand panel ..."
-        $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api) `
+        $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api, '--room', $Room) `
             -WorkingDirectory (Join-Path $repoRoot 'cv_2') -NoNewWindow -PassThru
     } elseif (-not $NoTracker) {
         Write-Host 'Tracker: one is already running, leaving it alone.'
+        if ($Room -ne 'storybound') { Write-Host "         It may be on another room: to see it in this game, stop it and run this again (room $Room)." }
     }
-    if (-not $NoBrowser) { Start-Process "$web/" }
+    if (-not $NoBrowser) { Start-Process "$web/$query" }
 
     Write-Host 'Running. Press Ctrl-C to stop what this script started.'
     $reported = @{}
@@ -135,6 +193,8 @@ try {
     }
 } finally {
     $env:VITE_API_URL = $savedApiUrl
+    # The tunnel's URL file goes too, but only if it still holds this run's URL.
+    if ($publicUrl -and (Test-Path $publicUrlFile) -and ((Get-Content -Raw $publicUrlFile).Trim() -eq $publicUrl)) { Remove-Item $publicUrlFile }
     if ($started.Count -gt 0) {
         Write-Host ''
         Write-Host 'Stopping what this script started...'
