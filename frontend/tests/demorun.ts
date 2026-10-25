@@ -57,7 +57,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
   const wave = () => alive().filter((e) => e.encounter && !e.boss);
   const boss = () => inner.enemies.find((e) => e.boss && e.hp > 0);
   const stage = (): string | undefined => inner.demo?.stage;
-  const paused = () => game.ui.blocked || inner.busy || inner.ended || inner.scanner.open;
+  const paused = () => game.ui.blocked || inner.busy || inner.ended;   // the scanner no longer pauses the game
 
   // Every hit, from any weapon, with the hp it actually took (after boss weakness), so each input's effect is measurable.
   const hits: Hit[] = []; let swinging = false;
@@ -94,7 +94,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
   const step = (dt = 1 / 60, guard = true) => { if (guard) inner.invulnerable = 60; if (paused()) return; inner.time += dt; game.heroes.forEach((h) => h.update(dt, inner.time)); inner.update(dt); };
   const run = async (seconds: number, each?: () => boolean | void) => {
     const end = inner.time + seconds;
-    for (let i = 0; inner.time < end; i++) { if (each?.() === true) return; step(); if (i % 20 === 19) await wait(0); if (paused() && !inner.scanner.open) await wait(5); }
+    for (let i = 0; inner.time < end; i++) { if (each?.() === true) return; step(); if (i % 20 === 19) await wait(0); if (paused()) await wait(5); }
   };
 
   /** A fresh game in the demo run, with hits and damage numbers recorded and this harness owning the clock. */
@@ -230,10 +230,16 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       try {
         const left = wave().length;
         tap('KeyX'); await until(() => inner.scanner.open, 'X did not open the scanner during the wave');
-        const quiet = { bolts: inner.bolts.length, strikes: inner.strikes.length };
-        slash(); draw('star');   // a tracker event while the scanner is open must not act
-        assert(inner.bolts.length === quiet.bolts && inner.strikes.length === quiet.strikes && inner.attackCooldown[0] <= 0, 'a tracker slash or wand shape acted behind the open scanner');
+        // The scanner is a docked panel: the fight keeps going while it is open, and the hero can still swing.
+        const open = wave().map((e) => ({ p: e.root.position.clone(), w: e.windup, c: e.cooldown })), clock = inner.time;
+        await run(0.6);
+        assert(inner.time > clock + 0.5 && wave().some((e, i) => e.hp <= 0 || e.root.position.distanceTo(open[i].p) > 0.05 || e.windup !== open[i].w || e.cooldown !== open[i].c), 'the game paused while the scanner was open');
+        inner.attackCooldown[0] = 0; slash();
+        assert(inner.attackCooldown[0] > 0 && inner.scanner.open, 'a phone slash did not swing while the scanner was open');
+        assert((document.querySelector('.rift-scan')?.getBoundingClientRect().width ?? 9999) <= 340, 'the scanner is not a small docked panel');
         await inner.scanner.captureFromFile(photo); await until(() => !!document.querySelector('.relic-card'), 'relic card missing');
+        const card = document.querySelector('.rift-panel')?.textContent ?? '';
+        assert(card.includes('infuses your wand and sword with fire') && card.includes('Morwen is weak to fire · ×2 damage'), `the card does not say what the relic gives and that Morwen fears it: ${card}`);
         tap('Enter'); await until(() => !inner.scanner.open, 'scanner did not close');
         assert(inner.weapons[0]?.element === 'fire', 'the relic did not reach the hero');
         const hud = document.querySelector('.weapons-hud')?.textContent ?? '';

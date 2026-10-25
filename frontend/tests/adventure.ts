@@ -256,7 +256,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         localStorage.removeItem('storybound.armory.v1');
         void rift.scanner.show(); await until(() => rift.scanner.open, 'scanner did not open');
         await rift.scanner.captureFromFile(photo); await until(() => !!document.querySelector('.relic-card'), 'relic card missing');
-        assert((document.querySelector('.rift-panel')!.textContent ?? '').includes('infuses your wand and sword with fire'), 'card does not say the relic infuses both weapons');
+        const card = document.querySelector('.rift-panel')!.textContent ?? '';
+        assert(card.includes('infuses your wand and sword with fire') && card.includes('Morwen is weak to fire'), 'card does not say what the relic gives and which boss fears it');
         key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
         assert(hud().includes('Relic: Ember Chalice') && hud().includes('Sword · fire') && hud().includes('Wand · fire'), 'HUD does not show the relic infusing both weapons');
         inner.time += WAND_RECOVERY + 0.05;
