@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173/?story=scripted` for fully local play. The default story selection still uses Gemini with `ScriptedStory` as fallback. `VITE_STORY=scripted` also forces local play. Rishaan's 2.5D campaign remains at `?mode=classic` (and retains the Gemini adapter).
+Open `http://localhost:5173/` for the short **demo run**: a brief with Willow, one wave of six shadows, then Morwen the Frost Witch, then a result screen. It has no storyteller, freeze challenge, vote, pose seals, riddle door or storybook. Open `http://localhost:5173/?story=full` for the whole storyteller-driven tale (camps, freeze, crossroads vote, pose seals, riddle door, boss on either route, storybook). The full tale uses Gemini with `ScriptedStory` as fallback; `?story=` takes one value, so for a fully local full tale set `OFFLINE=1` on the backend or start the dev server with `VITE_STORY=scripted`. Rishaan's 2.5D campaign remains at `?mode=classic` (and retains the Gemini adapter).
 
 ## Play
 
@@ -29,7 +29,7 @@ With the cv_2 tracker running (`python -m tools.publish`), the camera also drive
 
 The default is solo play: one hero, and the companion follows and casts automatically. Add `?players=2` for a second human: arrow keys move that player, `/` casts and Right Shift rolls. In solo play the arrow keys also move your hero, and `/` and Right Shift cast and roll for you.
 
-Walk to the golden beacon to begin the next story encounter. Story choices, freeze, pose seals, encounters, and bosses use the existing beat ids and catalog. Hold 1/2/3 for arms-up, T-pose, and crouch; the second player's equivalents are I/O/P. An automatic companion mirrors pose challenges and defends boss warnings. Boss wards reject damage during their warning, then open for attacks. Treasure and springs are claimed once; a full-health party preserves a spring for later. Progress lasts for this adventure; refresh starts a new one.
+In the demo run, walk up to Willow and press E (there is no beacon). In the full story, walk to the golden beacon to begin the next story encounter. Story choices, freeze, pose seals, encounters, and bosses use the existing beat ids and catalog. Hold 1/2/3 for arms-up, T-pose, and crouch; the second player's equivalents are I/O/P. An automatic companion mirrors pose challenges and defends boss warnings. Boss wards reject damage during their warning, then open for attacks. Treasure and springs are claimed once; a full-health party preserves a spring for later. Progress lasts for this adventure; refresh starts a new one.
 
 ## Asset pipeline
 
@@ -48,4 +48,4 @@ It exports rigged ranger and spellweaver models, named animation clips, carved r
 - `/tests/adventure.html?story=scripted`: 15 rendered checks covering 3D input, rewards, dialogue, story transitions, choices, pose seals, the scanner and the riddle door, the two weapons (shape spells, cooldowns, relic infusion), spells, boss ward, solo defense, and ending checks.
 - `/tests/campaign.html` and `/tests/playthrough.html`: Rishaan's original rendered regression harnesses.
 
-The development harnesses are excluded from the production bundle. Live Gemini and a live webcam are outside this offline validation pass; the camera link is tested with synthetic tracker frames, not yet with a live webcam.
+The in-browser checks play the full story (they set `RIFT_FULL_STORY`), not the demo run. The development harnesses are excluded from the production bundle. Live Gemini and a live webcam are outside this offline validation pass; the camera link is tested with synthetic tracker frames, not yet with a live webcam.

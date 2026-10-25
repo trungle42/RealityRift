@@ -20,9 +20,9 @@ Fairy tales turn ordinary things into magic: a pumpkin becomes a carriage, a pla
 
 ## What it does
 
-Storybound is a third-person 3D fairy-tale adventure that runs in the browser. You explore a small kingdom, talk to Willow the waykeeper, solve doors and fight a Frost Witch or a Shadow Wyrm, alone with an AI companion or with a friend on the same keyboard.
+Storybound is a third-person 3D fairy-tale adventure that runs in the browser. You explore a small kingdom, talk to Willow the waykeeper, solve doors and fight a Frost Witch or a Shadow Wyrm, alone with an AI companion or with a friend on the same keyboard. It opens on a short demo run (Willow's briefing, one wave of shadows, then the Frost Witch, about a minute of fighting); add `?story=full` for the whole Gemini-told tale with the freeze challenge, pose seals, the riddle door and the storybook.
 
-- **A storyteller that remembers.** Gemini writes each scene from what you did: which road you took, which challenge you failed, what you found. At the end it writes a personalised storybook of your exact playthrough.
+- **A storyteller that remembers (full story).** Gemini writes each scene from what you did: which road you took, which challenge you failed, what you found. At the end it writes a personalised storybook of your exact playthrough.
 - **Reality Rift.** Press X, hold up a real object (a bottle, a mug, a pen) and Gemini vision turns it into a **relic**: a name, an element, a rarity, and a card framed around your own photo. The relic infuses your weapons with its element. Bosses take double damage from the element they fear and half from the one they resist, so what you pick up matters. Every relic you scan is kept in an in-browser armory, and the story and the storybook remember the real object.
 - **Two weapons.** Every hero carries a sword and a wand. Draw a shape in the air with a coloured wand and it casts at once: circle, nova; triangle, meteor; square, wave; star, chain lightning. A relic's element burns through both, so a fire relic makes your spells and your slashes hurt the Frost Witch double.
 - **The riddle door.** A door with carved eyes asks you to show it "a book" or "a bottle or a cup". Gemini checks your webcam photo, and tells you what it saw if you got it wrong.
