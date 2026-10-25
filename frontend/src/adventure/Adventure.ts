@@ -39,6 +39,8 @@ import './adventure.css';
 
 interface Enemy {
   root: T.Group; ring: T.Mesh; core: T.Mesh; hp: number; maxHp: number; home: Position;
+  /** Encounter foes only: the same on every laptop (spawn order), so online players share its damage. */
+  netId?: string;
   windup: number; cooldown: number; boss?: BossSpec; encounter: boolean; attack: string; pawn?: number; visual?: T.Object3D; actor?: Actor;
   knock: T.Vector3; flash: number; dying: number; flashMats: T.MeshStandardMaterial[];
   /** Camp AI: idle (wander near home) -> alert ("!") -> chase -> return (leash, heals) -> idle. */
@@ -137,6 +139,9 @@ export class Adventure {
   private pipFairy?: Fairy;
   /** Online presence (`?presence=`): the other laptops' heroes, drawn here (Presence.ts). */
   private presence?: Presence;
+  /** Encounter foes spawned so far (their netIds), and other players' damage to foes not spawned here yet. */
+  private netSerial = 0;
+  private readonly pendingHits = new Map<string, number>();
   /** Heroes actually in play: just the ranger in solo. */
   private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
@@ -291,8 +296,10 @@ export class Adventure {
       sparkle: (at, color, size) => this.fx.trail(at, color, size), toast: (text) => this.ui.toast(text),
     }, this.phone);
     this.presence = Presence.fromPage({ scene: this.scene, fx: this.fx, renderer: this.renderer, hud: this.ui.root });
+    // Fighting together: a teammate starting the run starts it here, and their hits land on the same horde and boss.
+    if (this.presence) { this.presence.onStart = () => document.querySelector<HTMLFormElement>('.adventure-start form')?.requestSubmit(); this.presence.onHit = (id, damage) => this.remoteHit(id, damage); }
     const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
-    const party = await starting;
+    const party = await starting; this.presence?.start();
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.hud.setWands(this.seats); this.shapes.subscribe((colour, shape) => { const wand = this.keyWand(colour); if (wand) this.onShape(wand, shape); }); if (this.seated) this.seatHeroTwo(); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast(this.phone.phoneConnected ? 'Drag on your phone to move · tap it to act · draw with the wand · slash with the phone' : 'Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
@@ -773,7 +780,7 @@ export class Adventure {
       });
       part.material = Array.isArray(part.material) ? mats : mats[0];
     });
-    const enemy: Enemy = { root, core, ring, hp, maxHp: hp, home: { x, z }, windup: 0, cooldown: 1.2, boss, encounter, attack: '', pawn, visual, actor, knock: new T.Vector3(), flash: 0, dying: 0, flashMats, ai: encounter || boss ? 'chase' : 'idle', aiT: Math.random() * 3, camp, shown: 0, elite };
+    const enemy: Enemy = { netId: encounter ? `e${this.netSerial++}` : undefined, root, core, ring, hp, maxHp: hp, home: { x, z }, windup: 0, cooldown: 1.2, boss, encounter, attack: '', pawn, visual, actor, knock: new T.Vector3(), flash: 0, dying: 0, flashMats, ai: encounter || boss ? 'chase' : 'idle', aiT: Math.random() * 3, camp, shown: 0, elite };
     if (elite) { enemy.hp = enemy.maxHp = 6; root.scale.setScalar(1.3); flashMats.forEach((m) => { m.color.multiply(new T.Color(0xd8b8ff)); m.userData.baseEmissive = new T.Color(0x2a1240); m.emissive.copy(m.userData.baseEmissive); m.emissiveIntensity = m.userData.baseIntensity = 0.6; }); }
     this.enemies.push(enemy); camp?.members.push(enemy);
     if (encounter && this.fx) { this.fx.puff(root.position, 0x3a2f4a, 14, 2.2, 0.9, 1.1); this.fx.sparks(root.position.clone().add(new T.Vector3(0, 1, 0)), 0x9b7bd6, 18, 4, 0.2, 0.7, 1); }
@@ -1080,17 +1087,19 @@ export class Adventure {
   private canAct(): boolean { return !!this.state && !this.busy && !this.ui.blocked && !this.ended; }
   private closestEnemy(p: T.Vector3, radius: number): Enemy | undefined { return this.enemies.filter((e) => e.hp > 0 && distance(e.root.position, p) < radius && this.physics?.wallDistance(p.clone().add(new T.Vector3(0, 1.2, 0)), e.root.position.clone().add(new T.Vector3(0, e.boss ? 1.8 : 0.9, 0))) === undefined).sort((a, b) => distance(a.root.position, p) - distance(b.root.position, p))[0]; }
 
-  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false, element?: Element): void {
+  /** `remote`: another player's damage (already warded and scaled on their laptop), applied here as it is. */
+  private hit(enemy: Enemy, damage: number, player: PlayerIndex, heavy = false, element?: Element, remote = false): void {
     if (enemy.hp <= 0 || this.ended) return;
     const at = enemy.root.position.clone().add(new T.Vector3(0, enemy.boss ? 2 : 1, 0));
-    if (enemy.boss && (enemy.windup > 0 || enemy.cooldown <= 0)) {
+    if (!remote && enemy.boss && (enemy.windup > 0 || enemy.cooldown <= 0)) {
       // Warded: sparks bounce off and the blade rings, so the player reads "not now".
       this.fx.sparks(at, 0xbfe0ff, 10, 5, 0.16, 0.35, 8); this.fx.number(at.clone().add(new T.Vector3(0, 0.6, 0)), 'Warded', '#bfe0ff'); this.sfx.lockOff(); return;
     }
     // Reality Rift: a boss takes double from the element it fears and half from the one it resists.
-    const multiplier = enemy.boss ? elementMultiplier(enemy.boss.kind, element) : 1;
+    const multiplier = enemy.boss && !remote ? elementMultiplier(enemy.boss.kind, element) : 1;
     if (multiplier !== 1) damage = scaledDamage(damage, multiplier);
     enemy.hp -= damage;
+    if (!remote && enemy.netId) this.presence?.hit(enemy.netId, damage);
     enemy.shown = 4; this.drawBar(enemy);
     if (!enemy.encounter && !enemy.boss) { if (enemy.ai === 'idle') this.alertCamp(enemy); enemy.ai = 'chase'; }
     // A heavy finisher staggers a regular foe out of its windup.
@@ -1134,6 +1143,12 @@ export class Adventure {
         void this.complete(kind, true, this.encounterBefore, kind === 'boss' ? 'The heroes defeated the guardian and restored the spring.' : 'The heroes drove back the gathering shadows.');
       }
     }
+  }
+
+  /** A teammate's hit: on that foe if it is here, else kept until it spawns (they reached the wave first). */
+  private remoteHit(id: string, damage: number): void {
+    const foe = this.enemies.find((e) => e.netId === id);
+    if (foe) this.hit(foe, damage, 0, false, undefined, true); else this.pendingHits.set(id, (this.pendingHits.get(id) ?? 0) + damage);
   }
 
   private hurt(deferEnding = false): void {
@@ -1212,6 +1227,8 @@ export class Adventure {
   }
 
   private update(dt: number): void {
+    // Teammates' hits on foes that had not spawned here yet (they reached the wave first).
+    for (const [id, damage] of this.pendingHits) { const foe = this.enemies.find((e) => e.netId === id); if (foe) { this.pendingHits.delete(id); this.hit(foe, damage, 0, false, undefined, true); } }
     this.invulnerable = Math.max(0, this.invulnerable - dt);
     this.updateRunes();
     this.pipFairy?.update(dt, this.time, heightAt);

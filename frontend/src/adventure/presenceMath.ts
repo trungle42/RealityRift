@@ -23,12 +23,14 @@ export interface HeroState { x: number; y: number; z: number; heading: number; s
 export interface FxEvent { kind: 'cast' | 'slash'; ability?: string; element?: string; x: number; y: number; z: number; dx: number; dz: number }
 
 export type PresenceMessage =
-  | { type: 'welcome'; id: string; peers: Peer[] }
+  | { type: 'welcome'; id: string; peers: Peer[]; started: boolean }
   | { type: 'peer'; state: 'joined' | 'left'; peer: Peer }
   | { type: 'state'; id: string; state: HeroState }
   | { type: 'fx'; id: string; fx: FxEvent }
   | { type: 'full' }
-  | { type: 'replaced' };
+  | { type: 'replaced' }
+  | { type: 'start'; id: string }
+  | { type: 'hit'; id: string; enemy: string; damage: number };
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const text = (v: unknown, max = 24): string | undefined => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : undefined);
@@ -48,10 +50,15 @@ export function parsePresence(raw: unknown): PresenceMessage | undefined {
   if (m.type === 'welcome') {
     const id = idOf(m.id); if (id === undefined) return undefined;
     const peers = Array.isArray(m.peers) ? m.peers.map((p) => (typeof p === 'object' && p ? peerOf(p as Record<string, unknown>) : undefined)).filter((p): p is Peer => !!p && p.id !== id) : [];
-    return { type: 'welcome', id, peers };
+    return { type: 'welcome', id, peers, started: m.started === true };
   }
   if (m.type === 'peer' && (m.state === 'joined' || m.state === 'left')) { const peer = peerOf(m); return peer && { type: 'peer', state: m.state, peer }; }
   const id = idOf(m.id); if (id === undefined) return undefined;
+  if (m.type === 'start') return { type: 'start', id };
+  if (m.type === 'hit') {
+    if (typeof m.enemy !== 'string' || !/^[a-z0-9:_-]{1,16}$/.test(m.enemy) || !finite(m.damage) || m.damage < 0) return undefined;
+    return { type: 'hit', id, enemy: m.enemy, damage: Math.min(100, m.damage) };
+  }
   if (m.type === 'state') {
     if (![m.x, m.y, m.z, m.heading].every(finite)) return undefined;
     const anim = (ANIMS as readonly unknown[]).includes(m.anim) ? (m.anim as Anim) : 'idle';

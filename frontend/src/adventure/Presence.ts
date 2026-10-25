@@ -116,6 +116,12 @@ export class Presence {
   private readonly clock = (): number => performance.now() / 1000;
   private models?: HeroModels;
   private readonly ghosts: Ghost[] = [];
+  /** Fighting together: another laptop started the run (or it had already started when this one joined). */
+  onStart?: () => void;
+  /** Another player's damage to an encounter foe, by its shared id (see Adventure.netId). */
+  onHit?: (enemy: string, damage: number) => void;
+  /** The run has started here or on another laptop. */
+  started = false;
   /** Remote effects played so far, per kind, and the latest one (for the multi-laptop test harness). */
   readonly fxCount = { cast: 0, slash: 0 };
   lastFx?: FxEvent & { id: string };
@@ -152,6 +158,12 @@ export class Presence {
     this.send({ type: 'fx', kind, ability: spell?.ability, element: spell?.element, x: round(at.x), y: round(at.y), z: round(at.z), dx: round(flat.x), dz: round(flat.y) });
   }
 
+  /** This laptop started the run: start it on the others too (the relay passes on only the room's first start). */
+  start(): void { if (!this.started) { this.started = true; this.send({ type: 'start' }); } }
+
+  /** This player's damage to an encounter foe, for the others to apply to theirs. */
+  hit(enemy: string, damage: number): void { this.send({ type: 'hit', enemy, damage }); }
+
   /** Every frame (paused or not: other players keep moving). `real` is wall-clock seconds, `time` the game clock. */
   update(real: number, time: number, hero: Actor, airborne: boolean): void {
     const now = this.clock();
@@ -178,12 +190,16 @@ export class Presence {
     const message = parsePresence(raw); if (!message) return;
     if (message.type === 'full') { this.full = true; this.renderList(); return; }
     if (message.type === 'replaced') { this.replaced = true; this.renderList(); return; }
-    if (message.type === 'welcome') { this.id = message.id; this.full = false; this.retry = 0; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); }
+    if (message.type === 'welcome') { this.id = message.id; this.full = false; this.retry = 0; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); if (message.started) this.remoteStart(); else if (this.started) this.send({ type: 'start' }); }
+    else if (message.type === 'start') this.remoteStart();
+    else if (message.type === 'hit') this.onHit?.(message.enemy, message.damage);
     else if (message.type === 'peer') { if (message.peer.id === this.id) return; if (message.state === 'joined') this.add(message.peer); else this.drop(message.peer.id); }
     else if (message.type === 'state') this.peers.get(message.id)?.push(message.state, this.clock());
     else if (message.type === 'fx') { const remote = this.peers.get(message.id); if (remote) this.play(remote, message.fx); }
     this.renderList();
   }
+
+  private remoteStart(): void { if (!this.started) { this.started = true; this.onStart?.(); } }
 
   private add(peer: Peer): void {
     if (this.peers.has(peer.id)) return;
