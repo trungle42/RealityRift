@@ -204,8 +204,12 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         assert(inner.bolts.length === before + 1, 'with ?runes=free a star did not cast');
         draw('square');
         assert(inner.bolts.length === before + 1, 'the wand recovery did not hold the next shape');
+        const cv = inner.cv as unknown as { wanted: { on: boolean } };
+        await run(0.05);
+        assert(!cv.wanted.on, 'with ?runes=free the tracker kept tracing while the wand recovers');
       } finally { inner.freeRunes = false; }
     });
+
 
     await check('A phone slash swings the sword and kills a shadow', async () => {
       await run(8, () => wave().some((e) => dist(e) < 2.4));
