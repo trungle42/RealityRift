@@ -8,6 +8,17 @@ const REQUEST_SECONDS = 25;
 const THINKING = ['The rift is opening…', 'The storyteller is studying your object…', 'Something old is answering…', 'A relic is taking shape…'];
 
 type Phase = 'live' | 'thinking' | 'result' | 'error' | 'matched' | 'nomatch';
+/**
+ * Pictures from a program that already owns the webcam (the cv_2 tracker, through CvInput). While it is `live` the scanner shows
+ * its preview and scans from its snapshot, so only one program ever opens the camera; otherwise it opens the camera itself.
+ */
+export interface FrameSource {
+  readonly live: boolean;
+  /** The latest small picture, already mirrored like a selfie, as a URL for an <img>. */
+  preview(): string | undefined;
+  /** One full-size, unmirrored picture as base64 JPEG. */
+  snapshot(): Promise<{ jpeg: string; w: number; h: number }>;
+}
 interface Quest { object: string; prompt: string; resolve: (ok: boolean) => void }
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
@@ -23,6 +34,11 @@ export class Scanner {
   private readonly panel = document.createElement('div');
   private stream?: MediaStream;
   private cameraRequest = 0;
+  private source?: FrameSource;
+  /** The tracker's live picture, shown where the video would be while `tracking`. */
+  private readonly feed = document.createElement('img');
+  private feedTimer = 0;
+  private tracking = false;
   private phase: Phase = 'live';
   private weapon?: Weapon;
   private abort?: AbortController;
@@ -40,13 +56,17 @@ export class Scanner {
   constructor(private readonly onEquip: (weapon: Weapon, hero: PlayerIndex) => void, private readonly onClose: () => void = () => {}) {
     this.root.className = 'rift-scan'; this.root.hidden = true; this.root.setAttribute('role', 'dialog'); this.root.setAttribute('aria-modal', 'true'); this.root.setAttribute('aria-label', 'Scan an object');
     this.video.playsInline = true; this.video.muted = true; this.video.autoplay = true; this.video.className = 'rift-video';
+    this.feed.className = 'rift-video'; this.feed.alt = ''; this.feed.style.display = 'none'; this.feed.style.transform = 'none';   // the tracker mirrors it already
     this.panel.className = 'rift-panel';
-    this.root.append(this.video, this.panel);
+    this.root.append(this.video, this.feed, this.panel);
     document.body.append(this.root);
     window.addEventListener('keydown', this.onKey, true);
   }
 
   setHeroes(names: string[]): void { this.heroes = names.slice(0, 2); }
+
+  /** Use another program's camera pictures whenever it is live (see FrameSource). */
+  setFrameSource(source: FrameSource): void { this.source = source; }
 
   /**
    * "Show me X" quest: same camera and photo-upload path, but the photo goes to /api/verify and the
@@ -87,6 +107,7 @@ export class Scanner {
   // ---- camera ----
   private async startCamera(): Promise<void> {
     this.stopCamera(); this.render('live');
+    if (this.source?.live) { this.startFeed(); return; }
     const request = this.cameraRequest;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
@@ -102,11 +123,37 @@ export class Scanner {
     }
   }
 
-  private stopCamera(): void { this.cameraRequest++; this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.video.srcObject = null; }
+  private stopCamera(): void {
+    this.cameraRequest++; this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.video.srcObject = null;
+    clearInterval(this.feedTimer); this.tracking = false; this.feed.style.display = 'none'; this.video.style.display = '';
+  }
+
+  /** The tracker owns the webcam: show its live picture where the video would be, and scan from its snapshot. */
+  private startFeed(): void {
+    this.tracking = true; this.video.style.display = 'none'; this.feed.style.display = '';
+    const show = () => { const url = this.source?.preview(); if (url && url !== this.feed.src) this.feed.src = url; };
+    show(); this.feedTimer = window.setInterval(show, 100);
+    this.root.classList.add('has-camera');
+    this.render('live');
+  }
 
   private async captureFromCamera(): Promise<void> {
+    if (this.tracking) { await this.captureFromTracker(); return; }
     if (!this.stream || !this.video.videoWidth) return;
     await this.scan(this.video, this.video.videoWidth, this.video.videoHeight);
+  }
+
+  private async captureFromTracker(): Promise<void> {
+    const request = this.cameraRequest;
+    this.render('thinking');
+    try {
+      const shot = await this.source!.snapshot();
+      if (request !== this.cameraRequest || !this.open || this.phase !== 'thinking') return;
+      const image = new Image(); image.src = `data:image/jpeg;base64,${shot.jpeg}`; await image.decode();
+      await this.scan(image, shot.w, shot.h, true);
+    } catch {
+      if (request === this.cameraRequest && this.open) this.render('error', 'The wand tracker did not send a picture. Try again, or choose a photo of the object.');
+    }
   }
 
   private async captureFromFile(file: File): Promise<void> {
@@ -116,11 +163,11 @@ export class Scanner {
   }
 
   // ---- Gemini ----
-  private async scan(source: CanvasImageSource, width: number, height: number): Promise<void> {
+  private async scan(source: CanvasImageSource, width: number, height: number, camera = source instanceof HTMLVideoElement): Promise<void> {
     const size = fitWithin(width, height), canvas = document.createElement('canvas'); canvas.width = size.width; canvas.height = size.height;
     canvas.getContext('2d')!.drawImage(source, 0, 0, size.width, size.height);
     const imageBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? '';
-    if (!this.quest) this.photo = thumbnail(canvas, source instanceof HTMLVideoElement);
+    if (!this.quest) this.photo = thumbnail(canvas, camera);
     this.render('thinking');
     this.abort = new AbortController(); const timeout = window.setTimeout(() => this.abort?.abort(), REQUEST_SECONDS * 1000);
     try {
@@ -164,9 +211,10 @@ export class Scanner {
       this.panel.append(el('h2', '', quest ? 'The door is listening' : 'Open a rift'), el('p', 'lede', quest ? `${quest.prompt} Hold ${quest.object} up to the camera.` : 'Hold a real object up to the camera: a bottle, a phone, a pen, a shoe. Gemini turns it into a relic that infuses your wand and sword.'));
       if (note) this.panel.append(el('p', 'note', note));
       const actions = el('div', 'actions');
-      if (this.stream) actions.append(button(quest ? 'Show it' : 'Scan the object', 'Enter', () => void this.captureFromCamera(), true));
+      const camera = !!this.stream || this.tracking;
+      if (camera) actions.append(button(quest ? 'Show it' : 'Scan the object', 'Enter', () => void this.captureFromCamera(), true));
       const file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.hidden = true; file.onchange = () => { const f = file.files?.[0]; if (f) void this.captureFromFile(f); };
-      actions.append(button('Choose a photo', '', () => file.click(), !this.stream), file, button(quest ? 'Skip' : 'Close', 'Esc', () => this.close()));
+      actions.append(button('Choose a photo', '', () => file.click(), !camera), file, button(quest ? 'Skip' : 'Close', 'Esc', () => this.close()));
       this.panel.append(actions);
       if (!quest && this.armory.length) {
         const shelf = el('div', 'armory'); shelf.setAttribute('aria-label', 'Your armory');

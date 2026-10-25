@@ -7,7 +7,7 @@ import json  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.cv import MAX_POINTS, clean_control, clean_tracker, clean_wand  # noqa: E402
+from app.cv import MAX_FRAME, MAX_POINTS, MAX_SNAPSHOT, clean_control, clean_tracker, clean_wand, client_allowed  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -27,12 +27,36 @@ WAND = {
 }
 
 
+PHONE = {"x": 0.18, "y": 0.64, "radius": 0.07}
+JPEG = "/9j/4AAQSkZJRgABAQAAAQABAAD" + "A" * 200 + "=="      # base64 that starts like a JPEG
+
+
+WANDS = {"yellow": {"x": 0.5, "y": 0.4, "radius": 0.04}, "blue": None}
+
+
 def frame(**extra):
-    return {"type": "cv", "slash": 2, "jump": 1, "motion": 0.04, "wand": WAND, **extra}
+    return {"type": "cv", "slash": 2, "jump": 1, "motion": 0.04, "phone": PHONE, "wands": WANDS, "wand": WAND, **extra}
+
+
+def picture(kind="frame", **extra):
+    return {"type": kind, "w": 224, "h": 168, "jpeg": JPEG, **extra}
 
 
 def test_clean_tracker_keeps_a_valid_frame_as_is():
     assert clean_tracker(frame()) == frame()
+    assert clean_tracker(frame(phone="x"))["phone"] is None
+    assert clean_tracker(frame(wands={"yellow": {"x": 9}, "Bad!": PHONE}))["wands"] == {"yellow": None}
+
+
+def test_camera_pictures_pass_only_as_capped_base64_jpeg():
+    assert clean_tracker(picture(extra="dropped")) == picture()
+    assert clean_tracker(picture("snapshot", id=4)) == picture("snapshot", id=4)
+    big = "/9j/" + "A" * MAX_FRAME
+    for bad in (picture(jpeg=big), picture(jpeg="iVBORw0KGgo" + "A" * 40), picture(jpeg="/9j/<script>"), picture(w=0),
+                picture(w=5000), picture(jpeg=5), picture("snapshot"), picture("snapshot", id=-1)):
+        assert clean_tracker(bad) is None
+    assert clean_tracker(picture("snapshot", id=1, jpeg="/9j/" + "A" * (MAX_FRAME * 2))) is not None   # a snapshot may be bigger
+    assert clean_tracker(picture("snapshot", id=1, jpeg="/9j/" + "A" * (MAX_SNAPSHOT + 4))) is None
     assert clean_tracker(frame(motion=None, wand=None))["motion"] is None
 
 
@@ -67,8 +91,11 @@ def test_wand_names_and_sizes_are_limited():
 def test_clean_control():
     assert clean_control({"type": "gate", "on": True, "target": "star"}) == {"type": "gate", "on": True, "target": "star"}
     assert clean_control({"type": "gate", "on": False}) == {"type": "gate", "on": False, "target": None}
-    for bad in (None, {"type": "gate"}, {"type": "gate", "on": 1}, {"type": "cv", "on": True}):
+    for bad in (None, {"type": "gate"}, {"type": "gate", "on": 1}, {"type": "cv", "on": True}, {"type": "snapshot"},
+                {"type": "snapshot", "id": "1"}, {"type": "snapshot", "id": 2**40}):
         assert clean_control(bad) is None
+    assert clean_control({"type": "snapshot", "id": 9, "x": 1}) == {"type": "snapshot", "id": 9}
+    assert clean_control(picture()) is None   # a game cannot send pictures to the tracker
 
 
 def test_tracker_frames_reach_the_game_only_sanitized(client):
@@ -97,6 +124,20 @@ def test_the_game_can_send_control_messages_to_the_tracker(client):
             assert json.loads(tracker.receive_text()) == {"type": "gate", "on": True, "target": "square"}
 
 
+def test_camera_pictures_and_snapshots_travel_through_the_relay(client):
+    with client.websocket_connect("/ws/cv/c3?role=game") as game:
+        with client.websocket_connect("/ws/cv/c3?role=tracker") as tracker:
+            assert json.loads(game.receive_text())["role"] == "tracker"
+            assert json.loads(tracker.receive_text())["role"] == "game"
+            tracker.send_text(json.dumps(picture()))
+            assert json.loads(game.receive_text()) == picture()
+            tracker.send_text(json.dumps(picture(jpeg="/9j/" + "A" * MAX_FRAME)))      # over the cap: dropped
+            game.send_text(json.dumps({"type": "snapshot", "id": 5}))
+            assert json.loads(tracker.receive_text()) == {"type": "snapshot", "id": 5}
+            tracker.send_text(json.dumps(picture("snapshot", id=5, w=512, h=384)))
+            assert json.loads(game.receive_text()) == picture("snapshot", id=5, w=512, h=384)
+
+
 def test_rooms_are_isolated_from_each_other_and_from_the_joystick(client):
     with client.websocket_connect("/ws/cv/roomB?role=game") as game_b:
         with client.websocket_connect("/ws/cv/roomA?role=tracker") as tracker_a:
@@ -109,10 +150,38 @@ def test_rooms_are_isolated_from_each_other_and_from_the_joystick(client):
             assert json.loads(game_b.receive_text())["jump"] == 9
 
 
+def refused(client, url) -> bool:
+    try:
+        with client.websocket_connect(url):
+            return False
+    except Exception as error:  # starlette raises WebSocketDisconnect on close code 1008
+        return "1008" in str(error) or "Disconnect" in type(error).__name__
+
+
 def test_bad_room_or_role_is_refused(client):
     for url in ("/ws/cv/bad room!?role=tracker", "/ws/cv/ok?role=phone"):
-        try:
-            with client.websocket_connect(url):
-                raise AssertionError("connection should have been refused")
-        except Exception as error:  # starlette raises WebSocketDisconnect on close code 1008
-            assert "1008" in str(error) or "Disconnect" in type(error).__name__
+        assert refused(client, url)
+
+
+def test_only_this_laptop_may_connect(monkeypatch):
+    monkeypatch.delenv("CV_ALLOW_REMOTE", raising=False)
+    for host in ("127.0.0.1", "127.0.1.1", "::1", "::ffff:127.0.0.1", "testclient"):
+        assert client_allowed(host), host
+    for host in ("192.168.1.20", "10.0.0.5", "::ffff:10.0.0.5", "fe80::1", "", None, "example.com"):
+        assert not client_allowed(host), host
+    monkeypatch.setenv("CV_ALLOW_REMOTE", "1")
+    assert client_allowed("192.168.1.20")
+
+
+def test_someone_else_on_the_wifi_cannot_watch_the_camera(monkeypatch):
+    # The backend listens on the network for the phone joystick; the webcam relay must not.
+    monkeypatch.delenv("CV_ALLOW_REMOTE", raising=False)
+    with TestClient(app, client=("192.168.1.77", 51000)) as stranger:
+        assert refused(stranger, "/ws/cv/storybound?role=game")
+        assert refused(stranger, "/ws/cv/storybound?role=tracker")
+        with stranger.websocket_connect("/ws/joystick/storybound?role=phone"):
+            pass                                                   # the phone joystick still works from the Wi-Fi
+    monkeypatch.setenv("CV_ALLOW_REMOTE", "1")
+    with TestClient(app, client=("192.168.1.77", 51000)) as invited:
+        with invited.websocket_connect("/ws/cv/remote?role=game"):
+            pass

@@ -68,7 +68,7 @@ With the backend running (`backend/`, port 8000) and the game open:
 
 ```
 python -m tools.publish                                   # ws://localhost:8000/ws/cv/storybound
-python -m tools.publish --window                          # also show the tracker's view (q quits)
+python -m tools.publish --window                          # debug: also open the tracker's own OpenCV view (q quits)
 python -m tools.publish --api http://localhost:8020 --room demo
 ```
 
@@ -82,8 +82,13 @@ pose seals drawn as their rune (triangle = arms up, square = T-pose, circle = cr
 asks for its own), and the game's wand panel shows your trail. **Hold the wand still for a moment, then draw** the shape back to
 that point; it counts when the loop closes, and the wand is ready again 0.8 s later. When the game leaves, the timer demo comes back.
 The terminal prints when the backend connects, when the game joins and what it asks for, and each slash/jump. Slashes count again
-after 0.5 s here (`--slash-hold`), not the demo's 2 s. The tracker holds the webcam, so test the game's scanner (X) on the demo
-laptop with it running: macOS shares the camera, Windows may not.
+after 0.5 s here (`--slash-hold`), not the demo's 2 s.
+
+**Everything shows inside the game; only the tracker opens the webcam.** It has no window by default and sends the game a small
+mirrored camera picture (`--preview-fps` 9, `--preview-width` 224, ~2-10 KB each): the wand panel shows it with the trails and the
+phone marker on top, and a setup hint when something has been wrong for ~1 s ("Yellow wand not seen", "Phone tape not seen", "Step
+back a little": thresholds `NEAR_WAND` / `NEAR_PHONE` in `frontend/src/adventure/cvMath.ts`, first guesses for 1.5-2 m). The game's scanner (X) shows the same picture and, on "Scan the object", asks for one full-size (512 px,
+unmirrored) snapshot instead of opening the camera, so there is no webcam conflict (Windows only lets one program have it).
 
 ## Tuning
 

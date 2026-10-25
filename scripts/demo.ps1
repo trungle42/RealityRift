@@ -1,14 +1,16 @@
 # Storybound demo in one command (Windows PowerShell): the backend (reachable from the phone), the game, and the cv_2 tracker
-# window. Whatever is already running is left alone, and Ctrl-C stops only what this script started.
+# (no window of its own: its camera picture shows inside the game), then the game opens in the default browser.
+# Whatever is already running is left alone, and Ctrl-C stops only what this script started.
 #
-#   .\scripts\demo.ps1                                backend :8000, game :5173, tracker window
-#   .\scripts\demo.ps1 -NoTracker                     no webcam tracker (keyboard and phone only)
+#   .\scripts\demo.ps1                                backend :8000, game :5173, tracker, browser
+#   .\scripts\demo.ps1 -NoTracker -NoBrowser          no webcam tracker / do not open the browser
 #   .\scripts\demo.ps1 -ApiPort 8020 -WebPort 5220    other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
 # The Gemini key stays in backend\.env, which this script never reads: the backend loads it itself.
 param(
     [switch]$NoTracker,
+    [switch]$NoBrowser,
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -98,12 +100,13 @@ try {
     Write-Host ''
 
     if ($startTracker) {
-        Write-Host 'Tracker: starting the webcam window ...'
-        $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--window', '--api', $api) `
+        Write-Host "Tracker: starting; its camera picture shows in the game's wand panel ..."
+        $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api) `
             -WorkingDirectory (Join-Path $repoRoot 'cv_2') -NoNewWindow -PassThru
     } elseif (-not $NoTracker) {
         Write-Host 'Tracker: one is already running, leaving it alone.'
     }
+    if (-not $NoBrowser) { Start-Process "$web/" }
 
     Write-Host 'Running. Press Ctrl-C to stop what this script started.'
     $reported = @{}

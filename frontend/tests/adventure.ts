@@ -116,6 +116,37 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         assert(opened() === 2 && ended(streams[1]), 'a camera granted after closing stayed on');
       } finally { media.getUserMedia = real; scanner.close(); }
     });
+    await check('Tracker camera: its picture fills the wand panel, and the scanner scans from it without opening the webcam', async () => {
+      // A fake tracker speaks to CvInput as the relay would (no backend needed): one program owns the webcam.
+      const cv = (game as unknown as { cv: { handle(m: unknown): void; snapshot(): Promise<unknown> } }).cv;
+      const hud = (game as unknown as { wandHud: { draw(now: number): void; canvas: HTMLCanvasElement } }).wandHud;
+      const scanner = (game as unknown as { scanner: { show(): Promise<void>; close(): void } }).scanner;
+      const paint = document.createElement('canvas'); paint.width = 64; paint.height = 48;
+      const pen = paint.getContext('2d')!; pen.fillStyle = '#e02020'; pen.fillRect(0, 0, 64, 48);
+      const jpeg = paint.toDataURL('image/jpeg', 0.9).split(',')[1];
+      const wand = { active: true, secondsLeft: 0, target: null, next: null, shapes: { yellow: null }, complete: { yellow: false }, traces: { yellow: [[[0.2, 0.2], [0.4, 0.3]]] } };
+      const media = navigator.mediaDevices, realCamera = media.getUserMedia, realFetch = window.fetch, realSnapshot = cv.snapshot;
+      const labels = () => [...document.querySelectorAll('.rift-panel button')].map((b) => b.textContent ?? '');
+      let cameraAsks = 0, sent = '';
+      media.getUserMedia = async () => { cameraAsks++; throw new Error('the scanner opened the webcam while the tracker owns it'); };
+      window.fetch = async (_url, init) => { sent = String(init?.body ?? ''); return new Response('{}', { status: 503 }); };
+      cv.snapshot = async () => ({ jpeg, w: 64, h: 48 });
+      const feed = () => { cv.handle({ type: 'cv', slash: 0, jump: 0, motion: 0, phone: { x: 0.7, y: 0.5, radius: 0.05 }, wand }); cv.handle({ type: 'frame', w: 64, h: 48, jpeg }); };
+      try {
+        cv.handle({ type: 'peer', role: 'tracker', state: 'joined' }); feed();
+        // Drawn directly (not on an animation frame) so this also passes with the pane hidden.
+        await until(() => { feed(); hud.draw(performance.now() / 1000); const [r, g] = hud.canvas.getContext('2d')!.getImageData(hud.canvas.width / 2, hud.canvas.height * 0.8, 1, 1).data; return r > 120 && g < 90; }, 'the tracker picture never appeared in the wand panel');
+        void scanner.show(); feed();
+        await until(() => labels().some((l) => l.startsWith('Scan the object')), `no Scan button with the tracker's picture (saw: ${labels().join(', ')})`);
+        assert(document.querySelector<HTMLImageElement>('.rift-scan img.rift-video')!.src.startsWith('data:image/jpeg'), 'the scan screen does not show the tracker picture');
+        [...document.querySelectorAll<HTMLButtonElement>('.rift-panel button')].find((b) => (b.textContent ?? '').startsWith('Scan the object'))!.click();
+        await until(() => sent.includes('"imageBase64":"/9j/'), 'the scan did not send the tracker snapshot');
+        assert(cameraAsks === 0, 'the scanner asked for the webcam while the tracker owns it');
+      } finally {
+        media.getUserMedia = realCamera; window.fetch = realFetch; cv.snapshot = realSnapshot; scanner.close();
+        cv.handle({ type: 'peer', role: 'tracker', state: 'left' });
+      }
+    });
     await check('Show-me door: a wrong photo is refused with what Gemini saw, a right one opens it, and Skip fails without losing a heart', async () => {
       const scanner = (game as unknown as { scanner: { open: boolean; captureFromFile(f: File): Promise<void> } }).scanner;
       const phase = () => document.querySelector<HTMLElement>('.rift-scan')!.dataset.phase, panel = () => document.querySelector('.rift-panel')!.textContent ?? '';
