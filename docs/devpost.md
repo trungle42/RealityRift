@@ -2,7 +2,7 @@
 
 Draft text for the HackTX 2026 Devpost page. Edit it into the team's own voice before pasting. Everything below describes what is on `main`, except lines marked `TODO(after merge)`: those cover work on other branches. Flip or delete them when the branches land, and cut anything that did not make it.
 
-Before submitting: add the demo video link, check the prize track names against the real Devpost prize list (we could not find the HackTX 2026 list, so the tracks below are guesses), and make sure the GitHub repo is public.
+Before submitting: add the demo video link, tick the prizes you are entering on Devpost (see "Prize tracks" for the ones that need a condition met first), and make sure the GitHub repo is public.
 
 ## Name
 
@@ -78,15 +78,16 @@ If the network or Gemini fails, the game keeps going: the story switches to a ha
 
 ## Prize tracks
 
-We could not find the HackTX 2026 prize list online, so every entry here is a guess. Replace these with the real tracks from the Devpost page and keep only the ones that fit.
+The first three rows come from the HackTX prize list the team saw; check the exact names and rules against the Devpost page when you submit. The last three rows are guesses.
 
-| Track (guess) | Why it fits |
+| Track | Why it fits |
 |---|---|
-| Best use of the Gemini API / Google sponsor prize (guess) | Gemini writes the story, makes weapons from photos, and judges photos at the riddle door, all with structured output and fallbacks. |
+| **MLH Best Use of Gemini API** (main target) | Gemini writes every story beat and the storybook (structured output, with a scripted fallback for each beat), turns a photo into a weapon through `/api/artifact`, and judges the riddle-door photo through `/api/verify`. **Tick this prize on Devpost.** |
+| **MLH Best Domain Name from .Tech** | Only counts if the team registers a .tech domain (for example `playstorybound.tech`) with MLH's free code and points it at the Devpost page, the video or the repo. `TODO(if registered)`: add the domain here and under Links, or delete this row. |
+| **Cursor track** | Only if true: enter it only if teammates really built parts of the project with Cursor and can say which. Describe exactly what was built with it, and claim nothing more. `TODO(if true)`: write that sentence here, or delete this row. |
 | Best overall (guess) | One complete game, from start screen to personalised storybook, with the phone, camera and AI all working together. |
 | Best game or most creative hack (guess) | A 3D adventure where your real objects become spells. |
-| Best use of computer vision or hardware (guess) | Webcam object scan, coloured-wand shapes, phone slash and jump detection. Mention the game integration only if the CV branch has merged. `TODO(after merge)` |
-| Best theme fit, "Fairy Tale" (guess, if there is one) | A fairy tale whose magic comes from the player's own world. |
+| Best theme fit, "Fairy Tale" (guess) | A fairy tale whose magic comes from the player's own world. |
 
 ## Links
 

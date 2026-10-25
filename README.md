@@ -98,7 +98,7 @@ In progress (CV to game):
 
 ### Also on `main`
 
-- **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her). Her translucent echo waits in the castle and the cave with tips for the boss there.
+- **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her). Her translucent echo waits in the castle and the cave with advice about that region's boss (its attacks and when to strike).
 - **Combat:** a three-hit sword combo, spells, roll, flash step, lock-on, and boss wards that reject damage during the warning and open afterwards.
 - **Classic edition:** Rishaan's earlier 2.5D campaign (PixiJS) is still available at `http://localhost:5173/?mode=classic`.
 - **Solo or two players.** The default is one hero plus an AI companion. Add `?players=2` for a second human on the same keyboard.
