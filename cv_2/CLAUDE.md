@@ -13,8 +13,10 @@ it turns off every drawn path is erased**. Each ON phase asks for the next prese
 round again) and the program **names the shape it sees each colour drawing**. Separately, a **green strip on the front of a phone** (held in the left hand) is
 tracked on every frame, whatever the gate says, and a fast downward swing of it makes the demo show **SLASHED!** for
 `slash_hold_s`=2 s (`tracker/slash.py`). **Status: working on the dev setup with bright lime tape when the swing stays inside the picture: 7/7 deliberate slashes fired in one
-recording, 3/5 live (4/5 replayed with the final thresholds) when raising to face height, and 0 false triggers in 30 s of ordinary movement (see Decisions: SlashDetector, and Gotchas for the framing requirement).** There is no server, WebSocket or frontend integration yet: the only consumer
-is `tools/demo.py` (OpenCV window).
+recording, 3/5 live (4/5 replayed with the final thresholds) when raising to face height, and 0 false triggers in 30 s of ordinary movement (see Decisions: SlashDetector, and Gotchas for the framing requirement).** `tools/publish.py` sends it to
+the game through the backend relay (`/ws/cv/{room}`, `backend/app/cv.py`; game side `frontend/src/adventure/CvInput.ts`): a slash
+strikes, a jump jumps, body motion breaks the freeze trial, and the wand round is sent read-only. That link was tested end to end
+with synthetic frames, not yet with a live webcam. `tools/demo.py` is the OpenCV window.
 
 ## Commands (run from `cv_2/`; Windows venv python is `.venv\Scripts\python.exe`)
 
@@ -23,7 +25,8 @@ python -m tools.demo                           # window; q quits, m shows the co
 python -m tools.demo --period 3                # different on/off period
 python -m tools.demo --no-window --frames 90   # headless smoke test, prints fps + per-colour result
 python -m tools.tune                           # click-to-calibrate: sample your objects, get YT_* lines (p)
-python -m pytest                               # 211 tests (~30 s), no camera needed
+python -m tools.publish --window               # send to the game via the backend (--api, --room, --slash-hold)
+python -m pytest                               # 221 tests (~10-30 s), no camera needed
 ```
 
 Env knobs (`tracker/config.py`): `YT_CAMERA, YT_WIDTH, YT_HEIGHT, YT_COLORS` (subset, e.g. `blue,red`),
@@ -57,8 +60,11 @@ tracker/
   overlay.py   draw(frame, payload, period_s, colors): per-colour fading trail + marker + name, ON/OFF banner, countdown
                bar, red border when off, shape panel ("Draw: X" + guide icon + per-colour detected shape; while off
                "Next: Y" + last round's result). mask_view(): each detector's mask painted in its colour.
+  game.py      game_message(payload) -> the small per-frame message the game receives (counts, motion area, wand round with
+               traces thinned to 200 points per colour). Pure.
 tools/demo.py  Window + --no-window smoke test + mask view.
 tools/tune.py  Click-to-calibrate window: sample HSV of the object at several places, print suggested YT_* lines.
+tools/publish.py  Camera -> Pipeline -> game_message -> Publisher (newest-wins sender thread, reconnects) -> backend relay.
 tests/         Synthetic frames (grey room, coloured balls on sticks, skin/green/orange distractors); injectable clock.
 ```
 
@@ -202,6 +208,16 @@ a single `object` / `trace`; nothing consumed it, so it was changed without a co
   deep enough that it reads as a square or circle, and a heavily rounded pentagram). **It has not been tried with a real hand and
   camera**; the thresholds are the first thing to tune if it misfires. `tests/test_shapes.py` carries a trimmed copy of the simulator.
 - **Cycle**: `Pipeline._round` starts at 0 (circle) and increments on every off->on edge, wrapping over `Config.shapes`.
+- **The game gets counts, not the "showing" flags** (`tracker/game.py`). `slash.active` / `jump.active` stay true for the hold, so the game
+  would have to detect edges anyway; a running count is an edge it cannot miss, even when the sender skips frames. The game treats the
+  first count it sees, and a count that goes down (tracker restarted), as a new baseline.
+- **The sender is a newest-wins slot on its own thread** (`tools/publish.Publisher`), so a slow or missing backend never stalls the
+  camera loop, and frames replaced before they are sent are simply skipped (no event is lost, see the previous item). It goes through the
+  backend relay rather than serving its own socket, like the phone joystick: the game keeps one backend URL and the backend sanitises.
+- **Game slash hold is 0.5 s** (`--slash-hold`; the demo keeps 2 s) so the sword can be swung again quickly. That exposed a bug the 2 s
+  hold hid: points seen during the hold stayed in the 1.5 s window, so the rest of a fast swing that fired early counted as a second
+  slash once a hold shorter than the window ended. `SlashDetector` now clears its buffer when the hold ends
+  (`test_a_short_hold_does_not_count_the_rest_of_the_same_swing`).
 
 ## Gotchas (each one cost time)
 
@@ -261,7 +277,9 @@ both sides of the hue wrap. Then: gate (alternation, countdown), trace (gap spli
 its own trace and they don't contaminate each other, colours tracked independently when one disappears, **every trace
 erased on every off edge over 3 cycles**, fresh start after turning on, no detector runs while off, lost track breaks the
 line, mirroring + JSON, smoothing lag), config (defaults, `YT_COLORS`/hue/saturation env parsing, unknown colour rejected,
-subset pipelines), overlay (draws in both states, `mask_view` paints each colour). `tests/test_shapes.py`: recogniser (ideal shapes in any rotation/start/direction/size, every star variant, aspect, seeded hand-drawn accuracy floors, unfinished/tiny/scribble not forced into a preset) and the pipeline (target cycle, end-to-end naming of each shape through synthetic ball frames, result kept after the erase, colours named independently). Live behaviour is checked by hand with
+subset pipelines), overlay (draws in both states, `mask_view` paints each colour). `tests/test_publish.py`: the game message from real
+pipeline payloads, trace thinning, the relay URL, and `Publisher` against a stand-in relay (newest wins, control messages handed back,
+reconnects when the backend starts later). `tests/test_shapes.py`: recogniser (ideal shapes in any rotation/start/direction/size, every star variant, aspect, seeded hand-drawn accuracy floors, unfinished/tiny/scribble not forced into a preset) and the pipeline (target cycle, end-to-end naming of each shape through synthetic ball frames, result kept after the erase, colours named independently). Live behaviour is checked by hand with
 `tools.demo`; **the live trails/toggle have only been smoke-tested headless (fps + detections), not visually reviewed
 across lighting conditions or object types, and blue/red thresholds have never been tuned against real objects.**
 
@@ -307,8 +325,11 @@ across lighting conditions or object types, and blue/red thresholds have never b
 - Jump: validate the slash suppression against real slashes (see Decisions). A user who jumps from further away or in a plain shirt
   may need `jump_min_area` lowered (the area scales with how much of the picture the body fills); several people in view are not handled.
 
-- Serve it: a FastAPI WebSocket (`/ws/...`, a newest-wins publisher slot so slow clients skip frames instead of queueing), and document the payload in
-  `docs/api-contract.md` (not there yet, since nothing consumes it).
+- Let the game drive the wand round: the relay already forwards `{type: "gate", on, target}` from the game, and `tools.publish` prints it,
+  but `Pipeline` still runs its own `DetectionGate` timer. Needs a way to start/stop the round and set the target from outside.
+- Try the game link with a live webcam and a person (it was tested with synthetic frames), including the freeze threshold
+  (`FREEZE_MOTION` = 0.06 in `frontend/src/adventure/cvMath.ts`, not measured for small fidgets) and whether the browser scanner can open
+  the webcam while the tracker holds it (fine on macOS in principle, often exclusive on Windows).
 - `tools.tune` prints lines to paste; it could write them to a config file (or `.env`) that `Config.from_env` reads.
 - Lock the webcam's auto exposure / white balance (`CAP_PROP_AUTO_EXPOSURE`, `CAP_PROP_AUTO_WB`; driver-dependent on
   DirectShow, untested here) to stop the whole picture shifting when an object enters.
@@ -319,7 +340,7 @@ across lighting conditions or object types, and blue/red thresholds have never b
 - Shapes: debounce the live label (it can change while a stroke is closing), more presets, an env var for `Config.shapes`, score the drawing against the target instead of only naming it.
 - Tune blue and red against real objects and add more colours (a new colour is one `ColorSpec` in `default_colors()`).
 - Velocity/prediction so the object can be bridged across brief occlusions.
-- Frontend rendering of the payload's `trace` (it is already normalised and mirrored).
+- Frontend rendering of the wand traces (`CvInput.wand().traces`, already normalised and mirrored).
 
 ## Conventions
 

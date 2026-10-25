@@ -172,7 +172,39 @@ Telemetry and scores are stored in SQLite (`DB_PATH`, default
 `reality_rift.db`).
 
 ## CV (webcam tracking)
-Not served over the network yet. The standalone tracker in [`cv_2/`](../cv_2/) returns plain JSON per frame from
-`Pipeline.process()` (wand traces and shapes, phone slash, jump). Its fields are documented in the "Output data" section of
+The tracker in [`cv_2/`](../cv_2/) is a separate Python process. `python -m tools.publish` (run in `cv_2/`, options
+`--api http://localhost:8000 --room storybound --window`) sends a small message per frame to the backend relay, which passes it
+to the game. The full per-frame data from `Pipeline.process()` is documented in the "Output data" section of
 [`docs/yellow-tracker.html`](yellow-tracker.html); decisions and measurements are in [`cv_2/CLAUDE.md`](../cv_2/CLAUDE.md).
-When a server (HTTP/WebSocket) is added, document its endpoints here.
+
+### `WS /ws/cv/{room}?role=tracker|game`
+Relay in `backend/app/cv.py`, the same pattern as `/ws/joystick/{room}`. `room` is 1-32 of `A-Za-z0-9_-` and is the only access
+control; the game uses its `?room=` URL parameter (default `storybound`), shared with the phone joystick. A bad room or role is
+closed with code 1008. Each side gets `{type:"peer", role, state:"joined"|"left"}` when the other side connects or leaves, and a
+newcomer is told who is already there. Every message is rebuilt from the fields below (types checked, numbers clamped, names
+limited to `^[a-z][a-z0-9_-]{0,15}$`, at most 8 colours and 400 trace points per colour, messages over 64 KB dropped), so
+neither side can push arbitrary data into the other.
+
+Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames rather than queue them):
+```json
+{ "type": "cv", "slash": 3, "jump": 1, "motion": 0.042,
+  "wand": { "active": true, "secondsLeft": 3.2, "target": "circle", "next": "triangle",
+            "shapes": { "yellow": { "shape": "circle", "score": 0.12 }, "blue": null, "red": null },
+            "complete": { "yellow": true, "blue": false, "red": false },
+            "traces": { "yellow": [[[0.51, 0.40], [0.52, 0.42]]], "blue": [], "red": [] } } }
+```
+- `slash` and `jump` are **running counts**: act when one goes up (the first value seen, or one that goes down after a tracker
+  restart, is a new baseline). The tracker's game hold is 0.5 s between slashes (`--slash-hold`) and 2 s between jumps. A jump is
+  reported at the landing.
+- `motion` is the fraction of the picture moving (0-1), or `null` before the second frame. The game counts the player as moving in
+  the freeze trial at `>= 0.06` (`FREEZE_MOTION` in `frontend/src/adventure/cvMath.ts`). People walking behind the player count too.
+- `wand` is the wand round as the tracker runs it, on its own 5 s on/off timer, read-only for the game (`CvInput.wand()`); `null`
+  if malformed. Field meanings are those of the "Output data" section. Coordinates are 0-1 of the picture, x mirrored (selfie view);
+  traces are thinned to at most 200 points per colour.
+
+Game -> tracker:
+```json
+{ "type": "gate", "on": true, "target": "star" }
+```
+Relayed (`target` may be `null`) so the game can later start and stop the wand round itself. **The tracker does not act on it
+yet**: `tools.publish` prints it and the round keeps its own timer, until `Pipeline` gets a way to be driven from outside.

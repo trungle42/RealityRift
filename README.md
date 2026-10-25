@@ -13,13 +13,14 @@ The pitch: the story reacts to the players, and the players' real world reacts b
 ```
   Phone browser                    Browser: the game                    cv_2 (Python)
   /joystick page                   Three.js + Rapier, port 5173         webcam colour tracker
-  (thumb stick)                    Scanner = webcam photos              its own OpenCV window
-       |                              |                 ^               (not linked to the game yet)
-       | WebSocket                    | HTTP            | WebSocket
-       v                              v                 | (stick moves)
-  +--------------------------------------------------------+
-  | FastAPI backend, port 8000                             |
-  |   /ws/joystick/{room}   phone relay, forwards to game  |
+  (thumb stick)                    Scanner = webcam photos              python -m tools.publish
+       |                              |                 ^                 |
+       | WebSocket                    | HTTP            | WebSocket       | WebSocket
+       v                              v                 | (stick, body)   | (slash, jump,
+  +--------------------------------------------------------+              |  motion, wand)
+  | FastAPI backend, port 8000                             |              |
+  |   /ws/joystick/{room}   phone relay, forwards to game  |              |
+  |   /ws/cv/{room}         tracker relay, to the game <---+--------------+
   |   /api/provider/*       story beats and storybook  ----+---> Gemini (text)
   |   /api/artifact         photo -> weapon            ----+---> Gemini (vision)
   |   /api/verify           photo shows "a book"?      ----+---> Gemini (vision)
@@ -32,7 +33,7 @@ What talks to what:
 - **Backend -> Gemini.** One call per story beat, one per photo. Never per frame.
 - **If Gemini fails, the game keeps going.** The backend returns 503 for story calls and the browser uses the hand-written `ScriptedStory` for that beat. A scan returns a stand-in weapon; the riddle door lets you through.
 - **Phone -> backend -> game.** The phone opens `/joystick` and streams a stick position over a WebSocket. The backend forwards only validated `move` messages to the game in the same room.
-- **cv_2 is separate for now.** It reads the webcam and shows its results in its own window. It does not talk to the game on `main`. [In progress](#status): a relay and `CvInput.ts` to connect it.
+- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, and body motion into moving in the freeze trial. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 The rule behind the design: the engine owns the rules (combat, hearts, timing), Gemini owns the words. The backend fixes the structure of each beat from a catalog the engine can run, and Gemini only writes narration, prompts, names and the final storybook. It cannot invent a mechanic the game cannot run.
 
@@ -80,7 +81,7 @@ Press **H** in the game. A toast shows a URL like `http://192.168.x.x:8000/joyst
 - Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
 - Only `{type: "move", x, y, sprint}` is forwarded, with numbers clamped to the unit circle. The room code is the only access control, which is fine for a demo.
 
-### cv_2: webcam colour tracker (working on its own; not in the game yet)
+### cv_2: webcam colour tracker (working; slash, jump and motion connected to the game)
 
 haicil's tracker is a Python + OpenCV program in `cv_2/`. No neural model: it finds objects by colour (HSV thresholds), so it needs no download and runs at camera speed.
 
@@ -90,10 +91,9 @@ haicil's tracker is a Python + OpenCV program in `cv_2/`. No neural model: it fi
 
 It was tuned on one webcam. Expect to re-run `python -m tools.tune` (click your objects, paste the printed values) in new lighting. Details, measurements and gotchas: [cv_2/README.md](cv_2/README.md) and [cv_2/CLAUDE.md](cv_2/CLAUDE.md).
 
-In progress (CV to game):
+Working (CV to game; tested end to end with synthetic tracker frames, not yet with a live webcam):
 
-<!-- TODO(after merge): flip these to working once the CV relay (backend/app/cv.py) and frontend/src/adventure/CvInput.ts are on main. -->
-- A backend relay plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. `TODO(after merge)`
+- A backend relay (`backend/app/cv.py`) plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. Start it with `python -m tools.publish` in `cv_2/` while the backend runs.
 - Later, not started: **wand shapes cast spells**, and wand shapes for the pose seals.
 
 ### Also on `main`
@@ -216,6 +216,16 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 
 Calibrate for your lighting with `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
 
+To send the tracker to the game, keep the backend (step 1) running and the game open, then run one of these instead of the demo (on Windows use `.venv\Scripts\python.exe`):
+
+```bash
+uv pip install --python .venv/bin/python -r requirements.txt               # once, if your venv predates the link: adds websockets
+.venv/bin/python -m tools.publish --window                                 # backend on :8000, game in room "storybound"; q quits
+.venv/bin/python -m tools.publish --api http://localhost:8020 --room demo  # another backend or room; open the game with ?room=demo
+```
+
+The terminal prints when the backend connects, when the game joins, and each slash or jump. A slash can count again after 0.5 s (`--slash-hold`). Tested end to end with synthetic tracker frames, not yet with a live webcam. The tracker holds the webcam while it runs, so check that the scanner (**X**) still opens the camera on the demo laptop.
+
 ## Controls
 
 Checked against `bindInput()` and the movement code in `frontend/src/adventure/Adventure.ts`.
@@ -244,11 +254,11 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 
 | What | Command | Result on `main` |
 |---|---|---|
-| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 32 pass |
-| Frontend unit tests | `cd frontend && npm test` | 60 pass |
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 42 pass |
+| Frontend unit tests | `cd frontend && npm test` | 67 pass |
 | Type-check and build | `cd frontend && npm run build` | passes |
 | In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 13 checks, listed as PASS / FAIL |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 211 pass (about 12 s on a Mac; no camera needed) |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 221 pass (about 12 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
@@ -271,11 +281,11 @@ The browser checks drive the real renderer with real key events, so they need a 
 - The riddle door that checks a webcam photo with Gemini vision.
 - Phone joystick through the backend relay.
 - cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump.
+- cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial (tested with synthetic tracker frames; not yet with a live webcam).
 - Classic 2.5D campaign at `?mode=classic`.
 
 **In progress (not on `main` yet)**
 
-- Connecting cv_2 to the game: phone slash to strike, jump to jump, body motion to the freeze trial. `TODO(after merge)`
 - Reality Rift extras: held weapon model, fuller boss weakness hint, story remembering your objects, weapon arsenal. `TODO(after merge)`
 - Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
 
