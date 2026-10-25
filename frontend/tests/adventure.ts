@@ -42,6 +42,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
   };
   const near = (x: number, z: number) => { game.heroes.forEach((hero, i) => hero.root.position.set(x + i * 1.2, 0, z + i)); };
   const clearDialogue = async () => { while (game.ui.speaking) { game.ui.advance(); await wait(10); } };
+  // Hold for game time, not wall time, so a throttled background page still gets enough frames.
+  const holdFor = async (seconds: number) => { const from = inner.time; await until(() => inner.time - from > seconds, 'game clock stalled'); };
   const beginBeat = async (beat: StoryBeat) => {
     await inner.loadBeat(Promise.resolve(beat)); const at = objectiveFor(beat); near(at.x, at.z);
     const work = inner.interact(); await until(() => game.ui.speaking, 'dialogue missing'); await clearDialogue(); return work;
@@ -52,15 +54,14 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await start;
     inner.narrator.enabled = false; inner.sound = false;
     await check('Keyboard movement changes world position; camera follows', async () => {
-      // Hold for game time, not wall time, so a throttled background page still gets enough frames.
-      const before = game.heroes[0].root.position.clone(), from = inner.time; key('KeyW'); await until(() => inner.time - from > 0.22, 'game clock stalled'); key('KeyW', false);
+      const before = game.heroes[0].root.position.clone(); key('KeyW'); await holdFor(0.22); key('KeyW', false);
       assert(game.heroes[0].root.position.distanceTo(before) > 0.4, 'hero did not walk');
       assert(game.camera.position.distanceTo(game.heroes[0].root.position) < 20, 'camera lost the hero');
     });
     await check('Sprint spends stamina, camera can orbit, player two moves independently', async () => {
-      key('ShiftLeft'); key('KeyW'); await wait(160); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
-      const yaw = inner.yaw; key('KeyC'); await wait(120); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
-      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await wait(150); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
+      key('ShiftLeft'); key('KeyW'); await holdFor(0.16); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
+      const yaw = inner.yaw; key('KeyC'); await holdFor(0.12); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
+      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await holdFor(0.15); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
     });
     await check('Treasure can be claimed once and full health preserves healing springs', async () => {
       const chest = game.world.objects.find((o) => o.kind === 'chest')!; near(chest.x, chest.z); inner.update(0.02);
@@ -158,6 +159,49 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(enemy.hp <= 0, 'spell projectiles did not defeat enemy');
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
+    });
+    await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword', async () => {
+      inner.trial = undefined; inner.busy = false; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
+      type Spellish = { element?: string; color: number; damage: number };
+      const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: unknown[]; strikes: Spellish[]; bolts: Spellish[]; hit: (...a: unknown[]) => void; strike(p: 0 | 1): void; resolveHits(): void };
+      const draw = (code: string) => { key(code); key(code, false); };
+      const hud = () => document.querySelector('.weapons-hud')?.textContent ?? '';
+      assert(hud().includes('Sword') && hud().includes('Wand') && hud().includes('No relic'), 'weapons HUD does not show sword, wand and no relic');
+      // Before any scan: a triangle drops an arcane meteor at once.
+      const before = rift.strikes.length; draw('Digit5');
+      const meteor = rift.strikes.at(-1);
+      assert(rift.strikes.length === before + 1 && meteor?.element === undefined && meteor?.damage === 2, 'a drawn triangle did not cast an arcane meteor without a relic');
+      assert(hud().includes('meteor'), 'HUD does not show the last shape');
+      draw('Digit5'); assert(rift.strikes.length === before + 1, 'the same shape cast again inside its cooldown');
+      const bolts = rift.bolts.length; draw('Digit6'); assert(rift.bolts.length === bolts + 3, 'a different shape (square: wave) was blocked by the triangle cooldown');
+      inner.trial = { elapsed: 0 }; const during = rift.bolts.length; draw('Digit7'); inner.trial = undefined;
+      assert(rift.bolts.length === during, 'a shape drawn during a trial also cast');
+      // Relic: a fire scan infuses both weapons.
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
+      const photo = new File([await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))], 'mug.png', { type: 'image/png' });
+      const realFetch = window.fetch;
+      window.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith('/api/artifact')
+        ? new Response(JSON.stringify({ artifact: { object: 'coffee mug', artifactName: 'Ember Chalice', artifactType: 'chalice', element: 'fire', ability: 'bolt', damage: 70, rarity: 'epic', description: 'Still warm.' }, source: 'gemini' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : realFetch(url, init)) as typeof fetch;
+      const realHit = rift.hit; const elements: unknown[] = [];
+      try {
+        localStorage.removeItem('storybound.armory.v1');
+        void rift.scanner.show(); await until(() => rift.scanner.open, 'scanner did not open');
+        await rift.scanner.captureFromFile(photo); await until(() => !!document.querySelector('.relic-card'), 'relic card missing');
+        assert((document.querySelector('.rift-panel')!.textContent ?? '').includes('infuses your wand and sword with fire'), 'card does not say the relic infuses both weapons');
+        key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
+        assert(hud().includes('Relic: Ember Chalice') && hud().includes('Sword · fire') && hud().includes('Wand · fire'), 'HUD does not show the relic infusing both weapons');
+        const chain = rift.bolts.length; draw('Digit7');
+        assert(rift.bolts.length === chain + 1 && rift.bolts.at(-1)?.element === 'fire', 'a drawn star did not cast a fire chain');
+        assert(inner.state.history().relics?.[0]?.object === 'coffee mug', 'storyteller history is missing the relic');
+        // The sword carries the element too, so boss weakness and resistance apply to slashes.
+        rift.hit = (...a: unknown[]) => { elements.push(a[4]); return realHit.apply(game, a); };
+        const p = game.heroes[0].root.position; (game as unknown as { spawnEnemy(x: number, z: number): void }).spawnEnemy(p.x, p.z + 1.3);
+        (inner as unknown as { attackCooldown: number[] }).attackCooldown[0] = 0;
+        // Swings land at their contact time, and only frame() advances the clock, so step it here as a frame would.
+        rift.strike(0); for (let i = 0; i < 10; i++) { inner.time += 0.05; inner.update(0.05); }
+        assert(elements.includes('fire'), 'a sword hit did not carry the relic element');
+      } finally { window.fetch = realFetch; rift.hit = realHit; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
     });
     await check('Boss wards block damage during the warning and admit spells during recovery', async () => {
       inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); inner.state.hearts = 3;

@@ -73,12 +73,17 @@ python -m tools.publish --api http://localhost:8020 --room demo
 ```
 
 It runs the same tracker and sends a small message per frame through the backend relay (`/ws/cv/{room}`, see
-[../docs/api-contract.md](../docs/api-contract.md)). In the game a **slash swings the sword**, a **jump makes the hero jump** and
-**moving during the freeze spell** breaks it. The game must use the same room (`?room=demo` in its URL; both default to
-`storybound`). The terminal prints when the backend connects, when the game joins, and each slash/jump. Slashes count again after
-0.5 s here (`--slash-hold`), not the demo's 2 s. The wand round is sent too, read-only; shapes do not cast spells in the game yet.
-The tracker holds the webcam, so test the game's scanner (X) on the demo laptop with it running: macOS shares the camera, Windows
-may not.
+[../docs/api-contract.md](../docs/api-contract.md)). In the game a **slash swings the sword**, a **jump makes the hero jump**,
+**moving during the freeze spell** breaks it, and **wand shapes** go to the game's shape handler (Reality Rift's spells) and open
+pose seals drawn as their rune (triangle = arms up, square = T-pose, circle = crouch). The game must use the same room
+(`?room=demo` in its URL; both default to `storybound`).
+
+**The game takes the wand.** While the game is in the room the 5 s timer is off: the wand is always on, any preset counts (a seal
+asks for its own), and the game's wand panel shows your trail. **Hold the wand still for a moment, then draw** the shape back to
+that point; it counts when the loop closes, and the wand is ready again 0.8 s later. When the game leaves, the timer demo comes back.
+The terminal prints when the backend connects, when the game joins and what it asks for, and each slash/jump. Slashes count again
+after 0.5 s here (`--slash-hold`), not the demo's 2 s. The tracker holds the webcam, so test the game's scanner (X) on the demo
+laptop with it running: macOS shares the camera, Windows may not.
 
 ## Tuning
 
@@ -91,8 +96,8 @@ python -m tools.tune
 ```
 
 Press `1` / `2` / `3` to pick yellow / blue / red, then **click the object in several places**: the side where it
-disappears, the other side, and the middle. Press `p` to print PowerShell lines covering all the samples
-(`$env:YT_BLUE_HUE=...`, `..._S_MIN`, `..._V_MIN`), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
+disappears, the other side, and the middle. Press `p` to print lines covering all the samples (`export YT_BLUE_HUE=...`,
+`..._S_MIN`, `..._V_MIN` on macOS/Linux; `$env:YT_BLUE_HUE=...` in PowerShell on Windows), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
 the mask panel.
 
 Detection is also forgiving once it has found an object: it is acquired with the strict thresholds and then followed with

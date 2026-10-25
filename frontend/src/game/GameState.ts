@@ -1,4 +1,4 @@
-import type { BeatOutcome, EnvironmentId, GameHistory, Player, RewardKind, RewardSpec } from '../contracts';
+import type { BeatOutcome, EnvironmentId, ForgedRelic, GameHistory, Player, RewardKind, RewardSpec } from '../contracts';
 
 export const MAX_HEARTS = 3;
 
@@ -9,6 +9,7 @@ export class GameState {
   readonly rewards: RewardSpec[] = [];
   readonly outcomes: BeatOutcome[] = [];
   readonly environments: EnvironmentId[] = [];
+  readonly relics: ForgedRelic[] = [];
 
   constructor(readonly party: [Player, Player]) {}
 
@@ -32,6 +33,14 @@ export class GameState {
     return this.hearts <= 0;
   }
 
+  /** Reality Rift: remember a forged weapon for the storyteller (the backend accepts the last 8). */
+  forge(relic: ForgedRelic): void {
+    const same = this.relics.findIndex((r) => r.hero === relic.hero && r.name === relic.name);
+    if (same >= 0) this.relics.splice(same, 1);
+    this.relics.push(relic);
+    if (this.relics.length > 8) this.relics.shift();
+  }
+
   visit(env: EnvironmentId): void {
     if (this.environments[this.environments.length - 1] !== env) this.environments.push(env);
   }
@@ -45,6 +54,7 @@ export class GameState {
       rewards: [...this.rewards],
       outcomes: [...this.outcomes],
       environments: [...this.environments],
+      relics: [...this.relics],
     });
   }
 }

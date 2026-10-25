@@ -1,9 +1,11 @@
 """Runs the tracker and sends its result to the game through the backend relay (/ws/cv/{room}).
 
 The game listens in the same room: `?room=<name>` in the game's URL, "storybound" by default. Each frame becomes one small
-message (tracker/game.py); the game strikes when the slash count goes up, jumps when the jump count goes up, and counts body
-motion as moving in the freeze trial. The slash hold is shortened for play (--slash-hold, 0.5 s) so the sword can be swung
-again quickly; the demo keeps 2 s.
+message (tracker/game.py); the game strikes when the slash count goes up, jumps when the jump count goes up, counts body
+motion as moving in the freeze trial, and reads each wand's completed shapes. The game also takes the wand (its gate
+messages, Pipeline.control): while it is in the room the wand stays on and a shape can be drawn any time (rest the wand,
+then draw); when it leaves the wand goes back to the 5 s timer. The slash hold is shortened for play (--slash-hold, 0.5 s)
+so the sword can be swung again quickly; the demo keeps 2 s.
 
 Run from the cv_2/ folder, with the backend running:
     python -m tools.publish                                    # ws://localhost:8000/ws/cv/storybound
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import re
 import threading
 from typing import Callable
@@ -105,11 +108,27 @@ class Publisher:
                 self.on_message(msg)
 
 
-def report(msg: dict) -> None:
-    if msg.get("type") == "peer":
-        print(f"game {msg.get('state')}" if msg.get("role") == "game" else f"peer: {msg}")
-    elif msg.get("type") == "gate":
-        print(f"game asked for {msg} (not acted on yet: the wand round still runs on its own timer)")
+def listener(controls: queue.Queue) -> Callable[[dict], None]:
+    """What the relay sends the tracker, queued for the camera loop (it arrives on the sender's thread): the game's gate
+    messages, and None when the game leaves so the wand goes back to its own timer."""
+    def on_message(msg: dict) -> None:
+        if msg.get("type") == "peer" and msg.get("role") == "game":
+            print(f"game {msg.get('state')}")
+            if msg.get("state") == "left":
+                controls.put(None)
+        elif msg.get("type") == "gate" and isinstance(msg.get("on"), bool):
+            controls.put(msg)
+    return on_message
+
+
+def apply(pipe: Pipeline, msg: dict | None) -> None:
+    if msg is None:
+        pipe.release()
+        print("wand back on its own 5 s timer")
+        return
+    target = msg.get("target") if isinstance(msg.get("target"), str) else None
+    pipe.control(msg["on"], target)
+    print(f"game: wand {'on' if msg['on'] else 'off'}, {('draw a ' + target) if target else 'any shape'}")
 
 
 def main() -> None:
@@ -125,9 +144,9 @@ def main() -> None:
     cfg.camera, cfg.slash_hold_s = args.camera, args.slash_hold
     url = ws_url(args.api, args.room)
 
-    pipe = Pipeline(cfg)
+    pipe, controls = Pipeline(cfg), queue.Queue()
     cam = Camera(cfg.camera, cfg.width, cfg.height).start()
-    pub = Publisher(url, report).start()
+    pub = Publisher(url, listener(controls)).start()
     print(f"Publishing to {url} (Ctrl+C stops)")
     seq, n, connected, counts = 0, 0, None, (0, 0)
     try:
@@ -135,6 +154,8 @@ def main() -> None:
             seq, frame = cam.read(seq)
             if frame is None:
                 continue
+            while not controls.empty():
+                apply(pipe, controls.get_nowait())
             payload = pipe.process(frame)
             pub.offer(game_message(payload))
             n += 1

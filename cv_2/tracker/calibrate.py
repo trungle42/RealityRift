@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 
 HSV = tuple[int, int, int]
@@ -28,8 +30,12 @@ def suggest(samples: list[HSV], hue_pad: int = 5, floor_pad: int = 15) -> dict:
     }
 
 
-def env_lines(name: str, sug: dict) -> list[str]:
-    """PowerShell lines that apply a suggestion to the demo."""
+def env_lines(name: str, sug: dict, powershell: bool | None = None) -> list[str]:
+    """Shell lines that apply a suggestion to the demo: PowerShell `$env:` lines on Windows, `export` lines elsewhere
+    (macOS/Linux zsh or bash). `powershell` overrides the platform guess."""
+    if powershell is None:
+        powershell = sys.platform == "win32"
     p = f"YT_{name.upper()}_"
-    hue = ",".join(f"{a}-{b}" for a, b in sug["hue"])
-    return [f'$env:{p}HUE="{hue}"', f'$env:{p}S_MIN="{sug["s_min"]}"', f'$env:{p}V_MIN="{sug["v_min"]}"']
+    values = {"HUE": ",".join(f"{a}-{b}" for a, b in sug["hue"]), "S_MIN": sug["s_min"], "V_MIN": sug["v_min"]}
+    form = '$env:{}="{}"' if powershell else 'export {}="{}"'
+    return [form.format(p + k, v) for k, v in values.items()]

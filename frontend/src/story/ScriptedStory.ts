@@ -172,6 +172,13 @@ export class ScriptedStory implements StoryProvider {
       const page = pageFor(o, a, b);
       if (page) pages.push(page);
     }
+    const relics = history.relics ?? [];
+    if (relics.length) {
+      pages.push({
+        heading: 'The Reality Rift',
+        text: relics.map((r) => `${r.hero === 0 ? a : b} held a real ${r.object} up to the rift, and it became ${r.name}, a ${r.element} weapon that strikes with ${r.ability}.`).join(' '),
+      });
+    }
     const [sa, sb] = history.stars;
     pages.push({
       heading: victory ? 'Happily Ever After' : 'A Tale Unfinished',

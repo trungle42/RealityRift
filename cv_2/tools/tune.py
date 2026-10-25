@@ -3,7 +3,7 @@
 Run from cv_2/:  python -m tools.tune
   1 / 2 / 3   choose yellow / blue / red (the order of the configured colours); 4 = the phone's green strip
   click       sample the HSV of the object under the cursor (a 7x7 patch, median)
-  p           print PowerShell lines for the chosen colour from all its samples
+  p           print env lines for the chosen colour from all its samples (export on macOS/Linux, $env: on Windows)
   c           forget the chosen colour's samples
   m           toggle the mask panel (what the *strict* detector counts as that colour)
   q           quit

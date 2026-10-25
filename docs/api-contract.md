@@ -198,13 +198,21 @@ Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames
   reported at the landing.
 - `motion` is the fraction of the picture moving (0-1), or `null` before the second frame. The game counts the player as moving in
   the freeze trial at `>= 0.06` (`FREEZE_MOTION` in `frontend/src/adventure/cvMath.ts`). People walking behind the player count too.
-- `wand` is the wand round as the tracker runs it, on its own 5 s on/off timer, read-only for the game (`CvInput.wand()`); `null`
-  if malformed. Field meanings are those of the "Output data" section. Coordinates are 0-1 of the picture, x mirrored (selfie view);
-  traces are thinned to at most 200 points per colour.
+- `wand` is the wand round (`CvInput.wand()`, and the `complete` handler); `null` if malformed. Coordinates are 0-1 of the picture,
+  x mirrored (selfie view); traces are thinned to at most 200 points per colour. While a game is in the room the game drives it
+  (below): `active` is the game's on/off, `target` the shape it asked for or `null` for any preset, `next` is `null` and
+  `secondsLeft` 0. A colour's stroke starts where its wand was last held still (0.4 s within 0.025 of the picture height), and
+  `complete[colour]` turns true when the stroke closes on a preset (the target, if one was asked for), with `shapes[colour]` naming
+  it. It stays true for 0.8 s, then that colour's trace is erased and the wand can draw again: **each false -> true edge is one
+  completed shape**. With no game in the room the tracker runs its own demo round (5 s on/off timer, targets cycling, `complete`
+  latched for the round), as described in the "Output data" section.
 
 Game -> tracker:
 ```json
 { "type": "gate", "on": true, "target": "star" }
 ```
-Relayed (`target` may be `null`) so the game can later start and stop the wand round itself. **The tracker does not act on it
-yet**: `tools.publish` prints it and the round keeps its own timer, until `Pipeline` gets a way to be driven from outside.
+Hands the wand to the game. `tools.publish` applies it to `Pipeline.control(on, target)`: on/off, and the shape to draw (`null`, or a
+name the tracker does not know, means any preset). A change starts a fresh round (traces and completed shapes cleared); repeating
+the same message does nothing. When the game leaves the room the tracker goes back to its demo timer. `CvInput` sends
+`{on: true, target: null}` whenever a tracker joins, and a pose seal asks for its rune (`POSE_SHAPE` in `cvMath.ts`) until the seal
+ends.

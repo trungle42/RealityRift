@@ -16,10 +16,15 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
+import { colourOf, heroFor, KeyboardShapes, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { WandModel } from './WandModel';
+import { WeaponsHud } from './WeaponsHud';
+import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
 import { CvInput } from './CvInput';
+import { POSE_SHAPE } from './cvMath';
+import { WandHud } from './WandHud';
 import { Cinematics } from './Cinematics';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
@@ -102,13 +107,20 @@ export class Adventure {
   private readonly camps: Camp[] = [];
   private readonly pickups: Pickup[] = [];
   private readonly wheel = document.createElement('div');
-  /** Reality Rift: the scanned weapon (if any) that shapes hero 0's spell. */
-  private weapon?: Weapon;
+  /** Reality Rift: each hero's relic (a scanned object), infusing their wand and sword with its element. */
+  private readonly weapons: (Weapon | undefined)[] = [];
+  /** Each hero's two weapons: the sword in the right hand, this wand in the left. Drawn shapes cast with per-shape cooldowns. */
+  private readonly wands: (WandModel | undefined)[] = [];
+  private readonly wandCooldowns = new ShapeCooldowns();
+  private readonly hud = new WeaponsHud();
+  /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
+  private readonly shapes: ShapeSource = new KeyboardShapes();
   private readonly strikes: Strike[] = [];
-  private readonly scanner = new Scanner((weapon) => this.equip(weapon));
+  private readonly scanner = new Scanner((weapon, hero) => this.equip(weapon, hero));
   /** Phone joystick (optional): analog movement for hero 0, with keyboard always winning. */
   private phone?: PhoneInput;
   private cv?: CvInput;
+  private wandHud?: WandHud;
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -226,12 +238,13 @@ export class Adventure {
     fadeOccluders(this.world.root, (o) => o.name === 'ground' || o.name === 'lake' || o.userData.noFade === true);
     document.getElementById('loading')?.remove();
     const party = await this.ui.start(this.solo);
-    this.state = new GameState(party); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
+    this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.shapes.subscribe((colour, shape) => this.onShape(colour, shape)); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
-    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); } });
+    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
+    this.wandHud = new WandHud(this.cv, this.ui.root);
     // The default is the short run (about a minute): talk to Willow, hold the glade against one wave, then the boss
     // comes for you. `?story=full` plays the whole storyteller-driven tale with camps, trials and Gemini beats.
     if (!this.demo) { this.buildCamps(); await this.loadBeat(this.story.begin(party)); return; }
@@ -348,7 +361,7 @@ export class Adventure {
       Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.gltf'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.gltf')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
       loader.loadAsync('/models/assetyard/reach-shrine.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/assetyard/wayfarer-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
-      Promise.all([ranger, companion, loader.loadAsync('/models/assetyard/arming-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero) => hero.holdWeapon(asset.scene)); }),
+      Promise.all([ranger, companion, loader.loadAsync('/models/assetyard/arming-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); }); }),
       loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => textures.loadAsync(`/models/polyhaven/${name}.jpg`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
@@ -529,6 +542,7 @@ export class Adventure {
     }
     if (!this.state || !this.beat || this.ended) return;
     this.ui.challenge(); this.ui.boss(); this.trial = undefined; this.encounterKind = undefined;
+    this.cv?.gate(true);   // the wand is free again: any shape
     this.heroes.forEach((hero) => { hero.pose = ''; });
     if (success && kind !== 'story' && kind !== 'vote') { this.state.stars[0]++; this.state.stars[1]++; if (this.sound) this.sfx.success(); }
     if (kind === 'boss') this.bossWon = success;
@@ -701,7 +715,8 @@ export class Adventure {
     if (player === 0 && !rapid) this.movementVelocity[0].add(new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading)).multiplyScalar(step === 2 ? 5 : 2.5));
     this.pending.push({ at: this.time + (rapid ? 0.04 : move.hit), player, damage: rapid ? 1 : move.damage, reach: move.reach, arc: move.arc, heavy: step === 2, step });
     const origin = hero.root.position.clone(); origin.y += step === 1 ? 1.35 : 1.05;
-    this.fx.slash(origin, hero.heading, rapid ? 0xbfe8ff : move.color, rapid ? Math.random() * 2 : move.tilt, step === 2 ? 2.1 : 1.75, rapid ? 0.12 : move.length * 0.55, step === 1);
+    const relic = this.weapons[player];
+    this.fx.slash(origin, hero.heading, rapid ? 0xbfe8ff : relic ? ELEMENT_COLOR[relic.element] : move.color, rapid ? Math.random() * 2 : move.tilt, step === 2 ? 2.1 : 1.75, rapid ? 0.12 : move.length * 0.55, step === 1);
     this.sfx.swing(step);
   }
 
@@ -717,7 +732,7 @@ export class Adventure {
         const to = enemy.root.position.clone().sub(p); to.y = 0; const d = to.length(), reach = hit.reach + (enemy.boss ? 1.2 : 0);
         if (d > reach) continue;
         if (d > 0.6 && Math.acos(clamp(to.normalize().dot(forward), -1, 1)) > hit.arc / 2 + 0.25) continue;
-        this.hit(enemy, hit.damage, hit.player, hit.heavy); landed = true;
+        this.hit(enemy, hit.damage, hit.player, hit.heavy, this.weapons[hit.player]?.element); landed = true;
       }
       if (!landed && hit.player === 0) { const tip = p.clone().addScaledVector(forward, 1.6); tip.y += 0.2; this.fx.puff(tip, 0xb9a986, 3, 0.6, 0.25, 0.4); }
     }
@@ -733,13 +748,14 @@ export class Adventure {
     if (pick) { this.lock = pick; this.sfx.lockOn(); } else this.ui.toast('No foe nearby to focus on');
   }
 
-  /** The spell hero `player` casts: a scanned weapon's for hero 0, otherwise the plain bolt. */
-  private spellOf(player: PlayerIndex): SpellSpec { return player === 0 && this.weapon ? this.weapon.spell : defaultSpell(player ? 0xf4d391 : 0xb2f6d5); }
+  /** F's plain bolt, infused by the hero's relic if they hold one. */
+  private spellOf(player: PlayerIndex): SpellSpec { return wandSpell('bolt', this.weapons[player], player ? 0xf4d391 : 0xb2f6d5); }
 
-  private cast(player: PlayerIndex): void {
-    if (!this.canAct() || this.spellCooldown[player] > 0 || this.trial) return;
-    const spell = this.spellOf(player);
-    this.spellCooldown[player] = spell.cooldown * (this.state!.has('quick-cast') ? 0.4375 : 1);
+  /** Cast F's bolt, or a `drawn` wand spell (which runs on its shape's own cooldown instead). True if it went off. */
+  private cast(player: PlayerIndex, drawn?: SpellSpec): boolean {
+    if (!this.canAct() || (!drawn && this.spellCooldown[player] > 0) || this.trial) return false;
+    const spell = drawn ?? this.spellOf(player);
+    if (!drawn) this.spellCooldown[player] = spell.cooldown * (this.state!.has('quick-cast') ? 0.4375 : 1);
     const hero = this.heroes[player], p = hero.root.position;
     const locked = player === 0 && this.lock && this.lock.hp > 0 ? this.lock : undefined;
     const target = locked ?? this.closestEnemy(p, 19), direction = new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading));
@@ -759,8 +775,9 @@ export class Adventure {
       }
     }
     hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackContact = 0.12; hero.attackSerial++;
-    this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2);
+    this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2); this.wands[player]?.flash();
     if (player === 0) this.sfx.cast();
+    return true;
   }
 
   private launchBolt(start: T.Vector3, direction: T.Vector3, player: PlayerIndex, spell: SpellSpec): void {
@@ -817,12 +834,24 @@ export class Adventure {
     await this.scanner.show();
   }
 
-  private equip(weapon: Weapon): void {
-    this.weapon = weapon; this.heroes[0].glowWeapon(weapon.spell.color);
-    const hero = this.heroes[0].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0)), color = weapon.spell.color;
+  private equip(weapon: Weapon, player: PlayerIndex = 0): void {
+    const color = ELEMENT_COLOR[weapon.element];
+    this.weapons[player] = weapon; this.heroes[player].glowWeapon(color); this.wands[player]?.setColor(color); this.hud.setRelic(player, weapon);
+    this.state?.forge({ hero: player, object: weapon.object, name: weapon.artifactName, element: weapon.element, ability: weapon.ability });
+    const hero = this.heroes[player].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0));
     this.fx.shockwave(hero, color, 6, 1.0, 0.3); this.fx.shockwave(hero, 0xffffff, 3, 0.6, 0.15); this.fx.motes(at, color, 90, 1.2, 3.2, 0.3, 1.8); this.fx.sparks(at, color, 40, 7, 0.22, 0.8, 2);
     this.fx.flash(at, color, 26, 0.9); this.rig.addTrauma(0.3); this.sfx.chest();
-    this.ui.toast(`${weapon.artifactName} — ${weapon.element} ${weapon.ability}. ${weapon.description}`);
+    this.ui.toast(`Relic: ${weapon.artifactName} infuses your wand and sword with ${weapon.element}. ${weapon.description}`);
+  }
+
+  /**
+   * A wand completed a shape (CV tracker or keys 4-7 / 8-0,-): cast that shape's spell now, infused by the hero's relic if
+   * any. During a trial the shape belongs to the pose seal, so it never also casts.
+   */
+  private onShape(colour: WandColour, shape: WandShape): void {
+    const player = heroFor(colour, this.solo); if (player === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    if (!this.wandCooldowns.ready(player, shape, this.time) || !this.cast(player, wandSpell(SHAPE_ABILITY[shape], this.weapons[player]))) return;
+    this.wandCooldowns.use(player, shape, this.time); this.hud.cast(player, shape, SHAPE_COOLDOWN[shape]);
   }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
@@ -890,7 +919,7 @@ export class Adventure {
     this.fx.flash(at, 0xffd59a, crit ? 16 : 10, 0.14);
     this.fx.number(at.clone().add(new T.Vector3(0, 0.7, 0)), String(damage), crit ? '#ffe27a' : '#fff4df', crit);
     if (multiplier > 1) {
-      const color = this.weapon?.spell.color ?? 0xffd36b;
+      const color = this.weapons[player]?.spell.color ?? 0xffd36b;
       this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Weak point!', '#ffd36b', true); this.fx.shockwave(enemy.root.position, color, 5, 0.6, 0.25);
       this.fx.sparks(at, color, 34, 9, 0.24, 0.7, 3); this.fx.flash(at, color, 22, 0.3); this.hitstop = Math.max(this.hitstop, 0.11); this.rig.addTrauma(0.35);
     } else if (multiplier < 1) this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Resisted', '#9fb0b8');
@@ -975,7 +1004,7 @@ export class Adventure {
       this.camera.position.x = 12 + Math.sin(this.time * 0.06) * (this.reducedMotion ? 0 : 2); this.camera.lookAt(0, 2.4, 17);
     }
     this.fx.lockOn(this.lock && this.lock.hp > 0 ? this.lock.root.position.clone().add(new T.Vector3(0, this.lock.boss ? 4.2 : 2.3, 0)) : undefined, this.time);
-    this.fx.update(paused ? real * 0.25 : dt, this.time);
+    this.fx.update(paused ? real * 0.25 : dt, this.time); this.wands.forEach((wand) => wand?.update(real));
     this.sfx.update(real);
     occlusion.uCamPos.value.copy(this.camera.position); occlusion.uFocus.value.copy(this.heroes[0].root.position).add(new T.Vector3(0, 1.1, 0));
     this.post.render(real, this.time);
@@ -1140,10 +1169,14 @@ export class Adventure {
       const pose = trial.poses[trial.poseIndex];
       const name = { 'arms-up': 'Raise your arms', 't-pose': 'Spread your arms', crouch: 'Crouch low' }[pose];
       const key = { 'arms-up': '1', 't-pose': '2', crouch: '3' }[pose];
+      // The seal also opens to its rune drawn with a wand (cv_2 tracker): the tracker is asked for that shape.
+      const rune = POSE_SHAPE[pose], wand = this.cv?.trackerConnected ? ` or draw a ${rune}` : '';
+      this.cv?.gate(true, rune);
       const matching = this.active.every((hero) => hero.pose === pose);
-      if (matching) trial.held += dt;
+      if (this.cv?.takeShape(rune)) trial.held = 1.2;
+      else if (matching) trial.held += dt;
       else trial.held = Math.max(0, trial.held - dt * 0.5);
-      this.ui.challenge(name, `Hold ${key} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
+      this.ui.challenge(name, `Hold ${key}${wand} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
       if (trial.held >= 1.2) {
         trial.poseIndex++; trial.held = 0; trial.elapsed = 0; this.burst(this.heroes[0].root.position.clone().add(new T.Vector3(0, 1.5, 0)), 0x9fe7d0, 14); if (this.sound) this.sfx.chime();
         if (trial.poseIndex >= trial.poses.length) { this.trial = undefined; this.ui.toast('The ancient seal opens for you.'); void this.complete('pose', true, trial.before, 'The heroes mirrored every ancient shape and opened the gate.'); }
@@ -1291,7 +1324,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.cv?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();

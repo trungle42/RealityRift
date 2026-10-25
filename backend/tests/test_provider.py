@@ -185,3 +185,33 @@ def test_show_me_asks_for_a_route_object_and_a_miss_still_moves_on(monkeypatch):
     assert cave["challenge"]["object"] == "a bottle or a cup" and castle["challenge"]["object"] == "a book"
     after = step(None, [("crossroads", "vote", True, "cave")], ("show-me", "show", False, None)).json()
     assert after["id"] == "lantern-fairy"
+
+
+def test_forged_relics_reach_the_beat_and_storybook_prompts(monkeypatch):
+    prompts = []
+
+    def capture(prompt, schema):
+        prompts.append(prompt)
+        if schema is provider.StorybookOut:
+            return provider.StorybookOut(title="T", pages=[provider.PageOut(heading=f"H{i}", text="x") for i in range(5)])
+        return fake_text()
+
+    monkeypatch.setattr("app.gemini._generate", capture)
+    relic = {"hero": 1, "object": "coffee mug", "name": "Ember Chalice", "element": "fire", "ability": "meteor"}
+    h = hist() | {"relics": [relic]}
+    assert client.post("/api/provider/next", json={"history": h, "last": {"beatId": "intro", "kind": "story", "success": True}}).status_code == 200
+    assert client.post("/api/provider/storybook", json={"history": h, "victory": True}).status_code == 200
+    assert all("Ben forged Ember Chalice (fire meteor) from a real coffee mug" in p for p in prompts)
+    assert "their own page" in prompts[-1]
+    # No relics: the prompts say nothing about forged weapons.
+    prompts.clear()
+    client.post("/api/provider/next", json={"history": hist(), "last": {"beatId": "intro", "kind": "story", "success": True}})
+    assert "forged" not in prompts[0]
+
+
+def test_relics_are_bounded():
+    relic = {"hero": 0, "object": "mug", "name": "Chalice", "element": "fire", "ability": "nova"}
+    last = {"beatId": "intro", "kind": "story", "success": True}
+    assert client.post("/api/provider/next", json={"history": hist() | {"relics": [relic] * 9}, "last": last}).status_code == 422
+    assert client.post("/api/provider/next", json={"history": hist() | {"relics": [relic | {"hero": 2}]}, "last": last}).status_code == 422
+    assert client.post("/api/provider/next", json={"history": hist() | {"relics": [relic | {"object": "x" * 41}]}, "last": last}).status_code == 422
