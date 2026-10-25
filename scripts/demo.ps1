@@ -6,6 +6,7 @@
 #   .\scripts\demo.ps1 -NoTracker -NoBrowser          no webcam tracker / do not open the browser
 #   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
 #   .\scripts\demo.ps1 -Tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
+#   .\scripts\demo.ps1 -Color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   .\scripts\demo.ps1 -ApiPort 8020 -WebPort 5220    other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -16,6 +17,7 @@ param(
     [switch]$Tune,
     [switch]$Tunnel,
     [string]$Room = '',
+    [string]$Color = '',
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -41,7 +43,17 @@ if (-not $Room) {
     }
 }
 if ($Room -notmatch '^[A-Za-z0-9_-]{1,32}$') { throw '-Room must be 1-32 letters, digits, - or _' }
-$query = if ($Room -ne 'storybound') { "?room=$Room" } else { '' }
+# Wand colours, one per player in order (player 1's first). The tracker detects only these (YT_COLORS), and the game is told
+# the order (?wand=), so each colour drives its own hero. With more than one person in view a whole-picture jump is ambiguous,
+# so jump detection is off then.
+if (-not $Color) { $Color = if ($env:YT_COLORS) { $env:YT_COLORS } else { 'yellow' } }
+$colorList = @($Color.ToLower().Replace(' ', '').Split(',') | Where-Object { $_ })
+if ($colorList.Count -eq 0) { throw '-Color needs at least one colour' }
+foreach ($c in $colorList) { if ($c -notin @('red', 'blue', 'yellow')) { throw "-Color takes red, blue and yellow (got '$c')" } }
+if (@($colorList | Select-Object -Unique).Count -ne $colorList.Count) { throw '-Color lists a colour twice' }
+$colors = $colorList -join ','
+$jump = if ($colorList.Count -gt 1) { '0' } else { '1' }
+$query = if ($Room -ne 'storybound') { "?room=$Room&wand=$colors" } else { "?wand=$colors" }
 
 function Test-Up([string]$Url) {
     try { Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 | Out-Null; return $true } catch { return $false }
@@ -90,7 +102,8 @@ if ($Tune) {
     if (-not (Test-Path $trackerPy)) { throw 'cv_2\.venv is missing, so the colours cannot be tuned. Set it up once (see cv_2\README.md; Windows on ARM needs the x86_64 Python).' }
     Write-Host 'Colour setup: follow the prompts in the camera window (no keys to press) ...'
     Push-Location (Join-Path $repoRoot 'cv_2')
-    try { & $trackerPy -m tools.autotune; $tuneCode = $LASTEXITCODE } finally { Pop-Location }
+    $savedColors = $env:YT_COLORS; $env:YT_COLORS = $colors
+    try { & $trackerPy -m tools.autotune --colors $colors; $tuneCode = $LASTEXITCODE } finally { Pop-Location; $env:YT_COLORS = $savedColors }
     if ($tuneCode -ne 0) { Write-Host 'demo: the colour setup did not finish; starting with the colours from before (cv_2\tuned.env if present, else the built-in ones).' }
 }
 
@@ -171,8 +184,11 @@ try {
 
     if ($startTracker) {
         Write-Host "Tracker: starting; its camera picture shows in the game's wand panel ..."
+        Write-Host "         Colours: $colors (players 1-3 in that order)$(if ($jump -eq '0') { '; jump is off with several players in view' })"
+        $savedColors = $env:YT_COLORS; $savedJump = $env:YT_JUMP; $env:YT_COLORS = $colors; $env:YT_JUMP = $jump
         $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api, '--room', $Room) `
             -WorkingDirectory (Join-Path $repoRoot 'cv_2') -NoNewWindow -PassThru
+        $env:YT_COLORS = $savedColors; $env:YT_JUMP = $savedJump
     } elseif (-not $NoTracker) {
         Write-Host 'Tracker: one is already running, leaving it alone.'
         if ($Room -ne 'storybound') { Write-Host "         It may be on another room: to see it in this game, stop it and run this again (room $Room)." }
