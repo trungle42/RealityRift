@@ -5,6 +5,7 @@
 #
 #   ./scripts/demo.sh                                 backend :8000, game :5173, tracker, browser
 #   ./scripts/demo.sh --no-tracker --no-browser       no webcam tracker / do not open the browser
+#   ./scripts/demo.sh --tune                          first tune the tracker's colours to this camera and room (no keys)
 #   API_PORT=8020 WEB_PORT=5220 ./scripts/demo.sh     other ports (the game and tracker are pointed at that backend)
 #
 # Backend and game logs go to a temporary folder (printed at start); the tracker prints slashes and jumps here.
@@ -14,12 +15,13 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1 browser=1
+tracker=1 browser=1 tune=0
 for arg in "$@"; do
   case "$arg" in
     --no-tracker) tracker=0 ;;
     --no-browser) browser=0 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --tune) tune=1 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -75,6 +77,18 @@ if [[ "$start_web" == 1 && ! -x "$repo_root/frontend/node_modules/.bin/vite" ]];
 fi
 if [[ "$start_tracker" == 1 && ! -x "$repo_root/cv_2/.venv/bin/python" ]]; then
   fail "cv_2/.venv is missing. Set it up once: cd cv_2 && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt (or run with --no-tracker)"
+fi
+
+# --tune: the colour setup (cv_2 tools.autotune) needs the camera to itself, so it runs first, before the tracker starts.
+if [[ "$tune" == 1 ]]; then
+  if pgrep -f -- "-m tools.publish" >/dev/null 2>&1; then
+    fail "--tune needs the camera, but a tracker (python -m tools.publish) is already running. Stop it (Ctrl-C in its terminal), then run ./scripts/demo.sh --tune again."
+  fi
+  [[ -x "$repo_root/cv_2/.venv/bin/python" ]] || fail "cv_2/.venv is missing, so the colours cannot be tuned. Set it up once: cd cv_2 && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt"
+  echo "Colour setup: follow the prompts in the camera window (no keys to press) ..."
+  if ! (cd "$repo_root/cv_2" && .venv/bin/python -m tools.autotune); then
+    echo "demo: the colour setup did not finish; starting with the colours from before (cv_2/tuned.env if present, else the built-in ones)."
+  fi
 fi
 
 logs=""

@@ -2,12 +2,37 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .shapes import SHAPES
 
 
+# Thresholds written by `python -m tools.autotune` for this camera and room. Config.from_env reads them when the file exists;
+# a real environment variable of the same name still wins. YT_TUNED_ENV=<path> reads another file, YT_TUNED_ENV=0 none.
+TUNED_ENV = Path(__file__).resolve().parent.parent / "tuned.env"
+_file: dict[str, str] = {}
+
+
+def read_env_file(path: str | os.PathLike) -> dict[str, str]:
+    """KEY=VALUE lines ('#' comments, also after a value, an optional 'export ' and quotes allowed); a missing file is empty."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return {}
+    out = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        out[key.strip()] = value.split("#", 1)[0].strip().strip('"').strip("'")   # values never contain '#'
+    return out
+
+
 def _env(name: str, default, cast=str):
     raw = os.getenv(name)
+    if raw is None or raw == "":
+        raw = _file.get(name)
     return default if raw is None or raw == "" else cast(raw)
 
 
@@ -146,10 +171,15 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        """YT_COLORS=yellow,red picks which colours run. Per colour: YT_<NAME>_HUE ('20-25' or
+        """Settings from YT_* environment variables, over the autotuned file (TUNED_ENV) when it exists.
+
+        YT_COLORS=yellow,red picks which colours run. Per colour: YT_<NAME>_HUE ('20-25' or
         '0-6,174-179'), YT_<NAME>_S_MIN, YT_<NAME>_V_MIN, YT_<NAME>_MIN_CIRC,
         YT_<NAME>_MIN_AREA (this colour's own minimum blob size). The phone marker takes YT_PHONE_HUE / _S_MIN / _V_MIN /
         _MIN_AREA the same way, and YT_PHONE=0 disables slash detection and YT_JUMP=0 disables jump detection."""
+        global _file
+        tuned = os.getenv("YT_TUNED_ENV", "")
+        _file = {} if tuned == "0" else read_env_file(tuned or TUNED_ENV)
         d = cls()
         names = [n.strip().lower() for n in _env("YT_COLORS", ",".join(d.colors)).split(",") if n.strip()]
         unknown = [n for n in names if n not in d.colors]
