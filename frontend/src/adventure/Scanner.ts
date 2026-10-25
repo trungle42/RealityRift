@@ -95,7 +95,8 @@ export class Scanner {
 
   private readonly onKey = (event: KeyboardEvent): void => {
     if (!this.open) return;
-    event.stopPropagation();
+    // Immediate: the game's own window key handler must not see it either (Esc closing the scanner also opened the journal).
+    event.stopImmediatePropagation();
     if (event.code === 'Escape') { event.preventDefault(); this.close(); return; }
     if (event.repeat || !['Enter', 'Space'].includes(event.code)) return;
     event.preventDefault();
