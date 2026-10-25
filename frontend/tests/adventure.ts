@@ -351,9 +351,9 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         assert((document.querySelector('.presence-list')?.textContent ?? '').includes('Rishaan'), 'the online list does not show the peer');
         const hero = online.heroes[0].root.position, to = { x: hero.x + 4, y: hero.y, z: hero.z - 3 };
         for (let i = 0; i <= 4; i++) { say({ type: 'state', id: 1, x: hero.x + i, y: hero.y, z: hero.z - i * 0.75, heading: 0.4, speed: 6, anim: 'run', hp: 3 }); await wait(40); }
-        await wait(400);
+        // Wait for the result, not a fixed time: a throttled page may draw only a few frames, and any one frame lands it.
         const at = remote.actor.root.position;
-        assert(remote.actor.root.visible && Math.hypot(at.x - to.x, at.z - to.z) < 0.05, `the remote hero is at ${at.x.toFixed(2)},${at.z.toFixed(2)}, not where its laptop sent it`);
+        await until(() => remote.actor.root.visible && Math.hypot(at.x - to.x, at.z - to.z) < 0.05, `the remote hero stopped at ${at.x.toFixed(2)},${at.z.toFixed(2)}, not where its laptop sent it`);
         say({ type: 'fx', id: 1, kind: 'slash', x: to.x, y: to.y, z: to.z, dx: 0, dz: -1 });
         assert((remote.actor as unknown as { attack: number }).attack > 0, 'a remote swing did not play on its hero');
         // Our side: hero 0's state goes out ~12 times a second, and our sword swing is sent as fx.

@@ -101,9 +101,14 @@ export class Presence {
   private closed = false;
   /** The relay said the room already has three players: stop retrying. */
   private full = false;
-  private sendIn = 0;
-  private casting = 0;
-  private now = 0;
+  /** Wall-clock times (see `clock`): when state last went out, and until when hero 0 counts as casting. */
+  private sentAt = -Infinity;
+  private castingUntil = -Infinity;
+  /**
+   * Snapshots are stamped on arrival and sampled on the wall clock, not by summing frame deltas: frame() caps each delta,
+   * so in a throttled or background tab a summed clock falls behind and remote heroes would freeze in the past.
+   */
+  private readonly clock = (): number => performance.now() / 1000;
   private joined = 0;
   private models?: HeroModels;
   private readonly ghosts: Ghost[] = [];
@@ -138,21 +143,20 @@ export class Presence {
 
   /** Hero 0 cast a spell or swung its sword: show it on the other laptops. */
   fx(kind: 'cast' | 'slash', at: T.Vector3, direction: T.Vector3, spell?: { ability?: string; element?: Element }): void {
-    if (kind === 'cast') this.casting = 0.35;
+    if (kind === 'cast') this.castingUntil = this.clock() + 0.35;
     const flat = new T.Vector2(direction.x, direction.z); if (flat.lengthSq() > 0) flat.normalize();
     this.send({ type: 'fx', kind, ability: spell?.ability, element: spell?.element, x: round(at.x), y: round(at.y), z: round(at.z), dx: round(flat.x), dz: round(flat.y) });
   }
 
   /** Every frame (paused or not: other players keep moving). `real` is wall-clock seconds, `time` the game clock. */
   update(real: number, time: number, hero: Actor, airborne: boolean): void {
-    this.now += real; this.casting = Math.max(0, this.casting - real);
-    this.sendIn -= real;
-    if (this.sendIn <= 0) {
-      this.sendIn = 1 / SEND_RATE;
-      const p = hero.root.position, local: LocalHero = { dead: hero.dead, stagger: hero.stagger, roll: hero.roll, airborne, casting: this.casting > 0, attack: hero.attack, pose: hero.pose, speed: hero.moving };
+    const now = this.clock();
+    if (now - this.sentAt >= 1 / SEND_RATE) {
+      this.sentAt = now;
+      const p = hero.root.position, local: LocalHero = { dead: hero.dead, stagger: hero.stagger, roll: hero.roll, airborne, casting: now < this.castingUntil, attack: hero.attack, pose: hero.pose, speed: hero.moving };
       this.send({ type: 'state', x: round(p.x), y: round(p.y), z: round(p.z), heading: round(wrapAngle(hero.heading)), speed: round(Math.min(50, hero.moving)), anim: animOf(local), hp: hero.dead ? 0 : 3 });
     }
-    for (const remote of this.peers.values()) remote.update(real, this.now, time);
+    for (const remote of this.peers.values()) remote.update(real, now, time);
     for (let i = this.ghosts.length - 1; i >= 0; i--) {
       const g = this.ghosts[i]; g.life -= real; g.pos.addScaledVector(g.vel, real); this.options.fx.trail(g.pos, g.color, 0.3);
       if (g.life <= 0) { this.options.fx.flash(g.pos, g.color, 8, 0.18); this.ghosts.splice(i, 1); }
@@ -171,7 +175,7 @@ export class Presence {
     if (message.type === 'full') { this.full = true; this.renderList(); return; }
     if (message.type === 'welcome') { this.id = message.id; [...this.peers.keys()].forEach((id) => this.drop(id)); message.peers.forEach((peer) => this.add(peer)); }
     else if (message.type === 'peer') { if (message.peer.id === this.id) return; if (message.state === 'joined') this.add(message.peer); else this.drop(message.peer.id); }
-    else if (message.type === 'state') this.peers.get(message.id)?.push(message.state, this.now);
+    else if (message.type === 'state') this.peers.get(message.id)?.push(message.state, this.clock());
     else if (message.type === 'fx') { const remote = this.peers.get(message.id); if (remote) this.play(remote, message.fx); }
     this.renderList();
   }
