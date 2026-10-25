@@ -151,6 +151,13 @@ export class Actor {
     for (const original of [...clips, ...additionalClips]) {
       const clip = original.clone(); clip.name = aliases[clip.name] ?? clip.name;
       clip.tracks = clip.tracks.filter((track) => !!model.getObjectByName(track.name.split('.')[0]));
+      // Strip baked root motion: the clips walk the hips forward and snap back on loop, so the visible body ran
+      // ahead of the physics capsule. Pin horizontal hips travel to the first key; keep the vertical bob.
+      for (const track of clip.tracks) {
+        if (!/^(mixamorig)?Hips\.position$|^Root\.position$/i.test(track.name)) continue;
+        const v = track.values, x = v[0], z = v[2];
+        for (let k = 0; k < v.length; k += 3) { v[k] = x; v[k + 2] = z; }
+      }
       if (clip.tracks.length && !this.actions.has(clip.name)) this.actions.set(clip.name, this.mixer.clipAction(clip));
     }
     if (this.detailedRig) this.addPoses(model);
