@@ -367,6 +367,48 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         assert(!(document.querySelector('.presence-list')?.textContent ?? '').includes('Rishaan'), 'the online list still shows the peer that left');
       } finally { window.WebSocket = RealSocket; delete (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE; online.dispose(); }
     });
+    await check('Avatars follow the wand colour: ?wand=blue plays the royal-blue shieldmaiden (companion the ranger); remote red, blue and yellow wear the crimson ranger, royal shieldmaiden and gold ranger, dyed in the texture', async () => {
+      const RealSocket = window.WebSocket, url = location.href;
+      let relay: { readyState: number; onopen?: () => void; onmessage?: (e: { data: string }) => void; onclose?: () => void; send(d: string): void; close(): void } | undefined;
+      window.WebSocket = function (to: string) {
+        if (!String(to).includes('/ws/presence/')) return new RealSocket(to);
+        relay = { readyState: 0, send() {}, close() { this.readyState = 3; this.onclose?.(); } }; return relay;
+      } as unknown as typeof WebSocket;
+      (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE = 'ws://relay.test';
+      history.replaceState(null, '', `${location.pathname}?wand=blue,red,yellow`);
+      const blue = new Adventure(), core = blue as unknown as Internals & { presence: { peers: Map<string, { avatar: string; actor: { root: T.Group } }> } };
+      const avatarOf = (root: T.Object3D) => root.userData.avatar as string | undefined;
+      try {
+        const started = blue.start(); await until(() => !!document.querySelector('.adventure-start form'), 'fresh setup missing');
+        document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await started; core.narrator.enabled = false; core.sound = false;
+        const art = (await fetch('/models/assetyard/ashfen-ranger.glb', { method: 'HEAD' })).ok;
+        if (art) {
+          assert(avatarOf(blue.heroes[0].root) === 'royal', `?wand=blue gave hero one the ${avatarOf(blue.heroes[0].root)}, not the royal shieldmaiden`);
+          assert(avatarOf(blue.heroes[1].root) === 'ranger', 'the companion should be the ranger when hero one is the shieldmaiden');
+        }
+        assert(relay, 'presence did not connect');
+        relay.readyState = 1; relay.onopen?.();
+        const say = (message: object) => relay!.onmessage?.({ data: JSON.stringify(message) });
+        say({ type: 'welcome', id: 0, peers: [{ id: 1, name: 'Trung', colour: 'red' }, { id: 2, name: 'Rishaan', colour: 'blue' }, { id: 3, name: 'haicil', colour: 'yellow' }] });
+        const peer = (id: string) => core.presence.peers.get(id)!;
+        assert(peer('1').avatar === 'crimson' && peer('2').avatar === 'royal' && peer('3').avatar === 'gold', 'remote avatars do not follow their wand colours');
+        if (art) {
+          await until(() => ['1', '2', '3'].every((id) => !!avatarOf(peer(id).actor.root)), 'remote heroes never put on their models');
+          assert(avatarOf(peer('1').actor.root) === 'crimson' && avatarOf(peer('2').actor.root) === 'royal' && avatarOf(peer('3').actor.root) === 'gold', 'a remote hero wears the wrong look');
+          // Dyed looks wear a canvas-dyed copy of their base-colour map (same flipY and colour space); the plain companion does not.
+          // The body's base-colour map only: skip the name tag (a Sprite with its own canvas texture), the ring, sword and wand.
+          const mapOf = (root: T.Object3D) => { let found: T.Texture | undefined; root.traverse((o) => { const m = o instanceof T.SkinnedMesh ? o.material as T.MeshStandardMaterial : undefined; if (!found && m?.isMeshStandardMaterial && m.map) found = m.map; }); return found; };
+          for (const id of ['1', '2', '3']) {
+            const map = mapOf(peer(id).actor.root);
+            assert(map?.image instanceof HTMLCanvasElement, `peer ${id}'s cloth is not dyed`);
+          }
+          const crimson = mapOf(peer('1').actor.root)!, plain = mapOf(blue.heroes[1].root)!;
+          assert(!(plain.image instanceof HTMLCanvasElement), 'the plain companion was dyed');
+          assert(crimson.flipY === plain.flipY && crimson.colorSpace === plain.colorSpace, 'the dyed map changed flipY or colour space');
+          assert(mapOf(peer('1').actor.root) !== mapOf(peer('3').actor.root), 'crimson and gold share one dyed map');
+        }
+      } finally { history.replaceState(null, '', url); window.WebSocket = RealSocket; delete (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE; blue.dispose(); }
+    });
     status.textContent = `All ${results.children.length} 3D gameplay checks passed.`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = String(error); document.body.dataset.result = 'failed'; console.error(error); }
   finally { game.dispose(); running = false; }
