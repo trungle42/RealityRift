@@ -407,13 +407,13 @@ The browser checks drive the real renderer with real key events, so they need a 
 - cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial, wand shapes to the game (any shape, the wand panel, and pose seals opened by their rune) (tested with synthetic tracker frames; not yet with a live webcam).
 - Two weapons per hero (sword and wand), drawn shapes casting spells, and relics infusing both weapons with their element. In a fight the game asks for one shape at a time, and the wand needs 2 s between spells. Keys 4-7 and 8-0- stand in for the camera wand. A jump gives 1 s of invulnerability (at most once every 2.5 s).
 - The camera picture inside the game (the wand panel), also used by the scanner (a docked panel that leaves the game running), so the tracker is the only program that opens the webcam.
-- The backend presence relay and the launcher's `--name` / `--join` for three laptops (the game side that shows the other heroes is in progress, above).
+- The backend presence relay and the launcher's `--name` / `--join` for three laptops, with steps in [Join from your laptop](#join-from-your-laptop-3-players-3-laptops) (the game side that shows the other heroes is in progress, below).
 - The first of our own 3D models in the game: the waystone shrine, sculpted in Blender and baked to a light mesh with KTX2 textures. The characters and most props still come from the private art pack.
 - Classic 2.5D campaign at `?mode=classic`.
 
 **In progress (not on `main` yet)**
 
-- **Networked multiplayer, the game side.** Each laptop runs its own game and meets the others through the host's tunnel. The backend's presence relay (`/ws/presence/{room}`, `backend/app/presence.py`) and the launcher options (`--name`, `--join`; see "Join from your laptop") are on `main`, but the part of the game that connects to the relay and draws the other players' heroes is still on a branch (`feature/presence`). Until it merges, a second laptop's hero does not appear in your world. `TODO(after merge)`: flip this to working.
+- **Networked multiplayer, the game side.** Each laptop runs its own game and meets the others through the host's tunnel. The backend's presence relay (`/ws/presence/{room}`, `backend/app/presence.py`) and the launcher options (`--name`, `--join`; see "Join from your laptop") are on `main`, but the part of the game that connects to the relay and draws the other players' heroes (`Presence.ts`) is still on a branch (`feature/presence`); the [Join from your laptop](#join-from-your-laptop-3-players-3-laptops) steps describe the finished version. Until it merges, a second laptop's hero does not appear in your world. `TODO(after merge)`: flip this to working.
 - Rebuilding the rest of our 3D models in Blender (the characters and props) so the team owns every model and the private art pack is optional. The waystone is done; see above.
 
 **Not done**
