@@ -16,6 +16,7 @@ interface Internals {
   loadBeat(work: Promise<StoryBeat>): Promise<void>;
   interact(): Promise<void>; update(dt: number): void; cast(player: 0 | 1): void;
   updateBolts(dt: number): void;
+  closestEnemy(p: T.Vector3, radius: number): unknown;
 }
 const status = document.querySelector('#status')!, results = document.querySelector('#results')!;
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
