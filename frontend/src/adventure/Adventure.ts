@@ -894,19 +894,22 @@ export class Adventure {
   }
 
   // ---- Reality Rift: scan an object, get a weapon ----
-  /** The phone's buttons (its stick is read every frame): a tap does what Enter / E would, Scan opens the rift, Roll rolls. */
+  /** The phone's buttons (its stick is read every frame): a tap does what Enter / E would, Scan opens or closes the rift, Roll rolls. */
   private onPhone(command: PhoneCommand): void {
     if (command === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
-    else if (command === 'scan') void this.openScan();
+    else if (command === 'scan') this.toggleScan();
     else this.roll(0);
   }
+
+  /** A phone has no Esc, so its Scan button also closes an open scanner (a scan that cannot take a picture would strand it). */
+  private toggleScan(hero: PlayerIndex = 0): void { if (this.scanner.open) this.scanner.close(); else void this.openScan(hero); }
 
   /** Buttons from the per-player phones: slot 1 drives hero two, slot 2 goes to the fairy; slot 0 only sends its slash here. */
   private onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void {
     if (slot === 2) { this.pip?.button?.(kind); return; }
     if (slot === 1 && kind !== 'action' && !this.seated) return;
     if (kind === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
-    else if (kind === 'scan') void this.openScan(slot);
+    else if (kind === 'scan') this.toggleScan(slot);
     else if (kind === 'roll') this.roll(slot); else this.strike(slot);
   }
 
