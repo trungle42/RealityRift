@@ -28,6 +28,7 @@ import { phoneAction, showPhonePairing } from './phoneActions';
 import type { PhoneCommand } from './phoneMath';
 import { CvInput } from './CvInput';
 import { Fairy } from './Fairy';
+import { Presence } from './Presence';
 import { POSE_SHAPE } from './cvMath';
 import { WandHud } from './WandHud';
 import { Cinematics } from './Cinematics';
@@ -129,6 +130,8 @@ export class Adventure {
   pip?: { cast(shape: WandShape): void; button?(kind: PhoneButton): void; seat?(joined: boolean): void };
   /** The same Pip as `pip`, typed as the Fairy so the game can fly and dispose it (Fairy.ts). */
   private pipFairy?: Fairy;
+  /** Online presence (`?presence=`): the other laptops' heroes, drawn here (Presence.ts). */
+  private presence?: Presence;
   /** Heroes actually in play: just the ranger in solo. */
   private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
@@ -282,6 +285,7 @@ export class Adventure {
       strike: (at, spell) => { const pos = new T.Vector3(at.x, heightAt(at.x, at.z), at.z); this.strikes.push({ at: this.time + spell.delay, delay: spell.delay, pos, radius: spell.radius, damage: spell.damage, color: spell.color, element: spell.element, player: 0 }); this.fx.shockwave(pos, spell.color, spell.radius, Math.max(0.3, spell.delay), 0.12); },
       sparkle: (at, color, size) => this.fx.trail(at, color, size), toast: (text) => this.ui.toast(text),
     }, this.phone);
+    this.presence = Presence.fromPage({ scene: this.scene, fx: this.fx, renderer: this.renderer, hud: this.ui.root });
     const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
     const party = await starting;
     this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.hud.setWands(this.seats); this.shapes.subscribe((colour, shape) => { const wand = this.keyWand(colour); if (wand) this.onShape(wand, shape); }); if (this.seated) this.seatHeroTwo(); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
@@ -770,6 +774,7 @@ export class Adventure {
     const flurryFoe = rapid && this.flurryTarget && this.flurryTarget.hp > 0 ? this.flurryTarget : undefined;
     const target = flurryFoe ?? (player === 0 ? this.lock : undefined) ?? this.closestEnemy(hero.root.position, move.reach + 0.6);
     if (target) hero.heading = Math.atan2(target.root.position.x - hero.root.position.x, target.root.position.z - hero.root.position.z);
+    if (player === 0) this.presence?.fx('slash', hero.root.position, new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading)));
     // Flurry rush dashes the hero onto the foe they slipped past.
     if (flurryFoe && distance(flurryFoe.root.position, hero.root.position) > 1.9) this.movementVelocity[0].set(Math.sin(hero.heading), 0, Math.cos(hero.heading)).multiplyScalar(16);
     // A short step into the swing sells weight.
@@ -837,7 +842,7 @@ export class Adventure {
     }
     hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackContact = 0.12; hero.attackSerial++;
     this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2); this.wands[player]?.flash();
-    if (player === 0) this.sfx.cast();
+    if (player === 0) { this.sfx.cast(); this.presence?.fx('cast', p, direction, spell); }
     return true;
   }
 
@@ -1141,6 +1146,7 @@ export class Adventure {
     if (!paused) this.time += dt;
     this.world.update(paused ? 0 : dt, this.time, this.heroes[0].root.position);
     this.heroes.forEach((hero) => hero.update(paused ? 0 : dt, this.time));
+    this.presence?.update(real, this.time, this.heroes[0], this.airborne[0]);
     if (this.state) {
       // Paused (dialogue, a cinematic, the scanner, the end) means no spell can be cast, so the wand does not trace either.
       if (!paused) this.update(dt); else if (!this.trial) this.cv?.gate(false);
@@ -1479,7 +1485,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.pipFairy?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.pipFairy?.dispose(); this.presence?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();
