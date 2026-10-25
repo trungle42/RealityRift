@@ -17,7 +17,8 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { colourOf, heroFor, KeyboardShapes, RuneCaller, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { colourOf, KeyboardShapes, RuneCaller, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, wandSeats, wandSlot, type ShapeSource, type WandColour, type WandSeats, type WandShape } from './forge';
+import { listenPlayers, stickOf, type PhoneButton, type PlayerSlot } from './players';
 import { WandModel } from './WandModel';
 import { WeaponsHud } from './WeaponsHud';
 import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
@@ -103,8 +104,23 @@ export class Adventure {
   private readonly airborne = [false, false];
   private readonly fallSpeed = [0, 0];
   private companionSide = 1;
-  /** Single player by default; `?players=2` (or window.RIFT_PLAYERS = 2) restores the second hero. */
-  private readonly solo = !((window as unknown as { RIFT_PLAYERS?: number }).RIFT_PLAYERS === 2 || new URLSearchParams(location.search).get('players') === '2');
+  /** `?players=2` (or window.RIFT_PLAYERS = 2): the second hero plays from the keyboard (or as the companion) from the start. */
+  private readonly duo = (window as unknown as { RIFT_PLAYERS?: number }).RIFT_PLAYERS === 2 || new URLSearchParams(location.search).get('players') === '2';
+  /** A second phone (slot 1) has joined at some point: hero two is in the game from then on, the companion when it leaves. */
+  private joined = false;
+  /** A slot-1 phone is connected right now and drives hero two (stick, taps, roll, slash, scan; its wand casts for it). */
+  private seated = false;
+  /** Single player unless `?players=2` or a second phone joined. */
+  private get solo(): boolean { return !this.duo && !this.joined; }
+  /** Hero two runs on its own (the companion AI): no phone in slot 1 and no keyboard player two in the last 5 s. */
+  private get companionFree(): boolean { return !this.seated && this.time > this.companionUntil; }
+  /** Which wand colour is whose: `?wand=red,blue,yellow` -> hero one, hero two, Pip the fairy. Default yellow, blue. */
+  private seats: WandSeats = wandSeats(location.search);
+  /**
+   * Pip the fairy as a third player: wand slot 2 (`?wand=..,..,<colour>`) and phone slot 2 come here. Filled in by the fairy's
+   * own module (not a hero: PlayerIndex stays 0 | 1); left unset, slot 2 is ignored. (`fairy` is the ally's 3D model.)
+   */
+  pip?: { cast(shape: WandShape): void; button?(kind: PhoneButton): void; seat?(joined: boolean): void };
   /** Heroes actually in play: just the ranger in solo. */
   private get active(): Actor[] { return this.solo ? [this.heroes[0]] : this.heroes; }
   private readonly camps: Camp[] = [];
@@ -115,8 +131,11 @@ export class Adventure {
   /** Each hero's two weapons: the sword in the right hand, this wand in the left. Drawn shapes cast with per-shape cooldowns. */
   private readonly wands: (WandModel | undefined)[] = [];
   private readonly wandCooldowns = new ShapeCooldowns();
-  /** In combat the game asks hero 0 for one rune at a time; only that shape casts. */
+  /** In combat the game asks each playing hero for one rune at a time; only that shape casts. */
   private readonly runes = new RuneCaller();
+  private readonly runesTwo = new RuneCaller();
+  /** Hero two gets its own rune requests while a person plays it (phone or `?players=2`). */
+  private get twoAsks(): boolean { return !this.solo && (this.seated || this.duo); }
   private readonly hud = new WeaponsHud();
   /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
   private readonly shapes: ShapeSource = new KeyboardShapes();
@@ -244,9 +263,10 @@ export class Adventure {
     document.getElementById('loading')?.remove();
     // The phone joins on the start screen (QR code) and can start, steer and act for the whole demo run without a keyboard.
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone connected: drag to move · tap to act · Scan opens the rift' : 'Phone disconnected'), undefined, (command) => this.onPhone(command));
+    listenPlayers(this.phone, { joined: (slot) => this.onSeat(slot, true), left: (slot) => this.onSeat(slot, false), button: (kind, slot) => this.onPlayerButton(kind, slot) });
     const starting = this.ui.start(this.solo); showPhonePairing(this.phone);
     const party = await starting;
-    this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.shapes.subscribe((colour, shape) => this.onShape(colour, shape)); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
+    this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.hud.setWands(this.seats); this.shapes.subscribe((colour, shape) => { const wand = this.keyWand(colour); if (wand) this.onShape(wand, shape); }); if (this.seated) this.seatHeroTwo(); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast(this.phone.phoneConnected ? 'Drag on your phone to move · tap it to act · draw with the wand · slash with the phone' : 'Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
@@ -857,13 +877,43 @@ export class Adventure {
     else if (!this.scanner.open) this.roll(0);
   }
 
+  /** Buttons from the per-player phones: slot 1 drives hero two, slot 2 goes to the fairy; slot 0 only sends its slash here. */
+  private onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void {
+    if (slot === 2) { this.pip?.button?.(kind); return; }
+    if (slot === 1 && kind !== 'action' && !this.seated) return;
+    if (kind === 'action') phoneAction(() => { if (this.state && !this.busy && !this.ended) void this.interact(); });
+    else if (kind === 'scan') void this.openScan(slot);
+    else if (!this.scanner.open) { if (kind === 'roll') this.roll(slot); else this.strike(slot); }
+  }
+
+  /** A phone took or left a slot. Slot 1 makes hero two a real player (and, when it leaves, the companion again). */
+  private onSeat(slot: PlayerSlot, joined: boolean): void {
+    if (slot === 2) { this.pip?.seat?.(joined); return; }
+    if (slot !== 1) return;
+    this.seated = joined; if (joined) this.joined = true;
+    if (!this.state) return;   // the start screen; start() seats hero two once the run begins
+    if (joined) this.seatHeroTwo(); else this.ui.toast(`Player two's phone left · ${this.state.party[1].name} fights on beside you`);
+  }
+
+  /** Bring hero two in next to hero one (from off-stage in a solo run) and give the HUD and scanner both names. */
+  private seatHeroTwo(): void {
+    if (!this.state) return;
+    const hero = this.heroes[1], lead = this.heroes[0].root.position, names = this.state.party.map((p) => p.name);
+    if (!hero.root.visible || distance(hero.root.position, lead) > 20) { hero.root.position.set(lead.x + 1.6, lead.y, lead.z + 1); hero.root.visible = true; }
+    this.hud.setHeroes(names); this.scanner.setHeroes(names);
+    this.ui.toast(`Player two joined · ${names[1]} follows the second phone`);
+  }
+
+  /** The keyboard stand-in's two wands (keys 4-7 and 8, 9, 0, -) are hero one's and hero two's, whatever their colours. */
+  private keyWand(colour: WandColour): WandColour | undefined { return colour === 'yellow' ? this.seats[0] : colour === 'blue' ? this.seats[1] : undefined; }
+
   /** "tap your phone" once a phone is connected, else the key. */
   private pressAct(): string { return this.phone?.phoneConnected ? 'tap your phone' : 'press E'; }
 
-  private async openScan(): Promise<void> {
+  private async openScan(hero: PlayerIndex = 0): Promise<void> {
     if (!this.state || this.busy || this.ended || this.ui.blocked || this.scanner.open) return;
     this.keys.clear(); if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
-    await this.scanner.show();
+    await this.scanner.show(hero);
   }
 
   private equip(weapon: Weapon, player: PlayerIndex = 0): void {
@@ -881,13 +931,17 @@ export class Adventure {
    * any. During a trial the shape belongs to the pose seal, so it never also casts.
    */
   private onShape(colour: WandColour, shape: WandShape): void {
-    const player = heroFor(colour, this.solo); if (player === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    const slot = wandSlot(colour, this.seats);
+    if (slot === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    if (slot === 2) { this.pip?.cast(shape); return; }   // the third wand plays Pip the fairy
+    if (slot === 1 && this.solo) return;
+    const player: PlayerIndex = slot;
     // In combat only the rune the game asked for casts; any other shape just gets a reminder.
-    const asked = player === 0 ? this.runes.target : undefined;
-    if (asked && shape !== asked) { this.hud.notRune(asked); return; }
+    const asked = player === 0 ? this.runes.target : this.twoAsks ? this.runesTwo.target : undefined;
+    if (asked && shape !== asked) { this.hud.notRune(asked, player); return; }
     if (!this.wandCooldowns.ready(player, shape, this.time) || !this.cast(player, wandSpell(SHAPE_ABILITY[shape], this.weapons[player]))) return;
     this.wandCooldowns.use(player, shape, this.time); this.hud.cast(player, shape, SHAPE_COOLDOWN[shape]);
-    if (asked) this.runes.next(this.time);
+    if (asked) (player === 0 ? this.runes : this.runesTwo).next(this.time);
   }
 
   /**
@@ -898,10 +952,21 @@ export class Adventure {
     if (this.trial) return;
     if (!this.encounterKind || this.ended) { this.endRunes(); return; }
     const rune = this.runes.update(this.time);
-    this.cv?.gate(true, rune); this.hud.rune(rune, this.wandCooldowns.left(0, rune, this.time));
+    this.hud.rune(rune, this.wandCooldowns.left(0, rune, this.time));
+    if (this.twoAsks) {
+      // Two different requests: the tracker completes any shape and each hero's own request decides what casts.
+      const two = this.runesTwo.update(this.time);
+      this.cv?.gate(true); this.hud.rune(two, this.wandCooldowns.left(1, two, this.time), 1);
+    } else {
+      if (this.runesTwo.target) { this.runesTwo.clear(); this.hud.rune(undefined, 0, 1); }
+      this.cv?.gate(true, rune);
+    }
   }
 
-  private endRunes(): void { if (!this.runes.target) return; this.runes.clear(); this.hud.rune(undefined); this.cv?.gate(true); }
+  private endRunes(): void {
+    if (!this.runes.target && !this.runesTwo.target) return;
+    this.runes.clear(); this.runesTwo.clear(); this.hud.rune(undefined); this.hud.rune(undefined, 0, 1); this.cv?.gate(true);
+  }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
   private evadeDirection(player: PlayerIndex): T.Vector3 {
@@ -1087,7 +1152,7 @@ export class Adventure {
       let dx = Number(held(1)) - Number(held(0));
       let dz = Number(held(3)) - Number(held(2));
       // Phone joystick: analog direction and speed for hero 0 whenever no movement key is held.
-      const stick = i === 0 && this.phone && dx === 0 && dz === 0 ? this.phone.read() : undefined;
+      const stick = (i === 0 || this.seated) && this.phone && dx === 0 && dz === 0 ? stickOf(this.phone, i as PlayerIndex) : undefined;
       const analog = stick && stick.mag > 0 ? stick.mag : 1;
       if (stick && stick.mag > 0) { dx = stick.x; dz = stick.z; }
       // Keyboard diagonals: weight forward/back over sideways (about 34 deg instead of 45) so a diagonal reads as
@@ -1096,14 +1161,14 @@ export class Adventure {
       const moving = dx !== 0 || dz !== 0;
       const poseKeys = i === 0 ? ['Digit1', 'Digit2', 'Digit3'] : ['KeyI', 'KeyO', 'KeyP'];
       hero.pose = ['arms-up', 't-pose', 'crouch'][poseKeys.findIndex((key) => this.keys.has(key))] ?? '';
-      if (i === 1 && this.trial?.type === 'pose' && this.time > this.companionUntil) hero.pose = this.heroes[0].pose;
-      if (i === 1 && this.time > this.companionUntil && this.enemies.some((enemy) => enemy.boss && enemy.windup > 0 && enemy.attack === 'shadow-wave')) hero.pose = 'crouch';
+      if (i === 1 && this.trial?.type === 'pose' && this.companionFree) hero.pose = this.heroes[0].pose;
+      if (i === 1 && this.companionFree && this.enemies.some((enemy) => enemy.boss && enemy.windup > 0 && enemy.attack === 'shadow-wave')) hero.pose = 'crouch';
       if (this.physics?.setCrouching(i, hero.pose === 'crouch')) hero.pose = 'crouch';
       // Input is relative to what the camera actually shows (its smoothed yaw), so controls never fight the view.
       const view = this.rig.viewYaw;
       let direction = new T.Vector3(dx * Math.cos(view) + dz * Math.sin(view), 0, -dx * Math.sin(view) + dz * Math.cos(view));
       let companionSpeed = 0;
-      if (i === 1 && !moving && this.time > this.companionUntil && !this.trial) {
+      if (i === 1 && !moving && this.companionFree && !this.trial) {
         // Walk beside the leader (screen-left or right), never between the camera and the hero.
         const leader = this.heroes[0].root.position, right = new T.Vector3(Math.cos(view), 0, -Math.sin(view)), back = new T.Vector3(Math.sin(view), 0, Math.cos(view));
         const side = p.clone().sub(leader).dot(right); if (Math.abs(side) > 1.2) this.companionSide = Math.sign(side);
@@ -1201,7 +1266,7 @@ export class Adventure {
     this.resolveHits(); this.updateEnemies(dt); this.updateBolts(dt); this.updateStrikes(); this.updateSparks(dt); this.updatePickups(dt); this.updateCamps(dt);
     if (this.lock && (this.lock.hp <= 0 || distance(this.lock.root.position, p) > 26)) { this.lock = undefined; this.sfx.lockOff(); }
     this.companionCast -= dt;
-    if (!this.solo && this.companionCast <= 0 && this.time > this.companionUntil && !this.trial && this.closestEnemy(this.heroes[1].root.position, 13)) { this.cast(1); this.companionCast = this.state!.has('fairy-ally') ? 0.85 : 2.1; }
+    if (!this.solo && this.companionCast <= 0 && this.companionFree && !this.trial && this.closestEnemy(this.heroes[1].root.position, 13)) { this.cast(1); this.companionCast = this.state!.has('fairy-ally') ? 0.85 : 2.1; }
     this.physics?.step(dt);
   }
 

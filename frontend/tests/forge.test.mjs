@@ -48,6 +48,10 @@ test('yellow is hero one, blue hero two (not in solo), red never', () => {
   assert.equal(F.heroFor('blue', false), 1);
   assert.equal(F.heroFor('blue', true), undefined);
   assert.equal(F.heroFor('red', false), undefined);
+  // ?wand=red: red drives hero one, yellow and blue are nobody's.
+  const red = F.wandSeats('?wand=red');
+  assert.equal(F.heroFor('red', true, red), 0);
+  assert.equal(F.heroFor('yellow', false, red), undefined);
 });
 
 test('only tracker colours are wand colours', () => {
@@ -88,4 +92,16 @@ test('a requested rune changes after a cast, or after it waits too long', () => 
   assert.notEqual(second, first, 'a rune nobody drew is swapped');
   caller.next(20); assert.notEqual(caller.target, second, 'a cast asks for a different rune');
   caller.clear(); assert.equal(caller.target, undefined);
+});
+
+test('?wand= gives each player their own colour, in order, up to three (the third is Pip the fairy)', () => {
+  assert.deepEqual(F.wandSeats(''), ['yellow', 'blue']);
+  assert.deepEqual(F.wandSeats('?wand=red'), ['red']);
+  assert.deepEqual(F.wandSeats('?wand=red,blue'), ['red', 'blue']);
+  assert.deepEqual(F.wandSeats('?story=full&wand= Red , BLUE ,yellow'), ['red', 'blue', 'yellow']);
+  for (const bad of ['?wand=', '?wand=green', '?wand=red,red', '?wand=red,,blue', '?wand=red,blue,yellow,red', '?wand=purple,blue'])
+    assert.deepEqual(F.wandSeats(bad), ['yellow', 'blue'], bad);
+  const three = F.wandSeats('?wand=red,blue,yellow');
+  assert.deepEqual(['red', 'blue', 'yellow'].map((c) => F.wandSlot(c, three)), [0, 1, 2]);
+  assert.equal(F.heroFor('yellow', false, three), undefined, 'the fairy\'s wand is not a hero');
 });

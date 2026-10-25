@@ -79,9 +79,10 @@ export class Scanner {
 
   private settle(ok: boolean): void { const quest = this.quest; this.quest = undefined; quest?.resolve(ok); }
 
-  async show(): Promise<void> {
+  /** Open the scanner; the relic it makes is offered to `hero` first (a scan from player two's phone). */
+  async show(hero: PlayerIndex = 0): Promise<void> {
     if (this.open) return;
-    this.open = true; this.root.hidden = false; this.weapon = undefined; this.claim = 0;
+    this.open = true; this.root.hidden = false; this.weapon = undefined; this.claim = this.heroes.length > 1 ? hero : 0;
     await this.startCamera();
   }
 
