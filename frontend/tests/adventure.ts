@@ -327,6 +327,46 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         } finally { fatal.dispose(); }
       });
     }
+    await check('Presence: a peer from the relay appears as a remote hero, moves to its sent position, swings, and leaves; our hero state and swings go out', async () => {
+      // A stub relay: presence sockets are captured, every other socket (phone, tracker) is a real one.
+      const RealSocket = window.WebSocket, sockets: { url: string; sent: string[]; readyState: number; send(d: string): void; close(): void; onopen?: () => void; onmessage?: (e: { data: string }) => void; onclose?: () => void; onerror?: () => void }[] = [];
+      class StubSocket { url: string; sent: string[] = []; readyState = 0; onopen?: () => void; onmessage?: (e: { data: string }) => void; onclose?: () => void; onerror?: () => void;
+        constructor(url: string) { this.url = url; sockets.push(this); }
+        send(data: string) { this.sent.push(data); }
+        close() { this.readyState = 3; this.onclose?.(); } }
+      window.WebSocket = function (url: string) { return String(url).includes('/ws/presence/') ? new StubSocket(url) : new RealSocket(url); } as unknown as typeof WebSocket;
+      (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE = 'ws://relay.test';
+      const online = new Adventure(), core = online as unknown as Internals & { presence: { peers: Map<string, { actor: { root: T.Group } }> }; strike(p: 0): void; attackCooldown: number[] };
+      try {
+        const started = online.start(); await until(() => !!document.querySelector('.adventure-start form'), 'fresh setup missing');
+        document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await started; core.narrator.enabled = false; core.sound = false;
+        const relay = sockets.find((s) => s.url.startsWith('ws://relay.test/ws/presence/'));
+        assert(relay && /[?&]colour=(red|blue|yellow)/.test(relay.url) && /[?&]name=/.test(relay.url), `presence did not connect to the relay as the contract says (${relay?.url})`);
+        relay.readyState = 1; relay.onopen?.();
+        const say = (message: object) => relay.onmessage?.({ data: JSON.stringify(message) });
+        say({ type: 'welcome', id: 0, peers: [] });
+        say({ type: 'peer', state: 'joined', id: 1, name: 'Rishaan', colour: 'blue' });
+        const remote = core.presence.peers.get('1');
+        assert(remote && remote.actor.root.parent === online.scene, 'the joined peer has no hero in the world');
+        assert((document.querySelector('.presence-list')?.textContent ?? '').includes('Rishaan'), 'the online list does not show the peer');
+        const hero = online.heroes[0].root.position, to = { x: hero.x + 4, y: hero.y, z: hero.z - 3 };
+        for (let i = 0; i <= 4; i++) { say({ type: 'state', id: 1, x: hero.x + i, y: hero.y, z: hero.z - i * 0.75, heading: 0.4, speed: 6, anim: 'run', hp: 3 }); await wait(40); }
+        // Wait for the result, not a fixed time: a throttled page may draw only a few frames, and any one frame lands it.
+        const at = remote.actor.root.position;
+        await until(() => remote.actor.root.visible && Math.hypot(at.x - to.x, at.z - to.z) < 0.05, `the remote hero stopped at ${at.x.toFixed(2)},${at.z.toFixed(2)}, not where its laptop sent it`);
+        say({ type: 'fx', id: 1, kind: 'slash', x: to.x, y: to.y, z: to.z, dx: 0, dz: -1 });
+        assert((remote.actor as unknown as { attack: number }).attack > 0, 'a remote swing did not play on its hero');
+        // Our side: hero 0's state goes out ~12 times a second, and our sword swing is sent as fx.
+        await until(() => relay.sent.some((d) => JSON.parse(d).type === 'state'), 'no hero state was sent');
+        const sent = JSON.parse(relay.sent.filter((d) => JSON.parse(d).type === 'state').at(-1)!);
+        assert(Math.hypot(sent.x - hero.x, sent.z - hero.z) < 0.5 && typeof sent.anim === 'string' && 'heading' in sent && 'hp' in sent, `the sent state is not hero 0's: ${JSON.stringify(sent)}`);
+        core.attackCooldown[0] = 0; core.strike(0);
+        assert(relay.sent.some((d) => { const m = JSON.parse(d); return m.type === 'fx' && m.kind === 'slash'; }), 'our sword swing was not sent');
+        say({ type: 'peer', state: 'left', id: 1, name: 'Rishaan', colour: 'blue' });
+        assert(!core.presence.peers.has('1') && remote.actor.root.parent === null, 'the peer that left is still in the world');
+        assert(!(document.querySelector('.presence-list')?.textContent ?? '').includes('Rishaan'), 'the online list still shows the peer that left');
+      } finally { window.WebSocket = RealSocket; delete (window as unknown as { RIFT_PRESENCE?: string }).RIFT_PRESENCE; online.dispose(); }
+    });
     status.textContent = `All ${results.children.length} 3D gameplay checks passed.`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = String(error); document.body.dataset.result = 'failed'; console.error(error); }
   finally { game.dispose(); running = false; }
