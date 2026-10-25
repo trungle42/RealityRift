@@ -7,7 +7,7 @@ import json  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.cv import MAX_FRAME, MAX_POINTS, MAX_SNAPSHOT, clean_control, clean_tracker, clean_wand, client_allowed  # noqa: E402
+from app.cv import MAX_FRAME, MAX_POINTS, MAX_SNAPSHOT, clean_control, clean_tracker, clean_wand, client_allowed, origin_allowed  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -150,9 +150,9 @@ def test_rooms_are_isolated_from_each_other_and_from_the_joystick(client):
             assert json.loads(game_b.receive_text())["jump"] == 9
 
 
-def refused(client, url) -> bool:
+def refused(client, url, headers=None) -> bool:
     try:
-        with client.websocket_connect(url):
+        with client.websocket_connect(url, **({"headers": headers} if headers else {})):
             return False
     except Exception as error:  # starlette raises WebSocketDisconnect on close code 1008
         return "1008" in str(error) or "Disconnect" in type(error).__name__
@@ -185,3 +185,27 @@ def test_someone_else_on_the_wifi_cannot_watch_the_camera(monkeypatch):
     with TestClient(app, client=("192.168.1.77", 51000)) as invited:
         with invited.websocket_connect("/ws/cv/remote?role=game"):
             pass
+
+
+def test_only_the_game_s_own_pages_may_connect(monkeypatch):
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("CORS_ORIGIN_REGEX", raising=False)
+    for origin in (None, "http://localhost:5173", "http://127.0.0.1:5220", "http://localhost"):
+        assert origin_allowed(origin), origin
+    for origin in ("https://evil.example", "null", "http://localhost.evil.example", "http://localhost:5173.evil.example",
+                   "https://localhost:5173", ""):
+        assert not origin_allowed(origin), origin
+    monkeypatch.setenv("CORS_ORIGINS", "http://storybound.test:8080")
+    assert origin_allowed("http://storybound.test:8080")
+
+
+def test_another_site_in_the_player_s_browser_cannot_watch_the_camera(client, monkeypatch):
+    # Loopback is not enough: any page in the player's browser connects from 127.0.0.1, but it sends its own Origin.
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("CORS_ORIGIN_REGEX", raising=False)
+    assert refused(client, "/ws/cv/o1?role=game", {"Origin": "https://evil.example"})
+    assert refused(client, "/ws/cv/o1?role=tracker", {"Origin": "https://evil.example"})
+    with client.websocket_connect("/ws/cv/o1?role=game", headers={"Origin": "http://localhost:5173"}) as game:
+        with client.websocket_connect("/ws/cv/o1?role=tracker") as tracker:     # the Python tracker sends no Origin
+            assert json.loads(game.receive_text())["role"] == "tracker"
+            assert json.loads(tracker.receive_text())["role"] == "game"

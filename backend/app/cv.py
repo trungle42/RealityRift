@@ -10,6 +10,9 @@ Pictures are only passed on, never stored, and must be base64 JPEG under a size 
 Only this laptop may connect: the backend listens on the whole network (--host 0.0.0.0) so the phone can reach /joystick, and
 without this check anyone on the venue Wi-Fi could join the guessable room and watch the player's webcam. The tracker and the game
 always run on the same machine, so /ws/cv refuses non-loopback clients unless CV_ALLOW_REMOTE=1 (a deliberate multi-machine setup).
+Loopback alone is not enough: any web page open in the player's browser also connects from 127.0.0.1. Browsers always send an
+Origin, so a connection with one must come from the game's own origins (the same rule as the backend's CORS setup); the Python
+tracker sends none.
 Every message is rebuilt from known fields with types checked and sizes capped, so neither side can push arbitrary data into the
 other. The room code is the only "auth", as for the joystick.
 """
@@ -165,6 +168,16 @@ def client_allowed(host: Optional[str]) -> bool:
     return ip.is_loopback or bool(mapped and mapped.is_loopback)
 
 
+def origin_allowed(origin: Optional[str]) -> bool:
+    """No Origin (the Python tracker), or one of the game's own: CORS_ORIGINS or CORS_ORIGIN_REGEX, with the defaults main.py's
+    CORS setup uses (any localhost / 127.0.0.1 port). Anything else, including "null", is another site's page."""
+    if origin is None:
+        return True
+    listed = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+    pattern = os.getenv("CORS_ORIGIN_REGEX", r"http://(localhost|127\.0\.0\.1)(:\d+)?")
+    return origin in listed or re.fullmatch(pattern, origin) is not None
+
+
 async def _send_all(targets: set, text: str) -> None:
     for ws in list(targets):
         try:
@@ -175,7 +188,8 @@ async def _send_all(targets: set, text: str) -> None:
 
 @router.websocket("/ws/cv/{room}")
 async def cv_ws(ws: WebSocket, room: str, role: str = "game"):
-    if not ROOM_RE.match(room) or role not in ("tracker", "game") or not client_allowed(ws.client.host if ws.client else None):
+    if (not ROOM_RE.match(room) or role not in ("tracker", "game") or not client_allowed(ws.client.host if ws.client else None)
+            or not origin_allowed(ws.headers.get("origin"))):
         await ws.close(code=1008)
         return
     await ws.accept()
