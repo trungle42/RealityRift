@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Storybound joystick</title>
+<style>
+  :root { color-scheme: dark; --gold: #f2d68b; --ink: #0f1f1a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: radial-gradient(circle at 50% 40%, #1d3a2e, var(--ink) 70%); color: #f7edd0; font-family: Georgia, 'Times New Roman', serif; overscroll-behavior: none; }
+  #pad { position: fixed; inset: 0; touch-action: none; }
+  header { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center; pointer-events: none; }
+  h1 { margin: 0; font-size: 18px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  #status { margin-top: 6px; font-size: 13px; opacity: 0.8; }
+  #status.ok::before, #status.bad::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: #7ee2a8; vertical-align: middle; }
+  #status.bad::before { background: #ff8b78; }
+  .hint { position: fixed; bottom: max(26px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; font-size: 13px; opacity: 0.6; pointer-events: none; transition: opacity 250ms; }
+  .base, .knob { position: fixed; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+  .base { width: 168px; height: 168px; border: 2px solid #f2d68b88; background: #f2d68b14; box-shadow: 0 0 40px #f2d68b22 inset; }
+  .base.sprint { border-color: #9be8ff; box-shadow: 0 0 36px #9be8ff55 inset; }
+  .knob { width: 74px; height: 74px; background: radial-gradient(circle at 35% 30%, #fff1c4, #d7ab55 70%); box-shadow: 0 4px 18px #0008; }
+  .idle { opacity: 0.35; }
+</style>
+</head>
+<body>
+<div id="pad"></div>
+<header><h1>Storybound</h1><div id="status" class="bad">connecting…</div></header>
+<div class="base idle" id="base"></div><div class="knob idle" id="knob"></div>
+<div class="hint" id="hint">Touch anywhere and drag to move · push past the ring to sprint</div>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const room = (params.get('room') || 'storybound').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || 'storybound';
+  const RADIUS = 80, SPRINT = 1.35;
+  const pad = document.getElementById('pad'), base = document.getElementById('base'), knob = document.getElementById('knob');
+  const statusEl = document.getElementById('status'), hint = document.getElementById('hint');
+  let ws, retry = 0, touchId = null, origin = { x: innerWidth / 2, y: innerHeight * 0.68 };
+  let vec = { x: 0, y: 0, sprint: false };
+
+  function place(el, x, y) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+  function rest() { place(base, origin.x, origin.y); place(knob, origin.x, origin.y); base.classList.add('idle'); knob.classList.add('idle'); base.classList.remove('sprint'); }
+  rest();
+  addEventListener('resize', () => { if (touchId === null) { origin = { x: innerWidth / 2, y: innerHeight * 0.68 }; rest(); } });
+
+  function setStatus(ok, text) { statusEl.className = ok ? 'ok' : 'bad'; statusEl.textContent = text; }
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/joystick/${room}?role=phone`);
+    ws.onopen = () => { retry = 0; setStatus(true, 'connected · room ' + room); };
+    ws.onclose = () => { setStatus(false, 'reconnecting…'); setTimeout(connect, Math.min(3000, 400 + retry++ * 400)); };
+    ws.onerror = () => ws.close();
+    ws.onmessage = (event) => { try { const m = JSON.parse(event.data); if (m.type === 'peer' && m.role === 'game') setStatus(true, m.state === 'joined' ? 'game connected' : 'waiting for the game'); } catch {} };
+  }
+  connect();
+
+  function send() { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'move', x: +vec.x.toFixed(3), y: +vec.y.toFixed(3), sprint: vec.sprint })); }
+  // Resend ~30 times a second while held so the game never mistakes a steady thumb for a lost signal.
+  setInterval(() => { if (touchId !== null) send(); }, 33);
+
+  function update(touch) {
+    let dx = touch.clientX - origin.x, dy = touch.clientY - origin.y;
+    const dist = Math.hypot(dx, dy), clamped = Math.min(dist, RADIUS);
+    const nx = dist ? dx / dist : 0, ny = dist ? dy / dist : 0;
+    place(knob, origin.x + nx * clamped, origin.y + ny * clamped);
+    const mag = Math.min(1, dist / RADIUS);
+    vec = { x: nx * mag, y: -ny * mag, sprint: dist / RADIUS > SPRINT };   // y: up on the stick = forward
+    base.classList.toggle('sprint', vec.sprint);
+  }
+
+  pad.addEventListener('pointerdown', (e) => {
+    if (touchId !== null) return;
+    touchId = e.pointerId; try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointer */ }
+    origin = { x: e.clientX, y: e.clientY };          // floating stick: wherever the thumb lands
+    place(base, origin.x, origin.y); base.classList.remove('idle'); knob.classList.remove('idle'); hint.style.opacity = 0;
+    update(e); send();
+  });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === touchId) update(e); });
+  function release(e) {
+    if (e.pointerId !== touchId) return;
+    touchId = null; vec = { x: 0, y: 0, sprint: false }; send(); send();
+    origin = { x: innerWidth / 2, y: innerHeight * 0.68 }; rest();
+  }
+  pad.addEventListener('pointerup', release); pad.addEventListener('pointercancel', release);
+  pad.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  // Never leave the hero running if the page is hidden mid-drag.
+  document.addEventListener('visibilitychange', () => { if (document.hidden && touchId !== null) { touchId = null; vec = { x: 0, y: 0, sprint: false }; send(); rest(); } });
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
 import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
+import { PhoneInput } from './PhoneInput';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
 
@@ -92,6 +93,8 @@ export class Adventure {
   private weapon?: Weapon;
   private readonly strikes: Strike[] = [];
   private readonly scanner = new Scanner((weapon) => this.equip(weapon));
+  /** Phone joystick (optional): analog movement for hero 0, with keyboard always winning. */
+  private phone?: PhoneInput;
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -204,6 +207,7 @@ export class Adventure {
     this.state = new GameState(party); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
+    this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
     this.buildCamps();
     await this.loadBeat(this.story.begin(party));
   }
@@ -258,6 +262,7 @@ export class Adventure {
       if (event.code === 'KeyQ') this.roll(0);
       if (event.code === 'KeyR') this.flashStep(0);
       if (event.code === 'KeyX') void this.openScan();
+      if (event.code === 'KeyH' && this.phone) void this.phone.phoneUrl().then((url) => this.ui.toast(`Phone joystick: open ${url} on a phone on the same Wi-Fi`));
       if (event.code === 'ShiftRight') this.roll(this.solo ? 0 : 1);
       if (event.code === 'Space') this.leap(0);
       if (event.code === 'KeyZ' || event.code === 'Tab') this.toggleLock();
@@ -860,10 +865,14 @@ export class Adventure {
       this.attackCooldown[i] = Math.max(0, this.attackCooldown[i] - dt); this.spellCooldown[i] = Math.max(0, this.spellCooldown[i] - dt);
       const held = (k: number) => this.keys.has(keys[k]) || (this.solo && this.keys.has(MOVE[1][k]));
       let dx = Number(held(1)) - Number(held(0));
-      const dz = Number(held(3)) - Number(held(2));
+      let dz = Number(held(3)) - Number(held(2));
+      // Phone joystick: analog direction and speed for hero 0 whenever no movement key is held.
+      const stick = i === 0 && this.phone && dx === 0 && dz === 0 ? this.phone.read() : undefined;
+      const analog = stick && stick.mag > 0 ? stick.mag : 1;
+      if (stick && stick.mag > 0) { dx = stick.x; dz = stick.z; }
       // Keyboard diagonals: weight forward/back over sideways (about 34 deg instead of 45) so a diagonal reads as
       // "forward and drifting", not a wide sideways run.
-      if (dx !== 0 && dz !== 0) dx *= 0.68;
+      else if (dx !== 0 && dz !== 0) dx *= 0.68;
       const moving = dx !== 0 || dz !== 0;
       const poseKeys = i === 0 ? ['Digit1', 'Digit2', 'Digit3'] : ['KeyI', 'KeyO', 'KeyP'];
       hero.pose = ['arms-up', 't-pose', 'crouch'][poseKeys.findIndex((key) => this.keys.has(key))] ?? '';
@@ -883,9 +892,10 @@ export class Adventure {
         if (d > 0.55) { direction.copy(slot).sub(p).setY(0); companionSpeed = Math.min(distance(p, leader) > 6 ? 7.6 : 5.2, d * 2.6); } else direction.set(0, 0, 0);
         if (this.enemies.some((enemy) => enemy.boss && enemy.windup > 0 && enemy.attack === 'frost-gaze')) direction.set(0, 0, 0);
       }
-      let speed = direction.lengthSq() ? (companionSpeed || 4.7) : 0;
-      if (i === 0 && speed && this.lock && this.lock.hp > 0 && !this.keys.has('ShiftLeft')) speed = 3.9; // strafing while focused
-      if (i === 0 && speed && this.keys.has('ShiftLeft') && this.stamina > 0.03 && !this.trial) { speed = 8.5; this.stamina = Math.max(0, this.stamina - dt * 0.32); }
+      let speed = direction.lengthSq() ? (companionSpeed || 4.7) * analog : 0;
+      const sprinting = this.keys.has('ShiftLeft') || !!stick?.sprint;
+      if (i === 0 && speed && this.lock && this.lock.hp > 0 && !sprinting) speed = Math.min(speed, 3.9); // strafing while focused
+      if (i === 0 && speed && sprinting && this.stamina > 0.03 && !this.trial) { speed = 8.5; this.stamina = Math.max(0, this.stamina - dt * 0.32); }
       if (i === 0 && this.attackCooldown[0] > 0 && !this.dodge[0]) speed *= 0.35; // planted while swinging
       if (this.trial?.type === 'pose') speed = 0;
       if (hero.pose === 'crouch') speed *= 0.5;
@@ -1123,7 +1133,9 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.renderer.setAnimationLoop(null);
+<<<<<<< HEAD
+    this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.renderer.setAnimationLoop(null);
+>>>>>>> origin/feature/phone-joystick
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();
