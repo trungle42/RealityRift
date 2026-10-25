@@ -11,13 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
 
-from . import gemini, provider, store  # noqa: E402
+from . import gemini, joystick, provider, store  # noqa: E402
 from .schemas import (  # noqa: E402
     ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
     GameEvent, ScoreSubmission, StoryEventResponse, StoryState,
 )
 
 app = FastAPI(title="Storybound API")
+app.include_router(joystick.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
