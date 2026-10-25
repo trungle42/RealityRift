@@ -1,4 +1,4 @@
-# Storybound API contracts
+# Storybound API contract (Dev 2 → Dev 1 / Dev 3)
 
 Development defaults: backend `http://localhost:8000`, frontend `http://localhost:5173`.
 The service exposes two different story interfaces. The playable engine uses

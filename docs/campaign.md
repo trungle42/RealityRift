@@ -1,4 +1,4 @@
-# RealityRift — interactive campaign
+# Storybound — interactive campaign
 
 The Dev 1 game now has freely explorable clearings between story encounters.
 Explore the Whispering Wood, choose a route to Rosewater Castle or the Crystal

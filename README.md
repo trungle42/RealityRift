@@ -1,4 +1,4 @@
-# RealityRift
+# Storybound
 
 **Don't just read the fairy tale. Become part of it.**
 

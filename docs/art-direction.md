@@ -1,4 +1,4 @@
-# RealityRift art direction
+# Storybound art direction
 
 
 ## Exploration and movement expansion
