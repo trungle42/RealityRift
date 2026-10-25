@@ -27,11 +27,17 @@ fight, and the game ends with a personalized storybook of that exact playthrough
 - **Real-time stays local.** Rendering and (planned) hand/body tracking run in the browser; Gemini is called once
   per story beat, never per frame.
 
-## Run it
+## Running the game
 
-Requirements: Node 20.19+, Python 3.9+, a Google Gemini API key (without one the game still plays, on the scripted story).
+Requirements: Node 20.19+, Python 3.9+, and (for AI-generated story text) a Google Gemini API key. The game still runs on its scripted story without a key. Start from a fresh clone:
 
-**1. Backend**
+```bash
+git clone https://github.com/trungle42/Storybound.git
+cd Storybound
+git checkout main && git pull
+```
+
+**1. Backend** (optional for the scripted story; second terminal)
 
 ```bash
 cd backend
@@ -49,7 +55,17 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, press Space, enter two hero names, and begin.
+Open http://localhost:5173 and begin. Without the private art pack, the game still runs but uses plain stand-in visuals. For the full art, install the privately shared `storybound-art-pack.zip` from the repository root:
+
+```bash
+# macOS / Linux
+./scripts/install-art-pack.sh ~/Downloads/storybound-art-pack.zip
+
+# Windows PowerShell
+.\scripts\install-art-pack.ps1 C:\\Users\\you\\Downloads\\storybound-art-pack.zip
+```
+
+The scripts install only the ignored `assetyard/` and `polyhaven/` models under `frontend/public/models/`.
 
 Useful switches: `OFFLINE=1` (backend) forces canned responses; `VITE_STORY=scripted` (frontend) skips the backend
 entirely; `VITE_API_URL` points the game at a different backend (default `http://localhost:8000`).
