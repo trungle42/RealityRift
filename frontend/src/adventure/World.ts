@@ -3,6 +3,7 @@ import type { EnvironmentId } from '../contracts';
 import { REGIONS } from '../campaign/locations';
 import { material, mesh } from './Actor';
 import { CENTERS, heightAt, pathDistance, type Position, type Solid } from './terrain';
+import { Willow } from './Willow';
 
 export interface WorldObject extends Position {
   id: string; name: string; kind: 'chest' | 'shrine' | 'lore'; detail?: string;
@@ -62,6 +63,7 @@ export class World {
   private readonly moteBase: Float32Array;
   private readonly lampSlots: T.Group[] = [];
   private readonly waystone = new T.Group();
+  private readonly willows: Willow[] = [];
 
   constructor(scene: T.Scene) {
     scene.add(this.root);
@@ -456,10 +458,12 @@ export class World {
           mesh(new T.CircleGeometry(0.82, 32), material(0x95dbcb, 0x60bda6), root, 0, 1.02).rotation.x = -Math.PI / 2;
           mesh(new T.OctahedronGeometry(0.2), material(0xbbf5dc, 0x83ddb9), root, 0, 1.65);
         } else {
-          mesh(new T.ConeGeometry(0.65, 1.7, 8), material(0xa5d9c3, 0x325a49), root, 0, 0.9);
-          mesh(new T.SphereGeometry(0.25, 10, 8), material(0xf5dfb3), root, 0, 1.9);
-          mesh(new T.ConeGeometry(0.5, 0.8, 8), material(0xa5c2ac), root, 0, 2.45);
-          for (const side of [-1, 1]) mesh(new T.SphereGeometry(0.12, 8, 6), material(0xf5dfb3), root, side * 0.55, 1.2, 0.15);
+          // Willow herself in the wood; elsewhere her translucent echo. She faces the path toward the region centre.
+          const willow = new Willow(/echo/i.test(item.name));
+          willow.root.userData.physics = false; willow.root.rotation.y = Math.atan2(center.x - x, center.z - z);
+          root.add(willow.root); this.willows.push(willow);
+          // A plain upright collider so heroes bump into her instead of walking through the gown.
+          const body = mesh(new T.CylinderGeometry(0.32, 0.4, 1.7, 10), material(0xffffff), root, 0, 0.85); body.visible = false;
         }
         this.objects.push(object);
       }
@@ -483,7 +487,9 @@ export class World {
     return surfaces;
   }
 
-  update(dt: number, time: number): void {
+  /** `focus` is the lead hero's position, so the waykeeper can turn to greet them. */
+  update(dt: number, time: number, focus?: T.Vector3): void {
+    this.willows.forEach((willow) => willow.update(dt, time, focus));
     this.markerGem.position.y = 3.1 + Math.sin(time * 2.2) * 0.2; this.markerGem.rotation.y += dt * 0.7;
     this.water.position.y = -0.08 + Math.sin(time * 0.6) * 0.025;
     this.wind.value = time; this.waterMaterial.uniforms.time.value = time;

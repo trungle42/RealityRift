@@ -36,11 +36,14 @@ const CAMPS: { name: string; x: number; z: number; size: number }[] = [
   { name: 'Eastern Ridge', x: 50, z: 4, size: 2 },
 ];
 interface PendingHit { at: number; player: PlayerIndex; damage: number; reach: number; arc: number; heavy: boolean; step: number }
-/** Three-step sword combo, each with its own clip, timing and weight (horizontal, overhead, thrust). */
+/**
+ * Three-step sword combo, each with its own clip, timing and weight (horizontal, overhead, thrust). `hit` is when the
+ * blade connects; the Actor times each clip's contact frame to it, so a little more wind-up gives the swing weight.
+ */
 const COMBO = [
-  { clip: 'strike', length: 0.36, hit: 0.13, damage: 2, reach: 2.9, arc: 2.2, tilt: 0.15, color: 0xfff0c4 },
-  { clip: 'sword_slash_overhead', length: 0.4, hit: 0.16, damage: 2, reach: 3.0, arc: 1.6, tilt: 1.25, color: 0xfff6d6 },
-  { clip: 'sword_thrust', length: 0.5, hit: 0.2, damage: 3, reach: 3.5, arc: 0.9, tilt: 0.05, color: 0xffe39a },
+  { clip: 'strike', length: 0.42, hit: 0.16, damage: 2, reach: 2.9, arc: 2.2, tilt: 0.15, color: 0xfff0c4 },
+  { clip: 'sword_slash_overhead', length: 0.46, hit: 0.2, damage: 2, reach: 3.0, arc: 1.6, tilt: 1.25, color: 0xfff6d6 },
+  { clip: 'sword_thrust', length: 0.55, hit: 0.22, damage: 3, reach: 3.5, arc: 0.9, tilt: 0.05, color: 0xffe39a },
 ];
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
@@ -202,7 +205,7 @@ export class Adventure {
 
   private async loadModels(): Promise<void> {
     const loader = new GLTFLoader(), textures = new T.TextureLoader();
-    const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb')]).then(([asset, combat]) => { if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat.animations.filter((clip) => ['sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name))); });
+    const ranger = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb')]).then(([asset, combat]) => { if (!this.disposed) this.heroes[0].useModel(clone(asset.scene), asset.animations, false, combat.animations.filter((clip) => ['sword_idle', 'sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'].includes(clip.name))); });
     const companion = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => { this.queen = asset; if (!this.disposed) this.heroes[1].useModel(clone(asset.scene), asset.animations, false); });
     const jobs = [
       ranger, companion,
@@ -508,6 +511,9 @@ export class Adventure {
       if (boss?.kind === 'frost-witch') {
         actor = new Actor(); actor.useModel(clone(asset.scene), asset.animations, false); actor.root.scale.setScalar(1.4); root.add(actor.root);
         for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; mesh(new T.ConeGeometry(0.045, i % 2 ? 0.3 : 0.45, 7), material(0xbcdfe9, 0x477d8c), actor.root, Math.sin(a) * 0.14, 1.93, Math.cos(a) * 0.14); }
+      } else if (!boss && asset.animations.length) {
+        // Rigged foes walk, punch, flinch and fall instead of gliding as a statue.
+        actor = new Actor(); actor.useModel(clone(asset.scene), asset.animations, false); actor.root.scale.setScalar(1.6 / 1.9); root.add(actor.root);
       } else {
         visual = clone(asset.scene); const bounds = new T.Box3().setFromObject(visual), size = bounds.getSize(new T.Vector3()), center = bounds.getCenter(new T.Vector3());
         const scale = (boss ? 3.3 : 1.6) / size.y; visual.scale.setScalar(scale); visual.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale); root.add(visual);
@@ -536,7 +542,7 @@ export class Adventure {
     // Chain into the next combo step while the window is open; the finisher resets it.
     const step = player === 0 && this.time < this.combo.until ? this.combo.step : 0, move = COMBO[step];
     const rapid = player === 0 && this.flurry > 0;
-    hero.attack = rapid ? 0.18 : move.length; hero.attackClip = rapid ? COMBO[this.time * 7 % 3 | 0].clip : move.clip; hero.attackLength = hero.attack; hero.attackSerial++;
+    hero.attack = rapid ? 0.18 : move.length; hero.attackClip = rapid ? COMBO[this.time * 7 % 3 | 0].clip : move.clip; hero.attackLength = hero.attack; hero.attackContact = rapid ? 0.04 : move.hit; hero.attackSerial++;
     this.attackCooldown[player] = rapid ? 0.11 : move.length * 0.72;
     if (player === 0) this.combo = { step: (step + 1) % COMBO.length, until: this.time + move.length + 0.42 };
     const flurryFoe = rapid && this.flurryTarget && this.flurryTarget.hp > 0 ? this.flurryTarget : undefined;
@@ -592,7 +598,7 @@ export class Adventure {
     const bolt = mesh(new T.IcosahedronGeometry(0.17, 1), new T.MeshBasicMaterial({ color: 0xffffff }), this.scene); bolt.castShadow = false;
     const halo = new T.Mesh(new T.SphereGeometry(0.42, 12, 10), new T.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false })); bolt.add(halo);
     bolt.position.copy(start); this.bolts.push({ mesh: bolt, velocity: direction.multiplyScalar(23), life: 1.1, player });
-    hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackSerial++;
+    hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackContact = 0.12; hero.attackSerial++;
     this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2);
     if (player === 0) this.sfx.cast();
   }
@@ -660,9 +666,11 @@ export class Adventure {
     this.fx.number(at.clone().add(new T.Vector3(0, 0.7, 0)), String(damage), crit ? '#ffe27a' : '#fff4df', crit);
     this.hitstop = Math.max(this.hitstop, heavy ? 0.085 : 0.05); this.rig.addTrauma(heavy ? 0.32 : 0.18);
     this.sfx.hit(heavy, crit); this.sfx.enemyHurt();
-    if (enemy.actor) enemy.actor.stagger = 0.4;
+    if (enemy.actor) { enemy.actor.stagger = 0.4; if (enemy.windup <= 0) enemy.actor.attack = 0; }
     if (enemy.hp <= 0) {
-      enemy.dying = 0.45; this.state!.stars[player] += enemy.boss ? 5 : 2;
+      // Animated foes fall first, then dissolve; the rest dissolve at once.
+      enemy.dying = enemy.actor && !enemy.boss ? 1.3 : 0.45; if (enemy.actor) enemy.actor.dead = true;
+      this.state!.stars[player] += enemy.boss ? 5 : 2;
       this.fx.sparks(at, 0xb69bff, enemy.boss ? 90 : 36, enemy.boss ? 10 : 6, 0.26, 0.9, 2);
       this.fx.puff(enemy.root.position, 0x2e2640, enemy.boss ? 30 : 14, enemy.boss ? 4 : 2, enemy.boss ? 1.6 : 0.9, 1.2);
       this.fx.motes(at, 0xffe7a6, enemy.boss ? 40 : 12, 0.6, 2.5, 0.3, 1.4); this.fx.shockwave(enemy.root.position, 0xd8c6ff, enemy.boss ? 9 : 3.5, 0.6);
@@ -715,7 +723,7 @@ export class Adventure {
     if (this.flurry > 0 && !paused) { this.flurry -= real; if (this.flurry <= 0) { this.flurryTarget = undefined; this.rig.addTrauma(0.25); } }
     this.post.flurry += ((this.flurry > 0 ? 1 : 0) - this.post.flurry) * Math.min(1, real * 6);
     if (!paused) this.time += dt;
-    this.world.update(paused ? 0 : dt, this.time);
+    this.world.update(paused ? 0 : dt, this.time, this.heroes[0].root.position);
     this.heroes.forEach((hero) => hero.update(paused ? 0 : dt, this.time));
     if (this.state) {
       if (!paused) this.update(dt);
@@ -830,6 +838,8 @@ export class Adventure {
       // Rapier settling on slopes leaves ~0.3 u/s of jitter; below this dead zone a hero counts as standing still
       // (otherwise idle heroes animate as walking and the stillness challenge can never be passed).
       const travelled = Math.hypot(p.x - beforeX, p.z - beforeZ), measured = dt > 0 ? travelled / dt : 0; hero.moving = measured > 0.7 ? measured : 0; hero.body.rotation.z = this.dodge[i] > 0 ? Math.sin(this.dodge[i] / 0.27 * Math.PI) * 0.55 : 0;
+      // Raise the sword into a ready stance when a foe is close or focused; lower it again when the wood is quiet.
+      hero.guard = (i === 0 && !!this.lock) || this.enemies.some((enemy) => enemy.hp > 0 && distance(enemy.root.position, p) < 11);
       // Footsteps and dust, landing impacts.
       const grounded = this.physics ? this.physics.isGrounded(i) : this.jump[i] === 0;
       this.airborne[i] = !grounded;
@@ -908,7 +918,11 @@ export class Adventure {
       if (enemy.hp <= 0) {
         if (enemy.pawn !== undefined) { this.physics?.removeCharacter(enemy.pawn); enemy.pawn = undefined; }
         // Dissolve: shrink and sink into a puff of shadow instead of popping out of existence.
-        if (enemy.dying > 0) { enemy.dying -= dt; const s = Math.max(0.01, enemy.dying / 0.45); enemy.root.scale.set(1 + (1 - s) * 0.3, s, 1 + (1 - s) * 0.3); enemy.root.position.y -= dt * 0.8; if (Math.random() < 0.6) this.fx.trail(enemy.root.position.clone().add(new T.Vector3((Math.random() - 0.5), 0.8 * s, (Math.random() - 0.5))), 0x8f73d9, 0.35); }
+        if (enemy.dying > 0) {
+          enemy.dying -= dt; enemy.actor?.update(dt, this.time);
+          const s = clamp(enemy.dying / 0.45, 0.01, 1);
+          if (s < 1) { enemy.root.scale.set(1 + (1 - s) * 0.3, s, 1 + (1 - s) * 0.3); enemy.root.position.y -= dt * 0.8; if (Math.random() < 0.6) this.fx.trail(enemy.root.position.clone().add(new T.Vector3((Math.random() - 0.5), 0.8 * s, (Math.random() - 0.5))), 0x8f73d9, 0.35); }
+        }
         if (enemy.dying <= 0) enemy.root.visible = false;
         continue;
       }
@@ -955,6 +969,8 @@ export class Adventure {
         if (engaged && d < (enemy.boss ? 11 : 2.6) && enemy.cooldown <= 0) {
           enemy.windup = enemy.boss ? enemy.boss.telegraphSec : 0.9;
           enemy.attack = enemy.boss ? enemy.boss.attacks[Math.floor(this.time) % enemy.boss.attacks.length] : 'strike';
+          // The punch winds up through the telegraph and lands as the strike resolves.
+          if (enemy.actor && !enemy.boss) { const a = enemy.actor; a.attackClip = 'punch_right'; a.attack = a.attackLength = enemy.windup + 0.35; a.attackContact = enemy.windup; a.attackSerial++; }
           this.fx.warn(p.clone().add(new T.Vector3(0, enemy.boss ? 3.6 : enemy.elite ? 2.3 : 1.7, 0))); this.sfx.warn();
         } else if (engaged && d < (enemy.encounter ? 35 : enemy.boss ? 12 : 30) && d > (enemy.boss ? 5 : 1.7)) {
           walk(target.root.position, enemy.boss ? 1.4 : enemy.encounter ? 2.3 : enemy.elite ? 2.6 : 3.0);
@@ -970,7 +986,13 @@ export class Adventure {
       else { const next = moveOnGround(p, motion.x, motion.z, this.world.solids); p.x = next.x; p.z = next.z; p.y = Math.max(heightAt(p.x, p.z), -0.3); }
       if (enemy.bar) { enemy.shown -= dt; enemy.bar.visible = enemy.shown > 0 || this.lock === enemy; }
       if (enemy.visual) enemy.visual.rotation.z = Math.sin(this.time * 2 + enemy.home.x) * 0.025;
-      if (enemy.actor) { enemy.actor.heading = 0; enemy.actor.moving = motion.length() / Math.max(dt, 0.001); enemy.actor.pose = enemy.windup > 0 ? 'arms-up' : ''; enemy.actor.update(dt, this.time); }
+      if (enemy.actor) {
+        // Ground speed only: the constant downward step that keeps foes on the terrain made idle ones run in place.
+        enemy.actor.heading = 0; enemy.actor.moving = Math.hypot(motion.x, motion.z) / Math.max(dt, 0.001);
+        enemy.actor.pose = enemy.boss && enemy.windup > 0 ? 'arms-up' : '';
+        enemy.actor.guard = !!enemy.boss || enemy.encounter || enemy.ai === 'chase' || enemy.ai === 'alert';
+        enemy.actor.update(dt, this.time);
+      }
       if (enemy.boss && enemy.windup <= 0) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, 'The ward is down · strike now');
       dt = real;
     }
