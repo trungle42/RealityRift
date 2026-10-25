@@ -33,13 +33,22 @@ What talks to what:
 - **Backend -> Gemini.** One call per story beat, one per photo. Never per frame.
 - **If Gemini fails, the game keeps going.** The backend returns 503 for story calls and the browser uses the hand-written `ScriptedStory` for that beat. A scan returns a stand-in relic; the riddle door lets you through.
 - **Phone -> backend -> game.** The phone opens `/joystick` and streams a stick position over a WebSocket. The backend forwards only validated `move` messages to the game in the same room.
-- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, body motion into moving in the freeze trial, and each shape a wand completes into a shape event (Reality Rift's spells, and the pose seals' runes). The game drives the wand in the other direction over the same socket: it is on for any shape while the game is open, and a pose seal asks for its own shape. Tested end to end with synthetic tracker frames, not yet with a live webcam.
+- **cv_2 -> backend -> game.** `python -m tools.publish` reads the webcam and streams one small message per frame over a WebSocket to `/ws/cv/{room}`. The backend forwards only validated messages to the game in the same room, where `CvInput.ts` turns a phone slash into a sword strike, a jump into a hero jump, body motion into moving in the freeze trial (`?story=full`), and each shape a wand completes into a shape event (Reality Rift's spells, and the pose seals' runes). The game drives the wand in the other direction over the same socket: it is on for any shape while the game is open, and a pose seal asks for its own shape. Tested end to end with synthetic tracker frames, not yet with a live webcam.
 
 The rule behind the design: the engine owns the rules (combat, hearts, timing), Gemini owns the words. The backend fixes the structure of each beat from a catalog the engine can run, and Gemini only writes narration, prompts, names and the final storybook. It cannot invent a mechanic the game cannot run.
 
 ## Features
 
-### Gemini storyteller and personalised storybook (working)
+### Two ways to play: the demo run and the full story (working)
+
+- **The demo run (the default).** Open `http://localhost:5173/`. After the name screen you stand in the Whispering Wood a few strides from Willow, facing her. Walk up and press **E**: she briefs you (four lines you advance with Space, Enter or E, then a quest card, "The Last Warm Spring", to accept with Enter). One wave of six shadows then comes out of the treeline: three close ones, and three farther back that arrive a few seconds later. When the horde is broken, Willow tops your hearts back up and Morwen the Frost Witch strides in. A result screen shows the time, foes defeated, hearts left and starlight, with a **Play again** (or **Try again**) button that reloads the game. The code is tuned for roughly a minute of fighting after the briefing (about 15-20 s for the wave, about 25 s for the boss); I have not timed a run myself.
+  - It has **no** Gemini storyteller, freeze challenge, crossroads vote, pose seals, riddle door or storybook: Willow's lines are fixed text, read aloud by the browser's speech voice unless you mute with the sound button. The boss is always Morwen, so **fire** is the element that doubles your damage.
+  - Everything else works as normal: the scan and relics, the wand, the sword, the phone joystick and the camera tracker. Gemini is only called for a scan.
+- **The full story: `?story=full`.** Open `http://localhost:5173/?story=full`. This is the whole storyteller-driven tale: camps in the world, the freeze challenge, the crossroads vote (castle or cave), the pose seals, the riddle door, the lantern fairy, a boss on either route, and the personalised storybook. Each beat comes from Gemini, with the scripted story as the fallback.
+
+`?story=` takes one value, so `?story=full` cannot also say `scripted`. To play the full story with no Gemini, either set `OFFLINE=1` for the backend or start the game with `VITE_STORY=scripted npm run dev`.
+
+### Gemini storyteller and personalised storybook (working; `?story=full`)
 
 Each story beat is written by Gemini (`gemini-3.8-flash`, structured output, thinking off for speed, 12 s timeout) using what happened so far: who passed or failed which challenge, which road you took, what you found. Failures make later challenges and the boss harder. The game ends with a storybook that names your choices and mistakes. Every one of these calls has a hand-written fallback, so a dead network or a missing key never stops a run.
 
@@ -78,9 +87,9 @@ So the object you pick is a real choice: a hot drink tends to come back as fire,
 
 - **Armory:** every relic you scan is kept in an armory in this browser (up to 8; the small photo is stored in the browser only). Pick one in the scanner to equip it again without a new scan.
 - **Two players:** the relic card asks which hero takes it. In solo play it goes to your hero.
-- **The story remembers your objects:** relics travel in the story history. Gemini is told which real object became which relic and may work it into a scene, and the storybook is asked to give the relics their own page. The offline script adds a "The Reality Rift" page the same way.
+- **The story remembers your objects (`?story=full`):** relics travel in the story history. Gemini is told which real object became which relic and may work it into a scene, and the storybook is asked to give the relics their own page. The offline script adds a "The Reality Rift" page the same way.
 
-### The "show me X" riddle door (working)
+### The "show me X" riddle door (working; `?story=full` only)
 
 After you pass the Chapter III pose gate, a second door with carved eyes wakes up and asks you to show it a real object: **a book** on the castle route, **a bottle or a cup** on the cave route. The scanner opens in door mode. Your webcam photo goes to `/api/verify`, and Gemini vision says whether that kind of object is clearly visible (a picture or screen of it does not count) and what it actually saw. A wrong object shows what the door saw and lets you try again. **Skip** lets you through anyway at no cost in hearts. With no Gemini key the door accepts any photo, so it can never trap a player.
 
@@ -105,13 +114,13 @@ It was tuned on one webcam. Expect to re-run `python -m tools.tune` (click your 
 
 Working (CV to game; tested end to end with synthetic tracker frames, not yet with a live webcam):
 
-- A backend relay (`backend/app/cv.py`) plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. Start it with `python -m tools.publish` in `cv_2/` while the backend runs.
-- **Wand shapes -> spells**: the game takes the wand, so any shape the player draws casts its spell (see "Draw a shape, cast its spell" above), and the wand panel (bottom left) shows the trail, what to draw and the shape made. **Pose seals** also open to their rune: triangle for arms up, square for the T-pose, circle for the crouch (keys 1, 2, 3 still work).
+- A backend relay (`backend/app/cv.py`) plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial** (`?story=full` only). Start it with `python -m tools.publish` in `cv_2/` while the backend runs.
+- **Wand shapes -> spells**: the game takes the wand, so any shape the player draws casts its spell (see "Draw a shape, cast its spell" above), and the wand panel (bottom left) shows the trail, what to draw and the shape made. **Pose seals** (`?story=full` only) also open to their rune: triangle for arms up, square for the T-pose, circle for the crouch (keys 1, 2, 3 still work).
 - Not started: aiming spells by pointing the wand.
 
 ### Also on `main`
 
-- **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her). Her translucent echo waits in the castle and the cave with advice about that region's boss (its attacks and when to strike).
+- **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her: in the demo run she gives the briefing). Her translucent echo waits in the castle and the cave with advice about that region's boss (its attacks and when to strike).
 - **Combat:** a three-hit sword combo, spells, roll, flash step, lock-on, and boss wards that reject damage during the warning and open afterwards.
 - **Classic edition:** Rishaan's earlier 2.5D campaign (PixiJS) is still available at `http://localhost:5173/?mode=classic`.
 - **Solo or two players.** The default is one hero plus an AI companion. Add `?players=2` for a second human on the same keyboard.
@@ -175,13 +184,15 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. Use `localhost`, not the laptop's network address: browsers only allow the webcam on `localhost` or HTTPS.
+Open **http://localhost:5173** for the demo run, or **http://localhost:5173/?story=full** for the whole tale. Use `localhost`, not the laptop's network address: browsers only allow the webcam on `localhost` or HTTPS.
 
 Handy switches:
 
 | Switch | Effect |
 |---|---|
-| `?story=scripted` | Skip Gemini entirely and use the scripted story |
+| *(none)* | The short **demo run**: Willow's briefing, one shadow wave, then Morwen |
+| `?story=full` | The whole storyteller-driven tale: camps, freeze, vote, pose seals, riddle door, Gemini beats, storybook |
+| `?story=scripted` | Use the scripted story instead of Gemini. It only matters for the full tale, and it replaces `full`, so for an offline full run use `OFFLINE=1` on the backend or `VITE_STORY=scripted` |
 | `?players=2` | Second human player on the arrow keys |
 | `?room=NAME` | Phone joystick room (match it on the phone URL) |
 | `?mode=classic` | The old 2.5D campaign |
@@ -269,7 +280,7 @@ Checked against `bindInput()` and the movement code in `frontend/src/adventure/A
 | **Q** | Roll: 1 s of invulnerability from the start, 4 s cooldown |
 | **R** | Flash step: short dash, uses stamina, 6 s cooldown. Dodging at the last moment of an enemy attack slows time for a free flurry |
 | **X** | Scan an object for a relic (Reality Rift). Also the **Scan** button |
-| **E** | Interact: talk, open chests and springs, start the next story beat at the golden beacon |
+| **E** | Interact: talk, open chests and springs, start the next story beat at the golden beacon. In the demo run, E near Willow starts her briefing |
 | **H** | Show the phone joystick URL |
 | **M** | Map and journal (**Esc** also opens it when the mouse is free) |
 | **Z** or **Tab**, right click | Lock on to the nearest foe, or release |
@@ -286,7 +297,7 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 | Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 44 pass |
 | Frontend unit tests | `cd frontend && npm test` | 81 pass |
 | Type-check and build | `cd frontend && npm run build` | passes |
-| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 15 checks, listed as PASS / FAIL |
+| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 15 checks, listed as PASS / FAIL. They play the full story, not the demo run |
 | cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 243 pass (about 15 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
@@ -305,9 +316,10 @@ The browser checks drive the real renderer with real key events, so they need a 
 **Working (on `main`)**
 
 - 3D adventure: exploration, combat, two bosses, solo or two players, Willow, the forest and the other regions.
-- Gemini storyteller with a scripted fallback for every beat, and the personalised storybook.
+- A short **demo run** as the default (Willow's briefing, one wave, Morwen, a result screen), with the full tale at `?story=full`.
+- Gemini storyteller with a scripted fallback for every beat, and the personalised storybook (`?story=full`).
 - Reality Rift: scan an object into a relic (relic card with your photo, in-browser armory), boss element weaknesses, and a story and storybook that mention the real object.
-- The riddle door that checks a webcam photo with Gemini vision.
+- The riddle door that checks a webcam photo with Gemini vision (`?story=full`).
 - Phone joystick through the backend relay.
 - cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump.
 - cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial, wand shapes to the game (any shape, the wand panel, and pose seals opened by their rune) (tested with synthetic tracker frames; not yet with a live webcam).
