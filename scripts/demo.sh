@@ -6,6 +6,7 @@
 #   ./scripts/demo.sh                                 backend :8000, game :5173, tracker, browser
 #   ./scripts/demo.sh --no-tracker --no-browser       no webcam tracker / do not open the browser
 #   ./scripts/demo.sh --tune                          first tune the tracker's colours to this camera and room (no keys)
+#   ./scripts/demo.sh --jump rise                     the tracker fires a jump on the way up, not at the landing (experiment)
 #   ./scripts/demo.sh --tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
 #   ./scripts/demo.sh --color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   ./scripts/demo.sh --tunnel --color red --name Trung
@@ -21,7 +22,7 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 api_port="${API_PORT:-8000}"
 web_port="${WEB_PORT:-5173}"
-tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}" name="" join="" join_room=""
+tracker=1 browser=1 tune=0 tunnel=0 colors="${YT_COLORS:-yellow}" name="" join="" join_room="" jump_mode="${YT_JUMP_MODE:-full}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-tracker) tracker=0 ;;
@@ -31,9 +32,10 @@ while [[ $# -gt 0 ]]; do
     --color|--colors) [[ $# -ge 2 ]] || { echo "--color needs colours, e.g. --color red,blue" >&2; exit 2; }; colors="$2"; shift ;;
     --color=*|--colors=*) colors="${1#*=}" ;;
     --name) name="${2:-}"; shift ;;
+    --jump) jump_mode="${2:-}"; shift ;;
     --join) join="${2:-}"; shift ;;
     --room) join_room="${2:-}"; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -50,11 +52,15 @@ for c in ${colors//,/ }; do
 done
 [[ -n "${colors//,/}" ]] || { echo "demo: --color needs at least one colour" >&2; exit 2; }
 jump=1; [[ "$colors" == *,* ]] && jump=0
+# --jump rise: the tracker fires a jump on the way up instead of at the landing (an experiment; see cv_2 JumpDetector).
+case "$jump_mode" in full|rise) ;; *) echo "demo: --jump takes full or rise (got '$jump_mode')" >&2; exit 2 ;; esac
 
 api="http://localhost:$api_port"
 web="http://localhost:$web_port"
 backend_pid="" web_pid="" tracker_pid="" tunnel_pid=""
 public_url="" public_url_file="$repo_root/backend/.public_url"
+# Written while this launcher runs (its pid, room and game link) and removed when it stops, so a second launcher can tell.
+lock_file="$repo_root/backend/.demo_running" locked=0
 
 # The room code the game, the phones and the tracker share. With --tunnel the phone page is on the internet, so each launch
 # gets a fresh random one (6 letters, in the QR link) that a stranger cannot guess; ROOM=... picks one instead.
@@ -87,6 +93,7 @@ fail() { echo "demo: $*" >&2; exit 1; }
 # Only the PIDs recorded below are ever signalled: each is a process this script started (the subshells exec into them).
 stop() {
   trap - EXIT INT TERM
+  if [[ "$locked" == 1 && "$(sed -n 's/^pid=//p' "$lock_file" 2>/dev/null || true)" == "$$" ]]; then rm -f "$lock_file"; fi
   # The tunnel's URL file goes too, but only if it still holds this run's URL.
   if [[ -n "$public_url" && "$(cat "$public_url_file" 2>/dev/null || true)" == "$public_url" ]]; then rm -f "$public_url_file"; fi
   local started="$tracker_pid $tunnel_pid $web_pid $backend_pid" alive="" pid
@@ -121,7 +128,26 @@ wait_up() {
 start_backend=1 start_web=1 start_tracker="$tracker"
 up "$api/api/health" && start_backend=0
 up "$web/" && start_web=0
-if [[ "$tracker" == 1 ]] && pgrep -f -- "-m tools.publish" >/dev/null 2>&1; then start_tracker=0; fi
+
+# One Storybound per laptop: a second launcher would make a second room (and tunnel) while the first one's tracker keeps
+# publishing in the old room, so the game would have no camera. Refuse instead; never touch the other launcher's processes.
+if [[ -f "$lock_file" ]]; then
+  other_pid="$(sed -n 's/^pid=//p' "$lock_file")"
+  if [[ -n "$other_pid" ]] && kill -0 "$other_pid" 2>/dev/null && ps -p "$other_pid" -o command= 2>/dev/null | grep -q "demo.sh"; then
+    fail "Storybound is already running (room $(sed -n 's/^room=//p' "$lock_file"), started by another demo.sh, pid $other_pid). Press Ctrl-C there first, or open its game: $(sed -n 's/^game=//p' "$lock_file")"
+  fi
+  rm -f "$lock_file"   # left by a launcher that is gone
+fi
+running_room="$(ps -ax -o command= 2>/dev/null | grep -- "-m tools.publish" | grep -v grep | sed -n 's/.*--room \([A-Za-z0-9_-]*\).*/\1/p' | head -n 1 || true)"
+if [[ "$tracker" == 1 ]] && pgrep -f -- "-m tools.publish" >/dev/null 2>&1; then
+  start_tracker=0
+  [[ "${running_room:-storybound}" == "$room" ]] \
+    || fail "a tracker is already running in room ${running_room:-storybound}, but this launch uses room $room, so the game would have no camera. Stop that tracker (Ctrl-C in its terminal) and run this again, or run with --no-tracker."
+fi
+if [[ "$tunnel" == 1 ]] && pgrep -f -- "cloudflared tunnel --url http://127.0.0.1:$api_port" >/dev/null 2>&1; then
+  fail "a tunnel to this backend is already running (another launcher's). Press Ctrl-C in that launcher first."
+fi
+printf 'pid=%s\nroom=%s\ngame=\n' "$$" "$room" >"$lock_file" && locked=1
 if [[ "$start_backend" == 1 && ! -x "$repo_root/backend/.venv/bin/python" ]]; then
   fail "backend/.venv is missing. Set it up once: cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
 fi
@@ -226,13 +252,14 @@ echo
 
 if [[ "$start_tracker" == 1 ]]; then
   echo "Tracker: starting; its camera picture shows in the game's wand panel (macOS asks for camera access the first time) ..."
-  echo "         Colours: $colors (players 1-3 in that order)$([[ "$jump" == 0 ]] && echo '; jump is off with several players in view')"
-  (cd "$repo_root/cv_2" && YT_COLORS="$colors" YT_JUMP="$jump" exec .venv/bin/python -m tools.publish --api "$api" --room "$room") &
+  echo "         Colours: $colors (players 1-3 in that order)$([[ "$jump" == 0 ]] && echo '; jump is off with several players in view' || echo "; jump: $jump_mode")"
+  (cd "$repo_root/cv_2" && YT_COLORS="$colors" YT_JUMP="$jump" YT_JUMP_MODE="$jump_mode" exec .venv/bin/python -m tools.publish --api "$api" --room "$room") &
   tracker_pid=$!
 elif [[ "$tracker" == 1 ]]; then
   echo "Tracker: one is already running, leaving it alone."
   [[ "$room" != storybound ]] && echo "         It may be on another room: to see it in this game, stop it and run this again (room $room)."
 fi
+printf 'pid=%s\nroom=%s\ngame=%s\n' "$$" "$room" "$web/$game_query" >"$lock_file"
 if [[ "$browser" == 1 ]]; then
   if command -v open >/dev/null 2>&1; then open "$web/$game_query"
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$web/$game_query" >/dev/null 2>&1 || true

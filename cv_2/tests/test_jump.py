@@ -2,6 +2,7 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 
 from tests.test_slash import swing
 from tests.test_tracker import H, W, cfg, scene
@@ -352,3 +353,70 @@ def test_the_slash_detector_ignores_suppressed_frames_and_forgets_them():
     assert not any(s.active for s in states)
     after = [det.update(1.0 + i * DT, p) for i, p in enumerate(still(4) + slash())]
     assert after[-1].active                                     # nothing suppressed leaked into the buffer; a fresh swing fires
+
+
+# --- rise mode (YT_JUMP_MODE=rise, an experiment): fire on the way up, not at the landing ----------------
+
+def rise_detector(**kw) -> JumpDetector:
+    return JumpDetector(mode="rise", **kw)
+
+
+def first_fire(states):
+    return next((i for i, s in enumerate(states) if s.active), None)
+
+
+def test_rise_mode_fires_on_the_way_up_well_before_full_mode():
+    series = jump_series(speed=1.1)
+    early, late = first_fire(feed(rise_detector(), series)), first_fire(feed(JumpDetector(), series))
+    assert early is not None and early < 2 + 6                    # during the rise (3 frames after take-off)
+    assert late >= 2 + 6 + 3 + 6 and (late - early) * DT >= 0.4    # full mode: after the hang and the fall
+
+
+def test_rise_mode_fires_once_per_jump_the_landing_and_a_bounce_after_it_do_not_count():
+    series = jump_series(speed=1.1) + samples([-1.1] * 4 + [0.0] * 30)     # land, straighten up quickly, stand
+    assert feed(rise_detector(), series)[-1].count == 1
+
+
+def test_rise_mode_rearms_after_the_refractory_so_two_quick_jumps_both_count():
+    det = rise_detector()
+    feed(det, jump_series(speed=1.1))
+    assert feed(det, jump_series(speed=1.1), t0=1.0)[-1].count == 2   # 0.8 s refractory, not the 2 s hold
+    full = JumpDetector(hold_s=2.0)
+    feed(full, jump_series(speed=1.1))
+    assert feed(full, jump_series(speed=1.1), t0=1.0)[-1].count == 1  # full mode unchanged
+
+
+def test_rise_mode_wants_a_faster_rise_than_full_mode_since_no_fall_confirms_it():
+    series = jump_series(speed=0.9)
+    assert fired(feed(JumpDetector(), series)) and not fired(feed(rise_detector(), series))
+
+
+def test_rise_mode_ignores_a_slow_stand_up_even_one_that_speeds_up_late():
+    assert not fired(feed(rise_detector(), samples([-0.8] * 8 + [0.0] * 20)))                # peak too slow
+    assert not fired(feed(rise_detector(), samples([-0.4] * 12 + [-1.2] * 4 + [0.0] * 10)))  # rising for 0.4 s first
+
+
+def test_rise_mode_ignores_a_lean_a_sideways_move_and_a_single_spike():
+    lean = jump_series(speed=1.1, area=0.15)                                     # a lean moved 0.12-0.20 of the picture
+    assert not fired(feed(rise_detector(min_area=Config().jump_min_area), lean))
+    assert not fired(feed(rise_detector(), jump_series(speed=1.1, vx=1.1)))
+    assert not fired(feed(rise_detector(), samples([0.0, -1.5] + [0.0] * 10)))
+
+
+def test_rise_mode_through_the_pipeline_fires_earlier_and_once():
+    offsets = jump_offsets(rise=4, fall=4, step=20) + [0] * 30      # ~1.25 picture heights a second
+    early, late = run(Pipeline(cfg(jump_mode="rise")), offsets), run(Pipeline(cfg()), offsets)
+    at = lambda outs: next(i for i, o in enumerate(outs) if o["jump"]["count"])  # noqa: E731
+    assert at(early) < at(late) and early[-1]["jump"]["count"] == late[-1]["jump"]["count"] == 1
+    assert run(Pipeline(cfg(jump_mode="rise")), [0, 0] + [-10 * i for i in range(1, 9)] + [-80] * 20)[-1]["jump"]["count"] == 0
+
+
+def test_the_jump_mode_comes_from_yt_jump_mode(monkeypatch):
+    assert Config().jump_mode == "full"
+    monkeypatch.setenv("YT_JUMP_MODE", "Rise")
+    assert Config.from_env().jump_mode == "rise"
+    monkeypatch.setenv("YT_JUMP_MODE", "sideways")
+    with pytest.raises(ValueError):
+        Config.from_env()
+    with pytest.raises(ValueError):
+        JumpDetector(mode="sideways")

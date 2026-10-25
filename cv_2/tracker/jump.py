@@ -27,17 +27,29 @@ class JumpDetector:
     moving down: the landing), not while it is still going: only a finished fall can be compared with the rise, and firing
     earlier made max_ratio useless. After firing it is "active" for hold_s and ignores further jumps until then.
 
+    mode="rise" (an experiment, YT_JUMP_MODE=rise) fires as soon as the UP run alone passes the same tests (min_frames at
+    up_speed, min_height, min_area, mostly vertical), without waiting for the fall, so the hero leaves the ground with the player
+    instead of 0.5-1 s later. With no fall to confirm it, the rise must also peak at rise_peak_speed or more (faster than any
+    ordinary movement measured) and meet the tests within rise_max_s of starting (a slow stand-up that only builds speed later
+    never fires). It re-arms after refractory_s, not hold_s, and only rises count, so the landing never fires it again. The cost:
+    a fast stand-up or a hop onto tiptoe looks the same as a take-off and will fire; mode="full" (haicil's) is the default.
+
     Time is an argument, never read from a clock, so it is testable without sleeping. Thresholds are first guesses to be
     tuned from recordings (they live in Config.jump_*)."""
 
     def __init__(self, hold_s: float = 2.0, up_speed: float = 0.4, down_speed: float = 0.4, min_frames: int = 3,
                  min_height: float = 0.04, min_area: float = 0.04, max_air_s: float = 1.2, max_gap_s: float = 0.3,
-                 min_ratio: float = 0.5, max_ratio: float = 2.0, max_sideways: float = 0.6, window_s: float = 1.6):
+                 min_ratio: float = 0.5, max_ratio: float = 2.0, max_sideways: float = 0.6, window_s: float = 1.6,
+                 mode: str = "full", rise_peak_speed: float = 1.0, rise_max_s: float = 0.35, refractory_s: float = 0.8):
+        if mode not in ("full", "rise"):
+            raise ValueError(f"jump mode must be 'full' or 'rise', not {mode!r}")
         self.hold_s, self.up_speed, self.down_speed, self.min_frames = hold_s, up_speed, down_speed, min_frames
         self.min_height, self.min_area, self.max_air_s, self.max_gap_s = min_height, min_area, max_air_s, max_gap_s
         self.min_ratio, self.max_ratio, self.max_sideways, self.window_s = min_ratio, max_ratio, max_sideways, window_s
+        self.mode, self.rise_peak_speed, self.rise_max_s, self.refractory_s = mode, rise_peak_speed, rise_max_s, refractory_s
         self._buf: deque[tuple[float, float, float, float, float]] = deque()   # (t, dt, vy, vx, area)
         self._until = 0.0
+        self._rearm = 0.0      # no new jump before this: hold_s in full mode, refractory_s in rise mode
         self._count = 0
 
     def _state(self, now: float) -> JumpState:
@@ -51,8 +63,9 @@ class JumpDetector:
         self._buf.append((now, dt, s.vy, s.vx, s.area))
         while self._buf and now - self._buf[0][0] > self.window_s:
             self._buf.popleft()
-        if now >= self._until and self._jumped():
+        if now >= self._rearm and (self._rose() if self.mode == "rise" else self._jumped()):
             self._until = now + self.hold_s
+            self._rearm = now + (self.refractory_s if self.mode == "rise" else self.hold_s)
             self._count += 1
             self._buf.clear()
         return self._state(now)
@@ -84,6 +97,18 @@ class JumpDetector:
         disp = sum(abs(f[2]) * f[1] for f in frames)
         med = lambda xs: sorted(xs)[len(xs) // 2]
         return strong, disp, med([abs(f[2]) for f in frames]), med([abs(f[3]) for f in frames]), med([f[4] for f in frames]), frames[-1][0]
+
+    def _rose(self) -> bool:
+        """Rise mode: the UP run happening now passes the tests on its own (see the class docstring)."""
+        ups = [r for r in self._runs() if r["dir"] == -1]
+        if not ups or len(self._buf) - 1 - ups[-1]["i1"] > 2:      # no rise going on right now
+            return False
+        run = ups[-1]
+        strong, disp, med_vy, med_vx, area, now = self._stats(run, self.up_speed)
+        peak = max(-f[2] for f in list(self._buf)[run["i0"]:run["i1"] + 1])
+        return (strong >= self.min_frames and disp >= self.min_height and area >= self.min_area
+                and med_vx <= self.max_sideways * med_vy and peak >= self.rise_peak_speed
+                and now - self._buf[run["i0"]][0] <= self.rise_max_s)
 
     def _jumped(self) -> bool:
         runs = self._runs()

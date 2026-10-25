@@ -5,6 +5,7 @@
 #   .\scripts\demo.ps1                                backend :8000, game :5173, tracker, browser
 #   .\scripts\demo.ps1 -NoTracker -NoBrowser          no webcam tracker / do not open the browser
 #   .\scripts\demo.ps1 -Tune                          first tune the tracker's colours to this camera and room (no keys)
+#   .\scripts\demo.ps1 -Jump rise                     the tracker fires a jump on the way up, not at the landing (experiment)
 #   .\scripts\demo.ps1 -Tunnel                        phones join over the internet (cloudflared), for Wi-Fi that blocks them
 #   .\scripts\demo.ps1 -Color red,blue,yellow         wand colour per player, in order (default yellow): the camera tracks only these
 #   .\scripts\demo.ps1 -Color blue -Name Rishaan -Join https://<words>.trycloudflare.com -Room abcdef
@@ -25,6 +26,7 @@ param(
     [string[]]$Color = @(),
     [string]$Name = '',
     [string]$Join = '',
+    [string]$Jump = '',
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173
 )
@@ -37,6 +39,9 @@ $web = "http://localhost:$WebPort"
 $started = [ordered]@{}
 $publicUrl = $null
 $publicUrlFile = Join-Path $repoRoot 'backend\.public_url'
+# Written while this launcher runs (its pid, room and game link) and removed when it stops, so a second launcher can tell.
+$lockFile = Join-Path $repoRoot 'backend\.demo_running'
+$locked = $false
 
 # The room code the game, the phones and the tracker share. With -Tunnel the phone page is on the internet, so each launch
 # gets a fresh random one (6 letters, in the QR link) that a stranger cannot guess; -Room picks one instead.
@@ -69,6 +74,10 @@ foreach ($c in $colorList) { if ($c -notin @('red', 'blue', 'yellow')) { throw "
 if (@($colorList | Select-Object -Unique).Count -ne $colorList.Count) { throw '-Color lists a colour twice' }
 $colors = $colorList -join ','
 $jump = if ($colorList.Count -gt 1) { '0' } else { '1' }
+# -Jump rise: the tracker fires a jump on the way up instead of at the landing (an experiment; see cv_2 JumpDetector).
+if (-not $Jump) { $Jump = if ($env:YT_JUMP_MODE) { $env:YT_JUMP_MODE } else { 'full' } }
+$Jump = $Jump.ToLower()
+if ($Jump -notin @('full', 'rise')) { throw "-Jump takes full or rise (got '$Jump')" }
 $query = if ($Room -ne 'storybound') { "?room=$Room&wand=$colors" } else { "?wand=$colors" }
 # Networked play (presence): this laptop's game shows the other laptops' heroes. Hosting with -Tunnel or -Name turns it on (the
 # host's own game meets the others on its own backend); -Join meets them on the host's.
@@ -106,6 +115,29 @@ if (-not $NoTracker) {
     $trackerRunning = [bool](Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like '*-m tools.publish*' })
 }
 $startTracker = (-not $NoTracker) -and (-not $trackerRunning)
+
+# One Storybound per laptop: a second launcher would make a second room (and tunnel) while the first one's tracker keeps
+# publishing in the old room, so the game would have no camera. Refuse instead; never touch the other launcher's processes.
+if (Test-Path $lockFile) {
+    $lock = @{}
+    foreach ($line in Get-Content $lockFile) { $kv = $line -split '=', 2; if ($kv.Count -eq 2) { $lock[$kv[0]] = $kv[1] } }
+    $other = $null
+    if ($lock['pid'] -match '^\d+$') { $other = Get-CimInstance Win32_Process -Filter "ProcessId = $($lock['pid'])" -ErrorAction SilentlyContinue }
+    # Run as .\scripts\demo.ps1 inside a PowerShell window, the process is that PowerShell, so trust a live PowerShell pid.
+    if ($other -and $other.Name -in @('powershell.exe', 'pwsh.exe')) {
+        throw "Storybound is already running (room $($lock['room']), started by another demo.ps1, pid $($lock['pid'])). Press Ctrl-C there first, or open its game: $($lock['game'])   (if nothing is running, delete backend\.demo_running)"
+    }
+    Remove-Item $lockFile -ErrorAction SilentlyContinue   # left by a launcher that is gone
+}
+if ($trackerRunning) {
+    $line = [string](@(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object { $_.CommandLine -like '*-m tools.publish*' })[0].CommandLine)
+    $rm = [regex]::Match($line, '--room\s+"?([A-Za-z0-9_-]+)')
+    $runningRoom = if ($rm.Success) { $rm.Groups[1].Value } else { 'storybound' }
+    if ($runningRoom -ne $Room) { throw "A tracker is already running in room $runningRoom, but this launch uses room $Room, so the game would have no camera. Stop that tracker (Ctrl-C in its window) and run this again, or add -NoTracker." }
+}
+if ($Tunnel -and @(Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" | Where-Object { $_.CommandLine -like "*127.0.0.1:$ApiPort*" }).Count -gt 0) {
+    throw "A tunnel to this backend is already running (another launcher's). Press Ctrl-C in that launcher first."
+}
 if ($startBackend -and -not (Test-Path $backendPy)) {
     throw 'backend\.venv is missing. Set it up once: cd backend; py -m venv .venv; .venv\Scripts\pip install -r requirements.txt'
 }
@@ -137,6 +169,8 @@ if ($Tune) {
 $logs = Join-Path ([IO.Path]::GetTempPath()) ("storybound-demo-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 if ($startBackend -or $startWeb -or $Tunnel) { New-Item -ItemType Directory -Path $logs | Out-Null }
 $savedApiUrl = $env:VITE_API_URL
+Set-Content -Path $lockFile -Value @("pid=$PID", "room=$Room", "game=$web/$gameQuery") -Encoding ascii
+$locked = $true
 
 try {
     if ($startBackend) {
@@ -219,11 +253,12 @@ try {
 
     if ($startTracker) {
         Write-Host "Tracker: starting; its camera picture shows in the game's wand panel ..."
-        Write-Host "         Colours: $colors (players 1-3 in that order)$(if ($jump -eq '0') { '; jump is off with several players in view' })"
-        $savedColors = $env:YT_COLORS; $savedJump = $env:YT_JUMP; $env:YT_COLORS = $colors; $env:YT_JUMP = $jump
+        Write-Host "         Colours: $colors (players 1-3 in that order)$(if ($jump -eq '0') { '; jump is off with several players in view' } else { "; jump: $Jump" })"
+        $savedColors = $env:YT_COLORS; $savedJump = $env:YT_JUMP; $savedMode = $env:YT_JUMP_MODE
+        $env:YT_COLORS = $colors; $env:YT_JUMP = $jump; $env:YT_JUMP_MODE = $Jump
         $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api, '--room', $Room) `
             -WorkingDirectory (Join-Path $repoRoot 'cv_2') -NoNewWindow -PassThru
-        $env:YT_COLORS = $savedColors; $env:YT_JUMP = $savedJump
+        $env:YT_COLORS = $savedColors; $env:YT_JUMP = $savedJump; $env:YT_JUMP_MODE = $savedMode
     } elseif (-not $NoTracker) {
         Write-Host 'Tracker: one is already running, leaving it alone.'
         if ($Room -ne 'storybound') { Write-Host "         It may be on another room: to see it in this game, stop it and run this again (room $Room)." }
@@ -245,6 +280,7 @@ try {
     }
 } finally {
     $env:VITE_API_URL = $savedApiUrl
+    if ($locked -and (Test-Path $lockFile) -and ((Get-Content $lockFile) -contains "pid=$PID")) { Remove-Item $lockFile -ErrorAction SilentlyContinue }
     # The tunnel's URL file goes too, but only if it still holds this run's URL.
     if ($publicUrl -and (Test-Path $publicUrlFile) -and ((Get-Content -Raw $publicUrlFile).Trim() -eq $publicUrl)) { Remove-Item $publicUrlFile }
     if ($started.Count -gt 0) {

@@ -160,6 +160,8 @@ def main() -> None:
     cam = Camera(cfg.camera, cfg.width, cfg.height).start()
     pub = Publisher(url, listener(controls)).start()
     print(f"Publishing to {url} (Ctrl+C stops)")
+    print("jump detection: " + ("off" if not cfg.jump else "rise (fires on the way up)" if cfg.jump_mode == "rise"
+                                else "full (fires at the landing)"))
     seq, n, connected, counts, last_preview = 0, 0, None, (0, 0), 0.0
     try:
         while not args.frames or n < args.frames:
