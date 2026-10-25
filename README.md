@@ -2,52 +2,159 @@
 
 **Don't just read the fairy tale. Become part of it.**
 
-The frontend now includes a third-person 3D edition with free movement, an orbiting camera, exploration, combat, and the existing fairy-tale story progression. The forest sanctuary is the focus of its first detailed asset pass. See [3D adventure controls and setup](docs/3d-adventure.md). Rishaan's established 2.5D campaign is available with `?mode=classic`.
+Storybound is a third-person 3D fairy-tale adventure that runs in the browser, built for HackTX 2026 (theme: Fairy Tale). You explore a small kingdom, fight a witch or a shadow dragon, and a Gemini-powered storyteller writes each scene from what you actually did. Real life leaks into the game through a feature we call **Reality Rift**: you hold a real object up to your webcam and Gemini turns it into the weapon you fight with.
 
-An AI-powered interactive fairy-tale adventure for two players, built for HackTX 2026 (theme: Fairy Tale).
-Two heroes enter an enchanted kingdom. A Gemini-powered storyteller writes each scene from what the players
-actually did (who froze, who missed a pose, which path they voted for), the engine runs the challenges and the boss
-fight, and the game ends with a personalized storybook of that exact playthrough.
+The pitch: the story reacts to the players, and the players' real world reacts back. Your phone becomes the joystick, your water bottle becomes a staff, and the game ends with a storybook of your exact playthrough.
 
-## How it works
+> Status key used in this file: **working** means it is on `main` and was checked against the code. **In progress** means another branch is building it and it is *not* on `main` yet. Lines marked `TODO(after merge)` are the ones to flip when that branch lands.
+
+## How the pieces fit
 
 ```
- webcam / keyboard ──► game engine (PixiJS, runs in the browser) ──► StoryProvider ──► FastAPI ──► Google Gemini
-   (input)              challenges, boss, hearts, stars            GeminiStory.ts      backend/        (text)
-                                    ▲                                     │ 503 / timeout
-                                    └──────────── ScriptedStory (offline fallback, per beat) ◄┘
+  Phone browser                    Browser: the game                    cv_2 (Python)
+  /joystick page                   Three.js + Rapier, port 5173         webcam colour tracker
+  (thumb stick)                    Scanner = webcam photos              its own OpenCV window
+       |                              |                 ^               (not linked to the game yet)
+       | WebSocket                    | HTTP            | WebSocket
+       v                              v                 | (stick moves)
+  +--------------------------------------------------------+
+  | FastAPI backend, port 8000                             |
+  |   /ws/joystick/{room}   phone relay, forwards to game  |
+  |   /api/provider/*       story beats and storybook  ----+---> Gemini (text)
+  |   /api/artifact         photo -> weapon            ----+---> Gemini (vision)
+  |   /api/verify           photo shows "a book"?      ----+---> Gemini (vision)
+  +--------------------------------------------------------+
 ```
 
-- **The engine owns the rules.** Combat, hearts, stars, timing and animation are deterministic game code.
-- **Gemini owns the story.** The backend fixes each beat's *structure* from a catalog the engine supports
-  (environments, challenge types, enemies, boss kinds, rewards). Gemini only writes the text: narration, prompts,
-  vote labels, reward names and the final storybook. It cannot invent mechanics the game cannot run.
-- **It never blocks the game.** If the backend, network or Gemini fails, that beat falls back to the hand-written
-  `ScriptedStory` (same beat ids), so a run can switch between the two mid-adventure.
-- **Real-time stays local.** Rendering and (planned) hand/body tracking run in the browser; Gemini is called once
-  per story beat, never per frame.
+What talks to what:
 
-## Running the game
+- **Game -> backend, plain HTTP.** Story beats go to `/api/provider/*`. A scan photo goes to `/api/artifact`. A riddle-door photo goes to `/api/verify`. The backend calls Gemini; the browser never sees the API key.
+- **Backend -> Gemini.** One call per story beat, one per photo. Never per frame.
+- **If Gemini fails, the game keeps going.** The backend returns 503 for story calls and the browser uses the hand-written `ScriptedStory` for that beat. A scan returns a stand-in weapon; the riddle door lets you through.
+- **Phone -> backend -> game.** The phone opens `/joystick` and streams a stick position over a WebSocket. The backend forwards only validated `move` messages to the game in the same room.
+- **cv_2 is separate for now.** It reads the webcam and shows its results in its own window. It does not talk to the game on `main`. [In progress](#status): a relay and `CvInput.ts` to connect it.
 
-Requirements: Node 20.19+, Python 3.9+, and (for AI-generated story text) a Google Gemini API key. The game still runs on its scripted story without a key. Start from a fresh clone:
+The rule behind the design: the engine owns the rules (combat, hearts, timing), Gemini owns the words. The backend fixes the structure of each beat from a catalog the engine can run, and Gemini only writes narration, prompts, names and the final storybook. It cannot invent a mechanic the game cannot run.
+
+## Features
+
+### Gemini storyteller and personalised storybook (working)
+
+Each story beat is written by Gemini (`gemini-3.8-flash`, structured output, thinking off for speed, 12 s timeout) using what happened so far: who passed or failed which challenge, which road you took, what you found. Failures make later challenges and the boss harder. The game ends with a storybook that names your choices and mistakes. Every one of these calls has a hand-written fallback, so a dead network or a missing key never stops a run.
+
+### Reality Rift: scan an object, get a weapon (working)
+
+Press **X** or click the **Scan** button. Hold a real object up to the webcam and press Enter (or "Scan the object"). The photo is shrunk to at most 512 px and sent to `/api/artifact`. Gemini returns a name, a type, an element, an ability, a damage rating and a rarity. The game turns that into your **F** spell:
+
+- The **element** sets the colour and decides who it is strong against.
+- The **ability** sets the shape of the spell: bolt, pierce, wave (three bolts), nova (burst around you), meteor, or chain lightning.
+- The **damage rating** (1-100) becomes 1, 2 or 3 damage per hit.
+
+**Elements matter against bosses.** A boss takes **x2** damage from the element it fears and **x0.5** from the one it resists. The boss bar shows `weak to <element>` during the fight, and a hit shows "Weak point!" or "Resisted".
+
+| Boss | Route | Weak to (x2) | Resists (x0.5) |
+|---|---|---|---|
+| Morwen the Frost Witch | castle | fire | ice |
+| Umbraxis the Shadow Wyrm | cave | light | shadow |
+
+So the object you pick is a real choice: a hot drink tends to come back as fire, which is what the witch fears. Scanning needs the backend. No camera? The scanner lets you choose a photo from disk instead. No key or Gemini down? You get a stand-in weapon (the Moonlit Orb of light or the Frostbound Blade of ice, picked at random) and a note saying so.
+
+In progress (Reality Rift extras on other branches):
+
+<!-- TODO(after merge): flip each line below to working once its branch is on main; confirm the final list with the Reality Rift session. -->
+- A model of the scanned weapon in the hero's hand. (Today the hero's sword glows in the weapon's element colour.) `TODO(after merge)`
+- A fuller boss weakness hint. (A first version is on `main`: the boss bar line above.) `TODO(after merge)`
+- The story remembering the objects you scanned. `TODO(after merge)`
+- A weapon arsenal, so you can carry more than one scanned weapon. `TODO(after merge)`
+
+### The "show me X" riddle door (working)
+
+After you pass the Chapter III pose gate, a second door with carved eyes wakes up and asks you to show it a real object: **a book** on the castle route, **a bottle or a cup** on the cave route. The scanner opens in door mode. Your webcam photo goes to `/api/verify`, and Gemini vision says whether that kind of object is clearly visible (a picture or screen of it does not count) and what it actually saw. A wrong object shows what the door saw and lets you try again. **Skip** lets you through anyway at no cost in hearts. With no Gemini key the door accepts any photo, so it can never trap a player.
+
+### Phone joystick (working)
+
+Press **H** in the game. A toast shows a URL like `http://192.168.x.x:8000/joystick`. Open it on a phone, then drag your thumb anywhere on the screen to move; push past the ring to sprint. The stick moves the first hero whenever no movement key is held, and the game toasts when the phone connects.
+
+- The backend must be started with `--host 0.0.0.0` (see [Run everything](#run-everything-from-a-fresh-clone)). Without it, the backend only answers on the laptop itself and the phone cannot reach it.
+- The phone and the laptop must be on the same network. Many venue Wi-Fi networks block device-to-device traffic, so the safe plan is: turn on the phone's hotspot and join the laptop to it.
+- Two rooms on one network? Add `?room=NAME` to both the game URL and the phone URL. The default room is `storybound`.
+- Only `{type: "move", x, y, sprint}` is forwarded, with numbers clamped to the unit circle. The room code is the only access control, which is fine for a demo.
+
+### cv_2: webcam colour tracker (working on its own; not in the game yet)
+
+haicil's tracker is a Python + OpenCV program in `cv_2/`. No neural model: it finds objects by colour (HSV thresholds), so it needs no download and runs at camera speed.
+
+- **Coloured wands.** Hold up a yellow, a blue and a red ball on sticks. Each colour's path is drawn in its own colour. Detection switches on and off every 5 seconds, and each ON phase asks for the next shape: circle, triangle, square, star. The tracker names the shape each colour drew, and clears the traces when it turns off.
+- **Phone slash.** Bright lime tape on a phone held in the left hand is tracked every frame. A big, fast downward swing shows **SLASHED!** for 2 seconds. Keep the whole swing inside the picture.
+- **Jump.** Stand 1.5-2 m back and jump; optical flow spots an up-then-down burst and shows **JUMPED!**.
+
+It was tuned on one webcam. Expect to re-run `python -m tools.tune` (click your objects, paste the printed values) in new lighting. Details, measurements and gotchas: [cv_2/README.md](cv_2/README.md) and [cv_2/CLAUDE.md](cv_2/CLAUDE.md).
+
+In progress (CV to game):
+
+<!-- TODO(after merge): flip these to working once the CV relay (backend/app/cv.py) and frontend/src/adventure/CvInput.ts are on main. -->
+- A backend relay plus `CvInput.ts` that feed the tracker into the game: **phone slash -> sword strike**, **jump -> hero jump**, **body motion -> the freeze trial**. `TODO(after merge)`
+- Later, not started: **wand shapes cast spells**, and wand shapes for the pose seals.
+
+### Also on `main`
+
+- **Willow, the waykeeper,** a willow dryad who stands in the Whispering Wood (press **E** near her). Her translucent echo waits in the castle and the cave with tips for the boss there.
+- **Combat:** a three-hit sword combo, spells, roll, flash step, lock-on, and boss wards that reject damage during the warning and open afterwards.
+- **Classic edition:** Rishaan's earlier 2.5D campaign (PixiJS) is still available at `http://localhost:5173/?mode=classic`.
+- **Solo or two players.** The default is one hero plus an AI companion. Add `?players=2` for a second human on the same keyboard.
+
+## Folder map
+
+| Path | What is in it | Owner |
+|---|---|---|
+| `frontend/src/adventure/` | The 3D game. `Adventure.ts` is the main loop, input, combat and story flow; `Scanner.ts` is the Reality Rift camera screen; `weapon.ts` turns an artifact into a spell and holds the boss elements; `quest.ts` checks `/api/verify` replies; `PhoneInput.ts` and `phoneMath.ts` are the phone joystick client; `World.ts`, `Willow.ts`, `Actor.ts`, `Fx.ts`, `Physics.ts` build and animate the world | Rishaan, and everyone (see team rules) |
+| `frontend/src/story/` | `ScriptedStory` (offline story) and `GeminiStory` (calls the backend, falls back per beat) | Rishaan and Trung |
+| `frontend/src/` (rest) | `contracts.ts` (types shared with the backend), `campaign/`, `game/`, `challenges/` and friends: the classic 2.5D edition and shared story data | Rishaan |
+| `frontend/tests/` | Unit tests (`*.test.mjs`) and the browser checks (`adventure.html`) | whoever changes the code |
+| `frontend/scripts/` | `build-3d-kit.py`: Blender source for our own GLB models | Rishaan |
+| `backend/app/` | FastAPI: `main.py` (routes), `provider.py` (story structure), `gemini.py` (Gemini calls), `fallbacks.py`, `joystick.py` (phone relay), `schemas.py`, `store.py` | Trung |
+| `backend/static/joystick.html` | The page the phone opens | Trung |
+| `backend/tests/`, `backend/tools/` | pytest suite; `live_smoke.py` and `test_photos.py` for real Gemini runs | Trung |
+| `cv_2/` | The webcam tracker, its own venv and tests | haicil |
+| `scripts/` | `install-art-pack.sh` / `.ps1`: install the private art pack | Trung |
+| `docs/` | `api-contract.md`, `3d-adventure.md`, `art-direction.md`, this project's Devpost draft and demo script | everyone |
+
+The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, Gemini, integration, Reality Rift), **haicil / Allen Ai** (computer vision, on Windows ARM64).
+
+## Run everything from a fresh clone
+
+You need Node 20.19+, Python 3.9+, and a Gemini API key. Without a key the game still plays on its scripted story; scans and the riddle door fall back as described above.
 
 ```bash
 git clone https://github.com/trungle42/Storybound.git
 cd Storybound
-git checkout main && git pull
 ```
 
-**1. Backend** (optional for the scripted story; second terminal)
+### 1. Backend (terminal 1)
+
+macOS / Linux:
 
 ```bash
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # then set GEMINI_API_KEY=... (never commit .env)
-.venv/bin/uvicorn app.main:app --port 8000
+cp .env.example .env            # then put your key after GEMINI_API_KEY=  (never commit .env)
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-**2. Frontend** (second terminal)
+Windows (PowerShell):
+
+```powershell
+cd backend
+py -3 -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+copy .env.example .env          # then put your key after GEMINI_API_KEY=
+.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+`--host 0.0.0.0` is what lets a phone reach the backend. Windows may ask to allow Python through the firewall; allow it on the private network. Check it with `curl http://localhost:8000/api/health`: `"gemini": true` means the key loaded. `OFFLINE=1` in `.env` forces the canned fallbacks (useful as demo insurance).
+
+### 2. Frontend (terminal 2)
 
 ```bash
 cd frontend
@@ -55,80 +162,135 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and begin. Without the private art pack, the game still runs but uses plain stand-in visuals. For the full art, install the privately shared `storybound-art-pack.zip` from the repository root:
+Open **http://localhost:5173**. Use `localhost`, not the laptop's network address: browsers only allow the webcam on `localhost` or HTTPS.
+
+Handy switches:
+
+| Switch | Effect |
+|---|---|
+| `?story=scripted` | Skip Gemini entirely and use the scripted story |
+| `?players=2` | Second human player on the arrow keys |
+| `?room=NAME` | Phone joystick room (match it on the phone URL) |
+| `?mode=classic` | The old 2.5D campaign |
+| `VITE_API_URL=...` (env) | Point the game at a different backend (default `http://localhost:8000`) |
+
+### 3. Art pack (optional, private)
+
+Our own models are in the repo. A set of extra models is kept out of it and shared as a private zip. Ask Trung or Rishaan for `storybound-art-pack.zip`, then from the repo root:
 
 ```bash
-# macOS / Linux
-./scripts/install-art-pack.sh ~/Downloads/storybound-art-pack.zip
-
-# Windows PowerShell
-.\scripts\install-art-pack.ps1 C:/Users/you/Downloads/storybound-art-pack.zip
+./scripts/install-art-pack.sh ~/Downloads/storybound-art-pack.zip          # macOS / Linux
 ```
 
-The scripts install only the ignored `assetyard/` and `polyhaven/` models under `frontend/public/models/`.
+```powershell
+.\scripts\install-art-pack.ps1 C:\Users\you\Downloads\storybound-art-pack.zip   # Windows
+```
 
-Useful switches: `OFFLINE=1` (backend) forces canned responses; `VITE_STORY=scripted` (frontend) skips the backend
-entirely; `VITE_API_URL` points the game at a different backend (default `http://localhost:8000`).
+The scripts unpack only into `frontend/public/models/assetyard/` and `frontend/public/models/polyhaven/`, and git ignores the files they install. Without the pack the game still runs and uses plain stand-in characters and materials. Never commit the pack.
 
-## Controls (keyboard fallback)
+### 4. Phone joystick
 
-| | Hero One | Hero Two |
-|---|---|---|
-| Vote left / right | A / D | ← / → |
-| Cast spell | W | ↑ |
-| Poses: arms up / T-pose / duck | 1 / 2 / 3 (or S to duck) | I / O / P (or ↓ to duck) |
+Start the backend as above, open the game, press **H**, open the URL it shows on your phone. If the address it shows is wrong (a VPN can confuse it), use your laptop's real address: `http://<laptop-ip>:8000/joystick`.
 
-Space or Enter advances narration. M toggles spoken narration. Any key a hero presses counts as movement during
-freeze spells. Webcam input (MediaPipe) plugs into the same `InputSource` interface; see Status.
+### 5. cv_2 tracker
 
-## The adventure
+It has its own virtual environment and runs as a separate window. Allow camera access for your terminal the first time (macOS asks).
 
-Freeze spell → (reward, or a shadow-wisp fight if you move) → crossroads vote → pose gate → (thorn-imp fight if you
-miss) → rescue the lantern fairy or hurry on → boss fight → personalized ending and storybook. Failures make later
-challenges and the boss harder; successes earn rewards that help in the final battle.
+macOS, or Windows on x64:
 
-## Backend API
+```bash
+cd cv_2
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt     # on Windows: .venv\Scripts\python.exe
+.venv/bin/python -m tools.demo                                   # q quits, m shows the colour masks
+```
 
-FastAPI app in `backend/app`. Full request/response shapes: [docs/api-contract.md](docs/api-contract.md).
+Windows on ARM64 must use the x86_64 Python, because OpenCV has no ARM64 Windows build:
 
-| Endpoint | Purpose |
+```powershell
+cd cv_2
+uv venv --python cpython-3.12-windows-x86_64-none .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+.venv\Scripts\python.exe -m tools.demo
+```
+
+Calibrate for your lighting with `python -m tools.tune`. Full tuning guide in [cv_2/README.md](cv_2/README.md).
+
+## Controls
+
+Checked against `bindInput()` and the movement code in `frontend/src/adventure/Adventure.ts`.
+
+| Key | Action |
 |---|---|
-| `POST /api/provider/begin`, `/next`, `/storybook` | The game's story provider (shapes from `frontend/src/contracts.ts`). Returns 503 if Gemini is unavailable. |
-| `POST /api/artifact` | Photo of a real object in, magical artifact out (name, type, element, ability, rarity). Not yet used by the game. |
-| `POST /api/beat`, `/api/story/next`, `/api/story/ending` | Earlier generic story schema. |
-| `POST /api/event`, `/api/score`, `GET /api/leaderboard`, `/api/stats` | Gameplay telemetry and a small leaderboard (SQLite). |
-| `GET /api/health` | Whether the Gemini key is loaded and which model is in use. |
+| **W A S D** | Move (relative to the camera) |
+| **Shift** (left) | Sprint (uses stamina) |
+| **Space** | Jump |
+| **J** or left click | Sword (three-hit combo) |
+| **F** | Cast your spell (your scanned weapon's spell once you have one) |
+| **Q** | Roll: 1 s of invulnerability from the start, 4 s cooldown |
+| **R** | Flash step: short dash, uses stamina, 6 s cooldown. Dodging at the last moment of an enemy attack slows time for a free flurry |
+| **X** | Scan an object (Reality Rift). Also the **Scan** button |
+| **E** | Interact: talk, open chests and springs, start the next story beat at the golden beacon |
+| **H** | Show the phone joystick URL |
+| **M** | Map and journal (**Esc** also opens it when the mouse is free) |
+| **Z** or **Tab**, right click | Lock on to the nearest foe, or release |
+| **C / V**, drag, scroll | Rotate and zoom the camera |
+| **1 / 2 / 3** (hold) | Rune poses: arms up, T-pose, crouch (freeze and pose challenges; crouch also dodges the shadow wave) |
+| Click the world | Capture the mouse for mouse-look. **Esc** releases it |
 
-Gemini model defaults to `gemini-3.8-flash` (`GEMINI_MODEL`), with a 12 s timeout and thinking disabled for latency
-(about 3 s per beat). The API key lives only in `backend/.env` and is never sent to the browser.
+Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shift** rolls, **I / O / P** are the poses. In the default solo mode the arrows also move your hero, and **/** and **Right Shift** cast and roll for you; the AI companion follows and helps. Phone stick and keyboard both work; the keyboard wins when a key is held.
 
 ## Testing
 
-```bash
-cd backend && OFFLINE=1 .venv/bin/python -m pytest          # offline unit/contract tests
-PYTHONPATH=. .venv/bin/python tools/live_smoke.py             # plays full runs against real Gemini (needs key)
-.venv/bin/python tools/test_photos.py <folder-of-photos>      # run real object photos through /api/artifact
-cd ../frontend && npm run build                               # type-check + production build
-```
+| What | Command | Result on `main` |
+|---|---|---|
+| Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 32 pass |
+| Frontend unit tests | `cd frontend && npm test` | 60 pass |
+| Type-check and build | `cd frontend && npm run build` | passes |
+| In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 13 checks, listed as PASS / FAIL |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 211 pass (about 12 s on a Mac; no camera needed) |
+| Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
+| Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
-## Repository layout
+The browser checks drive the real renderer with real key events, so they need a browser with WebGL and the dev server running. Live Gemini, the phone and the camera are not covered by the automated checks; test those by hand (see [docs/demo-script.md](docs/demo-script.md)).
 
-```
-frontend/src/   contracts.ts (shared types), game/ (loop, stage, state), challenges/ (freeze, pose, vote, encounter, boss),
-                world/, fx/, ui/, screens/, audio/, input/KeyboardInput, story/ (ScriptedStory, GeminiStory)
-backend/app/    main.py (routes), provider.py (engine story provider), gemini.py (Gemini calls), schemas.py,
-                fallbacks.py, store.py (telemetry/leaderboard)
-backend/tools/  live_smoke.py, test_photos.py
-docs/           api-contract.md
-```
+## Team rules
+
+- **Work on a branch and open a PR against `main`.** Never push to `main` directly.
+- **Never commit `backend/.env`** (it holds the Gemini key) **or `frontend/public/models/assetyard/`** (the private art pack). Both are git-ignored; do not force-add them.
+- **Keep `Adventure.ts` edits small.** Everyone touches it, and a big diff there is the fastest way to a merge conflict. Put new logic in its own file and call it from `Adventure.ts` in a few lines (`Scanner.ts`, `weapon.ts` and `PhoneInput.ts` are the pattern).
+- Touching someone else's folder (`backend/app`, `cv_2/`)? Tell the owner first.
 
 ## Status
 
-Working: two-player game with keyboard input, freeze, pose, vote, enemy-wave and boss mechanics, Gemini
-storyteller with per-beat fallback, personalized storybook, telemetry and leaderboard APIs.
-In progress: webcam body/hand input via MediaPipe (replaces the keyboard fallback). Planned: the object-scan moment
-(hold up a real object, Gemini turns it into a magical artifact for the boss fight).
+**Working (on `main`)**
 
-## Team
+- 3D adventure: exploration, combat, two bosses, solo or two players, Willow, the forest and the other regions.
+- Gemini storyteller with a scripted fallback for every beat, and the personalised storybook.
+- Reality Rift scan: photo to weapon, with boss element weaknesses.
+- The riddle door that checks a webcam photo with Gemini vision.
+- Phone joystick through the backend relay.
+- cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump.
+- Classic 2.5D campaign at `?mode=classic`.
 
-Three developers: game and visuals; AI and backend; computer vision and integration.
+**In progress (not on `main` yet)**
+
+- Connecting cv_2 to the game: phone slash to strike, jump to jump, body motion to the freeze trial. `TODO(after merge)`
+- Reality Rift extras: held weapon model, fuller boss weakness hint, story remembering your objects, weapon arsenal. `TODO(after merge)`
+- Rebuilding our 3D models in Blender (a pilot on the waystone shrine) so the team owns every model and the private art pack is optional. `TODO(after merge)`
+
+**Not done**
+
+- Wand shapes casting spells in the game, and wand shapes for the pose seals.
+- No hosted version: the game runs locally (frontend and backend on one laptop).
+- cv_2 shape and slash detection has not been validated across different lighting, cameras or people. Slash recall depends on keeping the whole swing in view.
+- The 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); they exist in the backend only.
+- Some supporting props and the boss models use simpler geometry than the forest.
+
+## More docs
+
+- [docs/3d-adventure.md](docs/3d-adventure.md): the 3D edition, asset pipeline, verification
+- [docs/api-contract.md](docs/api-contract.md): backend request and response shapes
+- [docs/devpost.md](docs/devpost.md): Devpost submission draft
+- [docs/demo-script.md](docs/demo-script.md): 2-minute video shot list, live-judging script, pre-demo checklist
+- [docs/art-direction.md](docs/art-direction.md), [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md)
