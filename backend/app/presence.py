@@ -8,8 +8,12 @@ From then on each game sends its hero's {"type":"state",x,y,z,heading,speed,anim
 from fixed lists), stamps the sender's id and passes them to everyone else. Anything else is dropped, messages are capped at
 MAX_MSG bytes and RATE a second per player, and nothing is stored. A fourth player gets {"type":"full"} and a close (the
 game keeps retrying). The same name and colour joining again (a reloaded or relaunched game, or an old tab still open) takes
-over that player's slot: the old connection gets {"type":"replaced"} and a close, so a stale tab never fills the room. The
-tunnel's random room code is the only "auth", as for the phone joystick.
+over that player's slot: the old connection gets {"type":"replaced"} and a close, so a stale tab never fills the room.
+
+Fighting together: {"type":"start"} from any game starts the run on the others (once per room; the welcome says
+"started" so a late or reloaded game starts at once), and {"type":"hit",enemy,damage} shares one player's damage to an
+encounter foe (the wave and the boss spawn in the same order on every laptop, so their ids match), so everyone wears
+down the same horde and the same boss. The tunnel's random room code is the only "auth", as for the phone joystick.
 """
 from __future__ import annotations
 
@@ -30,10 +34,13 @@ ANIMS = ("idle", "walk", "run", "strike", "roll", "jump", "cast", "hurt", "dead"
 FX = ("cast", "slash")
 ABILITIES = ("wave", "bolt", "nova", "pierce", "meteor", "chain")      # schemas.Ability
 ELEMENTS = ("fire", "water", "lightning", "ice", "nature", "shadow", "light")   # schemas.Element
+ENEMY_RE = re.compile(r"^[a-z0-9:_-]{1,16}$")
 MAX_PEERS, MAX_MSG, RATE = 3, 512, 30
+MAX_DAMAGE = 100.0
 WORLD, LOW, HIGH = 5000.0, -100.0, 1000.0
 
 _rooms: Dict[str, Dict[WebSocket, dict]] = {}  # room -> socket -> {"id", "name", "colour"}
+_started: set = set()                          # rooms whose run has started
 
 
 def _num(v: object, lo: float, hi: float) -> Optional[float]:
@@ -52,6 +59,14 @@ def clean_presence(msg: object) -> Optional[dict]:
     """A hero's state or a cosmetic effect, rebuilt from known fields; None for anything else or anything malformed."""
     if not isinstance(msg, dict):
         return None
+    if msg.get("type") == "start":
+        return {"type": "start"}
+    if msg.get("type") == "hit":
+        damage = _num(msg.get("damage"), 0, MAX_DAMAGE)
+        enemy = msg.get("enemy")
+        if damage is None or not isinstance(enemy, str) or not ENEMY_RE.match(enemy):
+            return None
+        return {"type": "hit", "enemy": enemy, "damage": damage}
     pos = {k: _num(msg.get(k), lo, hi) for k, lo, hi in (("x", -WORLD, WORLD), ("y", LOW, HIGH), ("z", -WORLD, WORLD))}
     if None in pos.values():
         return None
@@ -110,7 +125,8 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
         await ws.close(code=1008)
         return
     me = {"id": free[0], "name": name, "colour": colour}
-    await ws.send_text(json.dumps({"type": "welcome", "id": me["id"], "peers": sorted(peers.values(), key=lambda p: p["id"])}))
+    await ws.send_text(json.dumps({"type": "welcome", "id": me["id"], "peers": sorted(peers.values(), key=lambda p: p["id"]),
+                                  "started": room in _started}))
     await _send_all(peers, json.dumps({"type": "peer", "state": "joined", **me}))
     peers[ws] = me
     window, sent = 0.0, 0
@@ -129,6 +145,10 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
                 msg = clean_presence(json.loads(text))
             except ValueError:
                 continue
+            if msg and msg["type"] == "start":
+                if room in _started:
+                    continue                # the others have already been started
+                _started.add(room)
             if msg:
                 await _send_all([p for p in peers if p is not ws], json.dumps({**msg, "id": me["id"]}))
     except (WebSocketDisconnect, RuntimeError):     # RuntimeError: receiving on a socket the relay closed (replaced)
@@ -139,3 +159,4 @@ async def presence_ws(ws: WebSocket, room: str, name: str = "", colour: str = ""
             await _send_all(peers, json.dumps({"type": "peer", "state": "left", **me}))
         if not peers and _rooms.get(room) is peers:
             _rooms.pop(room, None)
+            _started.discard(room)

@@ -27,9 +27,9 @@ def url(room: str, name: str, colour: str) -> str:
 
 def test_welcome_gives_ids_in_order_and_everyone_hears_joins_and_leaves(client):
     with client.websocket_connect(url("p1", "Trung", "red")) as trung:
-        assert json.loads(trung.receive_text()) == {"type": "welcome", "id": 0, "peers": []}
+        assert json.loads(trung.receive_text()) == {"type": "welcome", "id": 0, "peers": [], "started": False}
         with client.websocket_connect(url("p1", "Rishaan", "blue")) as rishaan:
-            assert json.loads(rishaan.receive_text()) == {"type": "welcome", "id": 1, "peers": [{"id": 0, "name": "Trung", "colour": "red"}]}
+            assert json.loads(rishaan.receive_text()) == {"type": "welcome", "id": 1, "peers": [{"id": 0, "name": "Trung", "colour": "red"}], "started": False}
             assert json.loads(trung.receive_text()) == {"type": "peer", "state": "joined", "id": 1, "name": "Rishaan", "colour": "blue"}
             with client.websocket_connect(url("p1", "haicil", "yellow")) as haicil:
                 welcome = json.loads(haicil.receive_text())
@@ -98,7 +98,7 @@ def test_the_same_player_joining_again_takes_over_their_slot_even_in_a_full_room
         trung.receive_text(); trung.receive_text(); old.receive_text()           # the joins after theirs
         with client.websocket_connect(url("p7", "Rishaan", "blue")) as again:
             assert json.loads(again.receive_text()) == {"type": "welcome", "id": 1, "peers": [{"id": 0, "name": "Trung", "colour": "red"},
-                                                                                                 {"id": 2, "name": "haicil", "colour": "yellow"}]}
+                                                                                                 {"id": 2, "name": "haicil", "colour": "yellow"}], "started": False}
             assert json.loads(old.receive_text()) == {"type": "replaced"}
             with pytest.raises(Exception):
                 old.receive_text()
@@ -121,6 +121,29 @@ def test_only_the_same_name_and_colour_counts_as_the_same_player(client):
                 assert json.loads(second.receive_text())["id"] == 1
                 assert json.loads(first.receive_text())["state"] == "joined"
             assert json.loads(first.receive_text())["state"] == "left"
+
+
+def test_one_start_starts_everyone_once_and_a_late_joiner_is_told(client):
+    with client.websocket_connect(url("p9", "Trung", "red")) as trung, client.websocket_connect(url("p9", "Rishaan", "blue")) as rishaan:
+        trung.receive_text(); rishaan.receive_text(); trung.receive_text()
+        rishaan.send_text(json.dumps({"type": "start", "junk": 1}))
+        assert json.loads(trung.receive_text()) == {"type": "start", "id": 1}
+        trung.send_text(json.dumps({"type": "start"}))          # already started: not passed on again
+        trung.send_text(json.dumps(STATE))
+        assert json.loads(rishaan.receive_text())["type"] == "state"
+        with client.websocket_connect(url("p9", "haicil", "yellow")) as haicil:
+            assert json.loads(haicil.receive_text())["started"] is True
+    with client.websocket_connect(url("p9", "Trung", "red")) as again:       # the room emptied: a new run
+        assert json.loads(again.receive_text())["started"] is False
+
+
+def test_hits_on_shared_foes_reach_the_others_cleaned(client):
+    with client.websocket_connect(url("p10", "A", "red")) as a, client.websocket_connect(url("p10", "B", "blue")) as b:
+        a.receive_text(); b.receive_text(); a.receive_text()
+        for bad in ({"type": "hit", "enemy": "<b>", "damage": 2}, {"type": "hit", "enemy": "e1", "damage": "2"}, {"type": "hit", "enemy": "e1"}):
+            b.send_text(json.dumps(bad))
+        b.send_text(json.dumps({"type": "hit", "enemy": "e6", "damage": 1e6, "x": 1}))
+        assert json.loads(a.receive_text()) == {"type": "hit", "enemy": "e6", "damage": 100.0, "id": 1}
 
 
 @pytest.mark.parametrize("bad", ["/ws/presence/p5?name=&colour=red", "/ws/presence/p5?name=Trung&colour=green",

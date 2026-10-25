@@ -144,9 +144,9 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     type GameLike = { time: number; heroes: { root: { position: { x: number; y: number; z: number; set(x: number, y: number, z: number): void } }; update(dt: number, t: number): void }[]; update(dt: number): void; cast(p: 0): boolean; strike(p: 0): void; airborne: boolean[]; presence?: PresenceLike; spellCooldown: number[]; attackCooldown: number[]; dispose(): void };
     type Laptop = { name: string; colour: string; frame: HTMLIFrameElement; game: () => GameLike; presence: () => PresenceLike | undefined; doc: () => Document };
     const gameRoom = `${room}g`, box = document.querySelector('#players')!;
-    const open = (name: string, colour: string): Laptop => {
+    const open = (name: string, colour: string, inRoom = gameRoom, hold = false): Laptop => {
       const frame = document.createElement('iframe'); frame.width = '300'; frame.height = '190'; frame.style.border = '1px solid #f0d48e66';
-      frame.src = `/tests/mp-player.html?presence=${encodeURIComponent(relay)}&room=${gameRoom}&name=${name}&wand=${colour}`; box.append(frame);
+      frame.src = `/tests/mp-player.html?presence=${encodeURIComponent(relay)}&room=${inRoom}&name=${name}&wand=${colour}${hold ? '&hold=1' : ''}`; box.append(frame);
       const sb = () => (frame.contentWindow as unknown as { __storybound?: { game?: GameLike; presence?: PresenceLike; ready?: boolean } } | null)?.__storybound;
       return { name, colour, frame, game: () => sb()!.game!, presence: () => sb()?.presence, doc: () => frame.contentDocument! };
     };
@@ -236,6 +236,42 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(label(oldRishaan) === 'Playing in another tab' && names(trungGame) === 'Extra,Rishaan', `afterwards the old one shows "${label(oldRishaan)}", Trung sees [${names(trungGame)}]`);
     });
     [...laptops, fourth, reopened].forEach((l) => { if (!l) return; try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
+
+    // ---- Part three: fighting together (one start, shared hits on the wave and the boss) ---------------------------
+    type Foe = { netId?: string; hp: number; maxHp: number };
+    type Fighter = GameLike & { enemies: Foe[]; demo?: unknown; startWave(): void; hit(e: Foe, damage: number, player: 0): void };
+    const fighter = (l: Laptop) => l.game() as unknown as Fighter;
+    const waiting = (l: Laptop) => !!(l.frame.contentWindow as unknown as { __storybound?: { waiting?: boolean } } | null)?.__storybound?.waiting;
+    let team: Laptop[] = [];
+    await check('Starting the run on one laptop starts it on the others, even one that joins later', async () => {
+      const fightRoom = `${room}f`;
+      team = [open('Trung', 'red', fightRoom), open('Rishaan', 'blue', fightRoom, true)];
+      const end = performance.now() + 25000;
+      while (!(ready(team[0]) && (waiting(team[1]) || ready(team[1])))) { if (performance.now() > end) throw new Error('the games did not load'); await wait(200); }
+      while (!ready(team[1])) { if (performance.now() > end) throw new Error('Rishaan, waiting on the start screen, was not started by Trung'); await wait(200); }
+      const late = open('haicil', 'yellow', fightRoom, true); team.push(late);
+      while (!ready(late)) { if (performance.now() > end + 15000) throw new Error('haicil, joining after the start, was not started'); await wait(200); }
+    });
+
+    await check('A hit on one laptop lands on the same foe on the others, and waits for a foe not spawned yet', async () => {
+      if (!fighter(team[0]).demo) { notes.push('fight checks skipped: no demo run in this build'); return 'skip'; }
+      const [a, b, c] = team.map(fighter);
+      a.startWave(); b.startWave();
+      const foe = (g: Fighter, id: string) => g.enemies.find((e) => e.netId === id);
+      assert(foe(a, 'e0') && foe(b, 'e0'), `no shared ids: ${a.enemies.map((e) => e.netId).join(',')}`);
+      const full = foe(b, 'e0')!.hp;
+      a.hit(foe(a, 'e0')!, 2, 0); a.hit(foe(a, 'e1')!, 3, 0);
+      let n = await ticksUntil(team, () => foe(b, 'e0')!.hp === full - 2 && foe(b, 'e1')!.hp === full - 3, 60);
+      assert(n >= 0, `Rishaan's e0 has ${foe(b, 'e0')!.hp} of ${full}, e1 ${foe(b, 'e1')!.hp}`);
+      b.hit(foe(b, 'e0')!, full, 0);
+      n = await ticksUntil(team, () => foe(a, 'e0')!.hp <= 0, 60);
+      assert(n >= 0, `Trung's e0 still has ${foe(a, 'e0')!.hp} after Rishaan killed it`);
+      c.startWave();
+      const got = (c.enemies.find((e) => e.netId === 'e0')?.hp ?? NaN), got1 = (c.enemies.find((e) => e.netId === 'e1')?.hp ?? NaN);
+      n = await ticksUntil(team, () => (foe(c, 'e0')?.hp ?? 1) <= 0 && foe(c, 'e1')?.hp === full - 3, 60);
+      assert(n >= 0, `haicil, reaching the wave last: e0 ${foe(c, 'e0')?.hp} (at spawn ${got}), e1 ${foe(c, 'e1')?.hp} (at spawn ${got1})`);
+    });
+    team.forEach((l) => { try { l.game().dispose(); } catch { /* already gone */ } l.frame.remove(); });
 
     status.textContent = `Done. ${notes.join(' · ')}`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = `${String(error)} ${notes.join(' · ')}`; document.body.dataset.result = 'failed'; console.error(error); }
