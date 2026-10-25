@@ -195,7 +195,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         rift.hit = (...a: unknown[]) => { elements.push(a[4]); return realHit.apply(game, a); };
         const p = game.heroes[0].root.position; (game as unknown as { spawnEnemy(x: number, z: number): void }).spawnEnemy(p.x, p.z + 1.3);
         (inner as unknown as { attackCooldown: number[] }).attackCooldown[0] = 0;
-        rift.strike(0); for (let i = 0; i < 10; i++) { inner.update(0.05); }
+        // Swings land at their contact time, and only frame() advances the clock, so step it here as a frame would.
+        rift.strike(0); for (let i = 0; i < 10; i++) { inner.time += 0.05; inner.update(0.05); }
         assert(elements.includes('fire'), 'a sword hit did not carry the relic element');
       } finally { window.fetch = realFetch; rift.hit = realHit; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
     });
