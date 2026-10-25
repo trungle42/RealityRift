@@ -74,8 +74,11 @@ export function defaultSpell(color: number): SpellSpec { return { ability: 'bolt
 /** Wand spells with no relic held: a neutral arcane violet, no element. */
 export const ARCANE_COLOR = 0xc4a8ff;
 
-/** A relic's power, 1..3: its damage tier, one higher for a legendary (regular foes have 3 hp). */
-export function relicTier(relic: Pick<Artifact, 'damage' | 'rarity'>): number { return Math.min(3, damageTier(relic.damage) + (relic.rarity === 'legendary' ? 1 : 0)); }
+/**
+ * A relic's power: 1, or 2 for a legendary or a very strong (90+) one. Kept low on purpose: a relic's real weight is its
+ * element, which doubles every hit on the boss that fears it ("Weak point!"); a high tier on top made Morwen fall in seconds.
+ */
+export function relicTier(relic: Pick<Artifact, 'damage' | 'rarity'>): number { return relic.rarity === 'legendary' || relic.damage >= 90 ? 2 : 1; }
 
 /**
  * A wand spell of `ability`. A held relic infuses it with its element, colour and power tier; without one it is

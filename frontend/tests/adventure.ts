@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { Adventure } from '../src/adventure/Adventure';
+import { WAND_RECOVERY } from '../src/adventure/forge';
 import { objectiveFor } from '../src/adventure/terrain';
 import type { BeatOutcome, StoryBeat } from '../src/contracts';
 import type { GameState } from '../src/game/GameState';
@@ -204,7 +205,11 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(rift.strikes.length === before + 1 && meteor?.element === undefined && meteor?.damage === 2, 'a drawn triangle did not cast an arcane meteor without a relic');
       assert(hud().includes('meteor'), 'HUD does not show the last shape');
       draw('Digit5'); assert(rift.strikes.length === before + 1, 'the same shape cast again inside its cooldown');
-      const bolts = rift.bolts.length; draw('Digit6'); assert(rift.bolts.length === bolts + 3, 'a different shape (square: wave) was blocked by the triangle cooldown');
+      // The wand recovers for WAND_RECOVERY after any spell: a different shape inside it is held, then goes off once it passes.
+      const bolts = rift.bolts.length; draw('Digit6'); assert(rift.bolts.length === bolts, 'a different shape cast inside the wand recovery');
+      inner.time += WAND_RECOVERY + 0.05;
+      draw('Digit6'); assert(rift.bolts.length === bolts + 3, 'a different shape (square: wave) was blocked by the triangle cooldown');
+      inner.time += WAND_RECOVERY + 0.05;
       inner.trial = { elapsed: 0 }; const during = rift.bolts.length; draw('Digit7'); inner.trial = undefined;
       assert(rift.bolts.length === during, 'a shape drawn during a trial also cast');
       // Relic: a fire scan infuses both weapons.
@@ -222,6 +227,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         assert((document.querySelector('.rift-panel')!.textContent ?? '').includes('infuses your wand and sword with fire'), 'card does not say the relic infuses both weapons');
         key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
         assert(hud().includes('Relic: Ember Chalice') && hud().includes('Sword · fire') && hud().includes('Wand · fire'), 'HUD does not show the relic infusing both weapons');
+        inner.time += WAND_RECOVERY + 0.05;
         const chain = rift.bolts.length; draw('Digit7');
         assert(rift.bolts.length === chain + 1 && rift.bolts.at(-1)?.element === 'fire', 'a drawn star did not cast a fire chain');
         assert(inner.state.history().relics?.[0]?.object === 'coffee mug', 'storyteller history is missing the relic');
