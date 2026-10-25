@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import ts from 'typescript';
 
 const source = ts.transpileModule(await readFile(new URL('../src/adventure/cvMath.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseCv, newEvents, newlyComplete, bodyMoving, FREEZE_MOTION, CV_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { parseCv, newEvents, newlyComplete, bodyMoving, completedShape, wandPrompt, POSE_SHAPE, FREEZE_MOTION, CV_STALE_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const WAND = { active: true, secondsLeft: 3.2, target: 'circle', next: 'triangle', shapes: { yellow: null }, complete: { yellow: false }, traces: { yellow: [] } };
 const frame = (extra = {}) => ({ type: 'cv', slash: 2, jump: 1, motion: 0.04, wand: WAND, ...extra });
@@ -45,4 +45,20 @@ test('only fresh motion above the threshold counts as moving', () => {
   assert.equal(bodyMoving(0.5, 10, 10 + CV_STALE_SECONDS + 0.01), false);
   assert.equal(bodyMoving(null, 10, 10), false);
   assert.equal(bodyMoving(undefined, -Infinity, 0), false);
+});
+test('a completed shape is what the wand drew, else the asked-for target', () => {
+  const wand = { ...WAND, target: null, shapes: { yellow: { shape: 'star', score: 0.1 }, blue: null }, complete: { yellow: true, blue: true } };
+  assert.equal(completedShape(wand, 'yellow'), 'star');
+  assert.equal(completedShape({ ...wand, target: 'square' }, 'blue'), 'square');
+  assert.equal(completedShape(wand, 'blue'), undefined);
+});
+test('every pose seal has a distinct wand rune', () => {
+  const runes = ['arms-up', 't-pose', 'crouch'].map((pose) => POSE_SHAPE[pose]);
+  assert.deepEqual(runes, ['triangle', 'square', 'circle']);
+});
+test('the wand panel says what to draw', () => {
+  assert.equal(wandPrompt({ ...WAND, target: null }), 'Hold still, then draw a shape');
+  assert.equal(wandPrompt({ ...WAND, target: 'triangle' }), 'Draw a triangle');
+  assert.equal(wandPrompt({ ...WAND, active: false }), '');
+  assert.equal(wandPrompt(undefined), '');
 });

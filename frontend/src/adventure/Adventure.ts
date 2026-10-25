@@ -23,6 +23,8 @@ import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpel
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
 import { CvInput } from './CvInput';
+import { POSE_SHAPE } from './cvMath';
+import { WandHud } from './WandHud';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
 
@@ -109,6 +111,7 @@ export class Adventure {
   /** Phone joystick (optional): analog movement for hero 0, with keyboard always winning. */
   private phone?: PhoneInput;
   private cv?: CvInput;
+  private wandHud?: WandHud;
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -224,6 +227,7 @@ export class Adventure {
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
     // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
     this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
+    this.wandHud = new WandHud(this.cv, this.ui.root);
     this.buildCamps();
     await this.loadBeat(this.story.begin(party));
   }
@@ -415,6 +419,7 @@ export class Adventure {
   private async complete(kind: OutcomeKind, success: boolean, before: number, summary: string, choiceId?: string): Promise<void> {
     if (!this.state || !this.beat || this.ended) return;
     this.ui.challenge(); this.ui.boss(); this.trial = undefined; this.encounterKind = undefined;
+    this.cv?.gate(true);   // the wand is free again: any shape
     this.heroes.forEach((hero) => { hero.pose = ''; });
     if (success && kind !== 'story' && kind !== 'vote') { this.state.stars[0]++; this.state.stars[1]++; if (this.sound) this.sfx.success(); }
     if (kind === 'boss') this.bossWon = success;
@@ -1036,10 +1041,14 @@ export class Adventure {
       const pose = trial.poses[trial.poseIndex];
       const name = { 'arms-up': 'Raise your arms', 't-pose': 'Spread your arms', crouch: 'Crouch low' }[pose];
       const key = { 'arms-up': '1', 't-pose': '2', crouch: '3' }[pose];
+      // The seal also opens to its rune drawn with a wand (cv_2 tracker): the tracker is asked for that shape.
+      const rune = POSE_SHAPE[pose], wand = this.cv?.trackerConnected ? ` or draw a ${rune}` : '';
+      this.cv?.gate(true, rune);
       const matching = this.active.every((hero) => hero.pose === pose);
-      if (matching) trial.held += dt;
+      if (this.cv?.takeShape(rune)) trial.held = 1.2;
+      else if (matching) trial.held += dt;
       else trial.held = Math.max(0, trial.held - dt * 0.5);
-      this.ui.challenge(name, `Hold ${key} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
+      this.ui.challenge(name, `Hold ${key}${wand} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
       if (trial.held >= 1.2) {
         trial.poseIndex++; trial.held = 0; trial.elapsed = 0; this.burst(this.heroes[0].root.position.clone().add(new T.Vector3(0, 1.5, 0)), 0x9fe7d0, 14); if (this.sound) this.sfx.chime();
         if (trial.poseIndex >= trial.poses.length) { this.trial = undefined; this.ui.toast('The ancient seal opens for you.'); void this.complete('pose', true, trial.before, 'The heroes mirrored every ancient shape and opened the gate.'); }
@@ -1183,7 +1192,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.cv?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();

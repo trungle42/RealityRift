@@ -2,7 +2,10 @@
 export interface WandShape { shape: string | null; score: number }
 /** Line segments of [x, y] points, 0-1 of the camera picture, x mirrored (selfie view). */
 export type WandTrace = [number, number][][];
-/** The tracker's wand round as it runs it (its own 5 s on/off timer for now). Read-only: nothing in the game acts on it yet. */
+/**
+ * The tracker's wand round. While the game is in the room the game drives it (CvInput.gate): on, and `target` is the shape the
+ * game asked for, or null for any shape. Without a game the tracker falls back to its own 5 s on/off timer and cycles targets.
+ */
 export interface WandState {
   active: boolean;
   secondsLeft: number;
@@ -47,6 +50,20 @@ export function newEvents(last: number | undefined, count: number): number {
 /** Colours whose drawing has just matched the target. Without an earlier frame there is nothing to compare with, so none. */
 export function newlyComplete(before: Record<string, boolean> | undefined, after: Record<string, boolean>): string[] {
   return before ? Object.keys(after).filter((colour) => after[colour] === true && before[colour] !== true) : [];
+}
+
+/** The shape a wand just completed: what it drew, or the asked-for target (the tracker only latches a match). */
+export function completedShape(wand: WandState, colour: string): string | undefined {
+  return wand.shapes[colour]?.shape ?? wand.target ?? undefined;
+}
+
+/** Each pose seal's rune, so a seal can be opened with the wand as well as with the pose keys. */
+export const POSE_SHAPE: Record<string, string> = { 'arms-up': 'triangle', 't-pose': 'square', crouch: 'circle' };
+
+/** The wand panel's prompt: the asked-for shape, or how to start a free drawing; empty while the wand is off. */
+export function wandPrompt(wand: WandState | undefined): string {
+  if (!wand?.active) return '';
+  return wand.target ? `Draw a ${wand.target}` : 'Hold still, then draw a shape';
 }
 
 /** Whether the tracker currently sees the player moving: only a fresh reading counts. */

@@ -26,22 +26,26 @@ def _guide(out: np.ndarray, shape: str, size: int = 84) -> None:
     cv2.polylines(out, [pts], True, WHITE, 2, cv2.LINE_AA)
 
 
-def _verdict(r: dict | None, target: str) -> tuple[str, tuple[int, int, int]]:
-    """Text and colour for one colour's recognition result against the shape that was asked for."""
+def _verdict(r: dict | None, target: str | None) -> tuple[str, tuple[int, int, int]]:
+    """Text and colour for one colour's recognition result against the shape that was asked for (None: any preset)."""
     if r is None:
         return "...", WHITE
     if r["shape"] is None:
         return "unknown", OFF
-    return (f"{r['shape']}  OK", ON) if r["shape"] == target else (r["shape"], WHITE)
+    return (f"{r['shape']}  OK", ON) if target in (None, r["shape"]) else (r["shape"], WHITE)
 
 
 def _shape_panel(out: np.ndarray, payload: dict, colors: dict[str, ColorSpec]) -> None:
-    """What to draw and what the recogniser sees: live while ON; the finished round's result while OFF."""
+    """What to draw and what the recogniser sees: live while ON; the finished round's result while OFF (timer mode only:
+    in game mode the game decides, and nothing is shown while it has the wand off)."""
     active = payload["active"]
+    if payload.get("mode") == "game" and not active:
+        return
     if active:
         target, shapes = payload["target"], payload["shapes"]
-        _text(out, f"Draw: {target.upper()}", (10, 66), 0.8, WHITE)
-        _guide(out, target)
+        _text(out, f"Draw: {target.upper()}" if target else "Draw: ANY SHAPE (rest the wand, then draw)", (10, 66), 0.8, WHITE)
+        if target:
+            _guide(out, target)
     else:
         prev = payload["previous"]
         target, shapes = (prev["target"], prev["shapes"]) if prev else (None, {})
@@ -123,12 +127,13 @@ def draw(frame: np.ndarray, payload: dict, period_s: float, colors: dict[str, Co
         cv2.circle(out, c, r + 5, spec.bgr, 2, cv2.LINE_AA)
         cv2.putText(out, "phone", (c[0] - r, max(54, c[1] - r - 10)), FONT, 0.5, WHITE, 2, cv2.LINE_AA)
 
-    active, left = payload["active"], payload["secondsLeft"]
+    active, left, game = payload["active"], payload["secondsLeft"], payload.get("mode") == "game"
     color = ON if active else OFF
     cv2.rectangle(out, (0, 0), (w, 34), (0, 0, 0), -1)
-    label = f"DETECTION {'ON' if active else 'OFF'}  switches in {left:.1f}s"
+    label = f"GAME  wand {'on' if active else 'off'}" if game else f"DETECTION {'ON' if active else 'OFF'}  switches in {left:.1f}s"
     cv2.putText(out, label, (10, 24), FONT, 0.65, color, 2, cv2.LINE_AA)
-    cv2.rectangle(out, (0, 34), (int(w * (left / period_s)), 38), color, -1)
+    if not game:
+        cv2.rectangle(out, (0, 34), (int(w * (left / period_s)), 38), color, -1)
     _shape_panel(out, payload, colors)
     _slash_banner(out, payload.get("slash"), slash_hold_s)
     _jump_banner(out, payload.get("jump"), jump_hold_s)
@@ -137,7 +142,8 @@ def draw(frame: np.ndarray, payload: dict, period_s: float, colors: dict[str, Co
         cv2.putText(out, f"vy {m['vy']:+.2f}  vx {m['vx']:+.2f}  area {m['area']:.2f}", (8, h - 34), FONT, 0.5, WHITE, 1, cv2.LINE_AA)
     if not active:
         cv2.rectangle(out, (0, 0), (w - 1, h - 1), color, 4)
-        cv2.putText(out, "paused - traces erased", (10, h - 12), FONT, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(out, "wand off (the game turned it off)" if game else "paused - traces erased", (10, h - 12), FONT, 0.6,
+                    (255, 255, 255), 1, cv2.LINE_AA)
     return out
 
 
