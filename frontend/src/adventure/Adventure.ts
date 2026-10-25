@@ -17,7 +17,7 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { colourOf, heroFor, KeyboardShapes, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { colourOf, heroFor, KeyboardShapes, RuneCaller, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
 import { WandModel } from './WandModel';
 import { WeaponsHud } from './WeaponsHud';
 import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
@@ -113,6 +113,8 @@ export class Adventure {
   /** Each hero's two weapons: the sword in the right hand, this wand in the left. Drawn shapes cast with per-shape cooldowns. */
   private readonly wands: (WandModel | undefined)[] = [];
   private readonly wandCooldowns = new ShapeCooldowns();
+  /** In combat the game asks hero 0 for one rune at a time; only that shape casts. */
+  private readonly runes = new RuneCaller();
   private readonly hud = new WeaponsHud();
   /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
   private readonly shapes: ShapeSource = new KeyboardShapes();
@@ -550,6 +552,7 @@ export class Adventure {
   }
 
   private async complete(kind: OutcomeKind, success: boolean, before: number, summary: string, choiceId?: string): Promise<void> {
+    this.endRunes();
     if (this.demo && this.state && !this.ended) {
       this.encounterKind = undefined;
       if (kind === 'encounter') await this.startBoss(); else if (kind === 'boss') { this.bossWon = success; await this.endDemo(success); }
@@ -865,9 +868,26 @@ export class Adventure {
    */
   private onShape(colour: WandColour, shape: WandShape): void {
     const player = heroFor(colour, this.solo); if (player === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    // In combat only the rune the game asked for casts; any other shape just gets a reminder.
+    const asked = player === 0 ? this.runes.target : undefined;
+    if (asked && shape !== asked) { this.hud.notRune(asked); return; }
     if (!this.wandCooldowns.ready(player, shape, this.time) || !this.cast(player, wandSpell(SHAPE_ABILITY[shape], this.weapons[player]))) return;
     this.wandCooldowns.use(player, shape, this.time); this.hud.cast(player, shape, SHAPE_COOLDOWN[shape]);
+    if (asked) this.runes.next(this.time);
   }
+
+  /**
+   * Combat (an encounter or a boss): ask for a rune, tell the tracker to complete only that shape, and show it, with a
+   * visible wait while the wand recovers. Out of combat the wand is free. A pose seal asks for its own rune, so trials are left alone.
+   */
+  private updateRunes(): void {
+    if (this.trial) return;
+    if (!this.encounterKind || this.ended) { this.endRunes(); return; }
+    const rune = this.runes.update(this.time);
+    this.cv?.gate(true, rune); this.hud.rune(rune, this.wandCooldowns.left(0, rune, this.time));
+  }
+
+  private endRunes(): void { if (!this.runes.target) return; this.runes.clear(); this.hud.rune(undefined); this.cv?.gate(true); }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
   private evadeDirection(player: PlayerIndex): T.Vector3 {
@@ -976,6 +996,7 @@ export class Adventure {
 
   private async finish(victory: boolean): Promise<void> {
     if (this.ended || !this.state) return;
+    this.endRunes();
     if (this.demo) { await this.endDemo(victory); return; }
     this.ended = true; this.busy = true; this.keys.clear(); this.ui.challenge(); this.ui.boss(); this.ui.context();
     if (this.encounterKind && this.beat) {
@@ -1040,6 +1061,7 @@ export class Adventure {
 
   private update(dt: number): void {
     this.invulnerable = Math.max(0, this.invulnerable - dt);
+    this.updateRunes();
     this.stamina = Math.min(1, this.stamina + dt * 0.16);
     if (this.keys.has('KeyC')) this.yaw += dt * 1.4;
     if (this.keys.has('KeyV')) this.yaw -= dt * 1.4;

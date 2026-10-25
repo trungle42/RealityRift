@@ -22,7 +22,7 @@ interface Foe { root: T.Group; hp: number; maxHp: number; windup: number; cooldo
 interface Inner {
   demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; foes: number }; enemies: Foe[]; time: number; busy: boolean; ended: boolean; invulnerable: number;
   update(dt: number): void; resolveHits(): void; startWave(): void; hurt(defer?: boolean): void; spellCooldown: number[];
-  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; closingLine(victory: boolean): string;
+  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number }; closingLine(victory: boolean): string;
   state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[] }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
   strikes: unknown[]; bolts: unknown[]; weapons: ({ element: string } | undefined)[]; attackCooldown: number[]; encounterKind?: string;
   scanner: { open: boolean; captureFromFile(f: File): Promise<void> }; phone?: { socket?: WebSocket; read(): { mag: number } }; cv?: { socket?: WebSocket };
@@ -80,6 +80,10 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     const dx = (wx * Math.cos(v) - wz * Math.sin(v)) / len, dz = (wx * Math.sin(v) + wz * Math.cos(v)) / len;
     stick(dx, -dz);
   };
+  /** The rune the game asks for now, and whether a player would draw it yet: the wand has recovered and, for a nova (which
+   * bursts around the hero), a foe is close enough to be caught in it. */
+  const asked = (): WandShape => { const rune = inner.runes.target; assert(rune, 'no rune requested in combat'); return rune; };
+  const castable = (foes: Foe[]) => { const rune = inner.runes.target; return !!rune && inner.wandCooldowns.ready(0, rune, inner.time) && (rune !== 'circle' || foes.some((e) => dist(e) < (e.boss ? 6 : 4.8))); };
   const draw = (shape: WandShape) => { shapes.yellow = { shape, score: 0.1 }; complete.yellow = true; cvFrame(); complete.yellow = false; shapes.yellow = null; cvFrame(); };
 
   // One game step, as frame() does it, while the world is running; the hero is kept from dying so a long scripted fight
@@ -102,6 +106,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     await until(() => !!document.querySelector('.adventure-start form'), 'models did not finish loading', 20000);
     document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await start;
     game.renderer.setAnimationLoop(null);
+    let seed = 20261025; inner.runes.rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;   // repeatable rune order
     slashes = 0; deliver(inner.cv?.socket, { type: 'peer', role: 'tracker', state: 'joined' }); cvFrame();
   };
   /** Her entrance waits on the wall clock; keep game time running meanwhile, as the real frame loop does. */
@@ -117,11 +122,10 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
    */
   const fightMorwen = async (limit = 150, sword = false) => {
     const witch = boss()!; const open = () => witch.windup <= 0 && witch.cooldown > 0;
-    let next = 0; const order: WandShape[] = ['star', 'triangle', 'square', 'circle'];
     await run(limit, () => {
       if (!boss()) return true;
       if (dist(witch) > 2.2) stickToward(witch); else stick(0, 0);
-      if (open()) { for (let k = 0; k < order.length; k++) { const shape = order[(next + k) % order.length]; if (inner.wandCooldowns.ready(0, shape, inner.time)) { draw(shape); next += k + 1; break; } } }
+      if (open() && castable([witch])) draw(asked());
       if (sword && open() && dist(witch) < 3.2 && inner.attackCooldown[0] <= 0) slash();
     });
     stick(0, 0); return witch;
@@ -144,17 +148,25 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(stage() === 'wave' && !inner.busy, 'the briefing did not lead into the wave');
     });
 
-    await check('Each wand shape, drawn as the horde arrives, reaches and damages a shadow (auto-aimed)', async () => {
+    await check('The game asks for one rune at a time: only that shape casts, and every requested spell reaches a shadow', async () => {
       assert(wave().length === 6, `expected six shadows, got ${wave().length}`);
-      const missed: string[] = [];
-      for (const shape of ['triangle', 'star', 'square', 'circle'] as WandShape[]) {
-        await run(4, () => inner.wandCooldowns.ready(0, shape, inner.time));
-        const from = hits.length, nearest = Math.min(...wave().map(dist));
-        draw(shape); await run(1.3);
-        const landed = hits.slice(from).filter((h) => h.taken > 0);
-        if (!landed.length) missed.push(`${shape} (nearest shadow ${nearest.toFixed(1)} m)`);
+      await run(0.05);
+      const first = asked(), prompt = document.querySelector('.rune-request:not([hidden])')?.textContent ?? '';
+      assert(prompt.includes(first), `the requested rune is not on screen (prompt: "${prompt}")`);
+      const wrong = (['circle', 'triangle', 'square', 'star'] as WandShape[]).find((shape) => shape !== first)!, quiet = { bolts: inner.bolts.length, strikes: inner.strikes.length, hits: hits.length };
+      draw(wrong); await run(0.4);
+      assert(inner.bolts.length === quiet.bolts && inner.strikes.length === quiet.strikes && hits.length === quiet.hits && asked() === first, `drawing ${wrong} when ${first} was asked still cast`);
+      const cast = new Set<WandShape>(), missed: string[] = [];
+      for (let i = 0; i < 12 && cast.size < 4; i++) {
+        await run(8, () => castable(wave()));
+        const shape = asked(), from = hits.length, nearest = Math.min(...wave().map(dist));
+        draw(shape); assert(inner.runes.target !== shape, `the request stayed on ${shape} after it was cast`);
+        await run(1.3);
+        if (!hits.slice(from).some((h) => h.taken > 0)) missed.push(`${shape} (nearest shadow ${nearest.toFixed(1)} m)`);
+        cast.add(shape);
       }
-      assert(!missed.length, `spells that never reached a shadow: ${missed.join(', ')}`);
+      assert(cast.size === 4, `only ${[...cast].join(', ')} were ever requested`);
+      assert(!missed.length, `requested spells that never reached a shadow: ${missed.join(', ')}`);
     });
 
     await check('A phone slash swings the sword and kills a shadow', async () => {
@@ -185,24 +197,25 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
         const hud = document.querySelector('.weapons-hud')?.textContent ?? '';
         assert(hud.includes('Sword · fire') && hud.includes('Wand · fire'), 'HUD does not show both weapons infused with fire');
         assert(inner.demo?.stage === 'wave' && inner.encounterKind === 'encounter' && wave().length === left, 'the scan broke the wave');
-        const at = wave().map((e) => e.root.position.clone()); await run(0.6);
-        assert(wave().some((e, i) => at[i] && e.root.position.distanceTo(at[i]) > 0.05), 'the wave did not resume after the scan');
-        await run(4, () => inner.wandCooldowns.ready(0, 'star', inner.time));
-        const from = hits.length; draw('star'); await run(1.3);
+        // Alive again: shadows move, wind up or tick their attack cooldown (one standing in melee range only does the last two).
+        const foes = wave(), before = foes.map((e) => ({ p: e.root.position.clone(), w: e.windup, c: e.cooldown })); await run(0.6);
+        assert(foes.some((e, i) => e.hp <= 0 || e.root.position.distanceTo(before[i].p) > 0.05 || e.windup !== before[i].w || e.cooldown !== before[i].c), 'the wave did not resume after the scan');
+        await run(8, () => castable(wave()));
+        const from = hits.length; draw(asked()); await run(1.3);
         assert(hits.slice(from).some((h) => h.element === 'fire' && h.taken > 0), 'a wand spell after the scan did not burn with fire');
       } finally { window.fetch = realFetch; localStorage.removeItem('storybound.armory.v1'); }
     });
 
     await check('Sword and wand together clear the wave, and Morwen arrives', async () => {
-      let next = 0; const order: WandShape[] = ['triangle', 'star', 'square', 'circle'];
       const waveFrom = hits.length, waveStart = inner.time;
       await run(90, () => {
         if (inner.demo?.stage !== 'wave') return true;
-        const shape = order[next % order.length];
-        if (inner.wandCooldowns.ready(0, shape, inner.time)) { draw(shape); next++; }
+        const near = wave().sort((x, y) => dist(x) - dist(y))[0];   // walk in with the phone stick, as a player would
+        if (near && dist(near) > 2.2) stickToward(near); else stick(0, 0);
+        if (castable(wave())) draw(asked());
         if (inner.attackCooldown[0] <= 0 && wave().some((e) => dist(e) < 2.6)) slash();
       });
-      tally(waveFrom, 'Wave (rest, fire relic)', waveStart);
+      stick(0, 0); tally(waveFrom, 'Wave (rest, fire relic)', waveStart);
       assert(inner.demo?.stage === 'boss' || inner.demo?.stage === 'done', `the wave was not cleared (stage ${inner.demo?.stage}, ${wave().length} shadows left)`);
       await awaitMorwen();
     });
@@ -211,9 +224,10 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       const witch = boss()!; assert(witch.boss?.kind === 'frost-witch', 'the boss is not Morwen');
       const bossFrom = hits.length, bossStart = inner.time;
       const open = () => witch.windup <= 0 && witch.cooldown > 0;
-      // Wand: a star (chain) while her ward is down.
-      await run(20, () => open() && dist(witch) < 18 && inner.wandCooldowns.ready(0, 'star', inner.time));
-      const from = hits.length, bolts = inner.bolts.length, wasOpen = open(), d0 = dist(witch); draw('star'); const fired = inner.bolts.length - bolts; await run(1.2);
+      // Wand: whatever rune she is asked for, drawn while her ward is down and she is close.
+      await run(20, () => { if (dist(witch) > 2.2) stickToward(witch); else stick(0, 0); return open() && dist(witch) < 5 && castable([witch]); });
+      stick(0, 0);
+      const from = hits.length, bolts = inner.bolts.length, wasOpen = open(), d0 = dist(witch); draw(asked()); const fired = inner.bolts.length - bolts; await run(1.2);
       const spell = hits.slice(from).find((h) => h.foe === witch && h.taken > 0);
       const seen = hits.slice(from).map((h) => ({ boss: !!h.foe.boss, d: h.damage, t: h.taken, e: h.element }));
       assert(spell && spell.element === 'fire' && spell.taken === spell.damage * 2, `the fire spell did not deal double damage to Morwen: ${JSON.stringify({ fired, wasOpen, d0: d0.toFixed(1), seen, windup: witch.windup, cooldown: witch.cooldown })}`);

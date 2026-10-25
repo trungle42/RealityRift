@@ -217,6 +217,17 @@
 @media (max-width: 720px) { .weapon-relic { display: none; } .game-context { left: auto; right: 16px; transform: none; } }
 @media (max-width: 520px) { .weapons-hud { bottom: 112px; } }
 @media (prefers-reduced-motion: reduce) { .wand-cool { animation: none !important; } }
+/* The rune the game asks for in combat (only that shape casts). Top centre, clear of the HUD stack and the wand panel. */
+.rune-request { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); z-index: 21; pointer-events: none; display: grid; justify-items: center; gap: 2px; padding: 10px 22px 9px; border-radius: 14px; background: #0f2019d9; border: 1px solid #c4a8ffaa; box-shadow: 0 0 26px #c4a8ff55; color: var(--game-text); font: 15px Georgia, serif; text-align: center; }
+.rune-request[hidden] { display: none; }
+.rune-request .rune-icon { font-size: 40px; line-height: 1; color: #e4d4ff; text-shadow: 0 0 18px #c4a8ff; }
+.rune-request .rune-label { font-size: 18px; color: var(--game-gold); }
+.rune-request .rune-wait { font-size: 12px; opacity: 0.75; }
+.rune-request.waiting .rune-icon { opacity: 0.45; text-shadow: none; }
+.rune-request.wrong { animation: rune-wrong 0.35s ease-in-out; border-color: #ff9b8a; }
+.rune-request.wrong::after { content: attr(data-hint); font-size: 13px; color: #ffc0b2; }
+@keyframes rune-wrong { 25% { transform: translateX(calc(-50% - 7px)); } 75% { transform: translateX(calc(-50% + 7px)); } }
+@media (prefers-reduced-motion: reduce) { .rune-request.wrong { animation: none; } }
 
 /* Demo run: NPC briefing, quest card, boss title card and the closing result (Cinematics.ts). */
 .npc-briefing { position: fixed; inset: 0; z-index: 50; display: grid; align-items: end; justify-items: center; padding: 0 16px 34px; background: linear-gradient(0deg, #0d1f18e6 0%, #0d1f1870 32%, transparent 60%); color: var(--game-text); opacity: 0; transition: opacity 320ms ease; cursor: pointer; }
