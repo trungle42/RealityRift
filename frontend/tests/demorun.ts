@@ -1,6 +1,7 @@
 import type * as T from 'three';
 import { Adventure } from '../src/adventure/Adventure';
-import type { WandShape } from '../src/adventure/forge';
+import { wandSeats, type WandShape } from '../src/adventure/forge';
+import { listenPlayers, type PhoneButton, type PlayerSlot } from '../src/adventure/players';
 
 /**
  * How long Morwen lasts (wand only, every shape drawn the moment the wand allows): faster with a fire relic, never trivial.
@@ -22,8 +23,9 @@ interface Foe { root: T.Group; hp: number; maxHp: number; windup: number; cooldo
 interface Inner {
   demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; foes: number }; enemies: Foe[]; time: number; busy: boolean; ended: boolean; invulnerable: number;
   update(dt: number): void; resolveHits(): void; startWave(): void; hurt(defer?: boolean): void; spellCooldown: number[];
-  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number }; closingLine(victory: boolean): string;
-  state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[] }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
+  wandCooldowns: { ready(hero: 0 | 1, shape: WandShape, now: number): boolean }; runes: { target?: WandShape; rng: () => number }; runesTwo: { target?: WandShape; rng: () => number };
+  seats: readonly string[]; companionFree: boolean; onSeat(slot: PlayerSlot, joined: boolean): void; onPlayerButton(kind: PhoneButton, slot: PlayerSlot): void; closingLine(victory: boolean): string;
+  state: { relics: { hero: 0 | 1; object: string; name: string; element: string; ability: string }[]; party: { name: string }[] }; hit(enemy: Foe, damage: number, player: 0 | 1, heavy?: boolean, element?: string): void;
   strikes: unknown[]; bolts: unknown[]; weapons: ({ element: string } | undefined)[]; attackCooldown: number[]; encounterKind?: string;
   scanner: { open: boolean; captureFromFile(f: File): Promise<void> }; phone?: { socket?: WebSocket; read(): { mag: number } }; cv?: { socket?: WebSocket };
   fx: { number(at: unknown, text: string, color: string, big?: boolean): void }; rig: { viewYaw: number };
@@ -84,7 +86,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
    * bursts around the hero), a foe is close enough to be caught in it. */
   const asked = (): WandShape => { const rune = inner.runes.target; assert(rune, 'no rune requested in combat'); return rune; };
   const castable = (foes: Foe[]) => { const rune = inner.runes.target; return !!rune && inner.wandCooldowns.ready(0, rune, inner.time) && (rune !== 'circle' || foes.some((e) => dist(e) < (e.boss ? 6 : 4.8))); };
-  const draw = (shape: WandShape) => { shapes.yellow = { shape, score: 0.1 }; complete.yellow = true; cvFrame(); complete.yellow = false; shapes.yellow = null; cvFrame(); };
+  const drawAs = (colour: string, shape: WandShape) => { shapes[colour] = { shape, score: 0.1 }; (complete as Record<string, boolean>)[colour] = true; cvFrame(); (complete as Record<string, boolean>)[colour] = false; shapes[colour] = null; cvFrame(); };
+  const draw = (shape: WandShape) => drawAs('yellow', shape);
 
   // One game step, as frame() does it, while the world is running; the hero is kept from dying so a long scripted fight
   // never ends early on a stray hit (hurting is covered by the other harness).
@@ -283,6 +286,55 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(!boss(), `without a relic Morwen did not fall (hp ${witch.hp})`);
       const seconds = inner.time - bossStart;
       assert(inRange(seconds, PLAIN_FIGHT), `without a relic Morwen fell in ${seconds.toFixed(1)} s (want ${PLAIN_FIGHT[0]}-${PLAIN_FIGHT[1]} s)`);
+    });
+    await check('A second phone makes hero two a real player (own stick, slash, scan, blue-wand runes), and ?wand=red casts for hero one', async () => {
+      await boot();
+      // The per-player PhoneInput's surface (on / connected / read), wired through the same adapter the game uses.
+      const handlers = new Map<string, ((player: number) => void)[]>(), seated = new Set([0]);
+      const sticks = [{ x: 0, z: 0, mag: 0, sprint: false }, { x: 0, z: 0, mag: 0, sprint: false }];
+      const phone = { phoneConnected: true, connected: (p: number) => seated.has(p), read: (p = 0) => sticks[p], dispose() {}, phoneUrl: async () => '',
+        on: (event: string, h: (player: number) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), h]); return () => {}; } };
+      const emit = (event: string, player: number) => (handlers.get(event) ?? []).forEach((h) => h(player));
+      (inner as unknown as { phone?: { dispose(): void } }).phone?.dispose(); (inner as unknown as { phone: unknown }).phone = phone;
+      listenPlayers(phone, { joined: (slot) => inner.onSeat(slot, true), left: (slot) => inner.onSeat(slot, false), button: (kind, slot) => inner.onPlayerButton(kind, slot) });
+      const two = game.heroes[1];
+      assert(!two.root.visible, 'hero two should start off-stage in a solo run');
+      seated.add(1); emit('joined', 1);
+      assert(two.root.visible && two.root.position.distanceTo(game.heroes[0].root.position) < 4 && !inner.companionFree, 'the second phone did not bring hero two in');
+      assert((document.querySelector('.weapons-hud')?.textContent ?? '').includes(inner.state.party[1].name), 'the HUD does not show hero two');
+      inner.startWave(); let seed = 7; inner.runesTwo.rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      // Each phone's stick moves its own hero.
+      const a = game.heroes[0].root.position.clone(), b = two.root.position.clone();
+      sticks[0] = { x: 0, z: -1, mag: 1, sprint: false }; sticks[1] = { x: 0, z: 1, mag: 1, sprint: false };   // one forward, one back down the open path
+      await run(0.5); sticks[0] = sticks[1] = { x: 0, z: 0, mag: 0, sprint: false };
+      const da = game.heroes[0].root.position.clone().sub(a), db = two.root.position.clone().sub(b);
+      assert(da.length() > 0.8 && db.length() > 0.8, `a stick did not move its hero (${da.length().toFixed(2)}, ${db.length().toFixed(2)})`);
+      assert(da.normalize().dot(db.normalize()) < -0.5, 'the two heroes moved together instead of each by its own phone');
+      // Hero two's own rune request, cast with the blue wand.
+      await run(0.1);
+      const p2 = inner.runesTwo.target; assert(p2, 'hero two got no rune request');
+      assert((document.querySelector('.rune-request.p2:not([hidden])')?.textContent ?? '').includes('P2'), 'hero two\'s request is not shown');
+      await run(4, () => inner.wandCooldowns.ready(1, p2, inner.time));
+      drawAs('blue', (['circle', 'triangle', 'square', 'star'] as WandShape[]).find((x) => x !== p2)!);
+      assert(inner.wandCooldowns.ready(1, p2, inner.time) && inner.runesTwo.target === p2, 'a shape hero two was not asked for cast');
+      drawAs('blue', p2);
+      assert(!inner.wandCooldowns.ready(1, p2, inner.time) && inner.runesTwo.target !== p2, 'the blue wand did not cast hero two\'s requested rune');
+      // Phone slash and scan for hero two.
+      inner.attackCooldown[1] = 0; emit('slash', 1); assert(inner.attackCooldown[1] > 0, 'player two\'s phone slash did not swing hero two\'s sword');
+      emit('scan', 1); await until(() => inner.scanner.open, 'player two\'s phone did not open the scanner');
+      assert((inner.scanner as unknown as { claim: number }).claim === 1, 'a scan from player two\'s phone is not offered to hero two');
+      tap('Escape'); await until(() => !inner.scanner.open, 'scanner did not close');
+      assert(!game.ui.blocked, 'Esc that closed the scanner also opened the journal');
+      // The phone leaves: hero two stays, as the companion again.
+      seated.delete(1); emit('left', 1);
+      assert(two.root.visible && inner.companionFree, 'hero two did not go back to the companion when the phone left');
+      // ?wand=red: red is hero one's wand now; yellow is nobody's.
+      inner.seats = wandSeats('?wand=red');
+      await run(4, () => !!inner.runes.target && inner.wandCooldowns.ready(0, inner.runes.target, inner.time));
+      const mine = asked(); drawAs('yellow', mine);
+      assert(inner.wandCooldowns.ready(0, mine, inner.time) && inner.runes.target === mine, 'a yellow wand still cast with ?wand=red');
+      drawAs('red', mine);
+      assert(!inner.wandCooldowns.ready(0, mine, inner.time), `with ?wand=red a red-wand shape did not cast for hero one: ${JSON.stringify({ mine, target: inner.runes.target, seats: inner.seats, busy: inner.busy, ended: inner.ended, scanner: inner.scanner.open, blocked: game.ui.blocked, encounter: inner.encounterKind })}`);
     });
     status.textContent = `All ${results.children.length} demo-run checks passed. ${metrics.join(' · ')}`; document.body.dataset.result = 'passed';
   } catch (error) { status.textContent = String(error); document.body.dataset.result = 'failed'; console.error(error); }

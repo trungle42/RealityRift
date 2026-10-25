@@ -16,8 +16,34 @@ export type WandColour = 'yellow' | 'blue' | 'red';
 export const WAND_SHAPES: readonly WandShape[] = ['circle', 'triangle', 'square', 'star'];
 /** The spell each tracker shape casts. (Bolt is the plain F cast; pierce has no shape.) */
 export const SHAPE_ABILITY: Record<WandShape, Ability> = { circle: 'nova', triangle: 'meteor', square: 'wave', star: 'chain' };
-/** Yellow wand is hero one, blue is hero two. Red stays off: the tracker mistakes it for lips and skin. */
-export const COLOUR_HERO: Partial<Record<WandColour, PlayerIndex>> = { yellow: 0, blue: 1 };
+export const WAND_COLOURS: readonly WandColour[] = ['yellow', 'blue', 'red'];
+/**
+ * Which wand colour belongs to which player slot, in order: slot 0 = hero one, slot 1 = hero two, slot 2 = Pip the fairy
+ * (not a hero; see Adventure.fairy). Default: yellow is hero one, blue is hero two.
+ */
+export type WandSeats = readonly WandColour[];
+export type WandSlot = 0 | 1 | 2;
+export const DEFAULT_SEATS: WandSeats = ['yellow', 'blue'];
+
+/**
+ * Each player has their own wand colour. The game is told with `?wand=red` (red drives hero one), `?wand=red,blue` (two
+ * players at one camera) or `?wand=red,blue,yellow` (three: the third casts for Pip the fairy). No value, an unknown
+ * colour, the same colour twice or more than three fall back to the default.
+ */
+export function wandSeats(search: string): WandSeats {
+  const raw = new URLSearchParams(search).get('wand');
+  if (!raw) return DEFAULT_SEATS;
+  const names = raw.split(',').map((name) => name.trim().toLowerCase());
+  const colours = names.filter((name): name is WandColour => (WAND_COLOURS as readonly string[]).includes(name));
+  if (colours.length !== names.length || !colours.length || colours.length > 3 || new Set(colours).size !== colours.length) return DEFAULT_SEATS;
+  return colours;
+}
+
+/** The player slot a wand colour belongs to, or undefined for a colour nobody has. */
+export function wandSlot(colour: WandColour, seats: WandSeats = DEFAULT_SEATS): WandSlot | undefined {
+  const slot = seats.indexOf(colour);
+  return slot < 0 || slot > 2 ? undefined : slot as WandSlot;
+}
 
 /** Seconds before the same hero can cast the same shape again, so drawing cannot be spammed. Other shapes stay ready. */
 export const SHAPE_COOLDOWN: Record<WandShape, number> = { circle: 2.2, triangle: 3, square: 1.6, star: 1.8 };
@@ -32,9 +58,10 @@ export interface ShapeSource { subscribe(listener: ShapeListener): () => void; d
 const isShape = (value: unknown): value is WandShape => (WAND_SHAPES as readonly unknown[]).includes(value);
 export const colourOf = (value: string): WandColour | undefined => (['yellow', 'blue', 'red'] as const).find((c) => c === value);
 
-export function heroFor(colour: WandColour, solo: boolean): PlayerIndex | undefined {
-  const hero = COLOUR_HERO[colour];
-  return hero === 1 && solo ? undefined : hero;
+/** The hero a wand colour drives (undefined for a colour nobody has, or hero two's while it is not in play). */
+export function heroFor(colour: WandColour, solo: boolean, seats: WandSeats = DEFAULT_SEATS): PlayerIndex | undefined {
+  const slot = wandSlot(colour, seats);
+  return slot === undefined || slot === 2 || (slot === 1 && solo) ? undefined : slot;
 }
 
 /**
@@ -96,7 +123,8 @@ export function shapeFromWand(colour: WandColour, wand: unknown): WandShape | un
   return isShape(drawn) ? drawn : isShape(target) ? target : undefined;
 }
 
-/** Keyboard stand-in: 4/5/6/7 = yellow circle/triangle/square/star, 8/9/0/- = the same for blue. */
+/** Keyboard stand-in: 4/5/6/7 = yellow circle/triangle/square/star, 8/9/0/- = the same for blue. The game reads these as
+ * "hero one's wand" and "hero two's wand" (whatever colours `?wand=` gives them; see Adventure.keyWand). */
 export const SHAPE_KEYS: Record<string, [WandColour, WandShape]> = {
   Digit4: ['yellow', 'circle'], Digit5: ['yellow', 'triangle'], Digit6: ['yellow', 'square'], Digit7: ['yellow', 'star'],
   Digit8: ['blue', 'circle'], Digit9: ['blue', 'triangle'], Digit0: ['blue', 'square'], Minus: ['blue', 'star'],

@@ -220,7 +220,11 @@
 /* The rune the game asks for in combat (only that shape casts). Top centre, clear of the HUD stack and the wand panel. */
 .rune-request { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); z-index: 21; pointer-events: none; display: grid; justify-items: center; gap: 2px; padding: 10px 22px 9px; border-radius: 14px; background: #0f2019d9; border: 1px solid #c4a8ffaa; box-shadow: 0 0 26px #c4a8ff55; color: var(--game-text); font: 15px Georgia, serif; text-align: center; }
 .rune-request[hidden] { display: none; }
-.rune-request .rune-icon { font-size: 40px; line-height: 1; color: #e4d4ff; text-shadow: 0 0 18px #c4a8ff; }
+.rune-request .rune-icon { font-size: 40px; line-height: 1; color: var(--wand, #e4d4ff); text-shadow: 0 0 18px var(--wand, #c4a8ff); }
+.rune-request[data-wand]:not([data-wand='']) { border-color: var(--wand); box-shadow: 0 0 26px color-mix(in srgb, var(--wand) 40%, transparent); }
+/* Hero two's request sits under hero one's, a little smaller. */
+.rune-request.p2 { top: 196px; padding: 7px 18px 6px; }
+.rune-request.p2 .rune-icon { font-size: 30px; }
 .rune-request .rune-label { font-size: 18px; color: var(--game-gold); }
 .rune-request .rune-wait { font-size: 12px; opacity: 0.75; }
 .rune-request.waiting .rune-icon { opacity: 0.45; text-shadow: none; }
