@@ -33,7 +33,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$api = "http://localhost:$ApiPort"
+# 127.0.0.1, not localhost: the backend listens on IPv4 only, and on some Windows laptops localhost tries IPv6 (::1) first and
+# takes ~2 s to fall back, longer than the 2 s health check (so a running backend looked absent) and the tracker's 1 s connect.
+$api = "http://127.0.0.1:$ApiPort"
 $web = "http://localhost:$WebPort"
 # Only these processes are ever stopped: each one was started by this script.
 $started = [ordered]@{}
@@ -73,7 +75,8 @@ if ($colorList.Count -eq 0) { throw '-Color needs at least one colour' }
 foreach ($c in $colorList) { if ($c -notin @('red', 'blue', 'yellow')) { throw "-Color takes red, blue and yellow (got '$c')" } }
 if (@($colorList | Select-Object -Unique).Count -ne $colorList.Count) { throw '-Color lists a colour twice' }
 $colors = $colorList -join ','
-$jump = if ($colorList.Count -gt 1) { '0' } else { '1' }
+# $jumpOn, not $jump: PowerShell variables ignore case, so $jump would be the -Jump parameter (full or rise) itself.
+$jumpOn = if ($colorList.Count -gt 1) { '0' } else { '1' }
 # -Jump rise: the tracker fires a jump on the way up instead of at the landing (an experiment; see cv_2 JumpDetector).
 if (-not $Jump) { $Jump = if ($env:YT_JUMP_MODE) { $env:YT_JUMP_MODE } else { 'full' } }
 $Jump = $Jump.ToLower()
@@ -253,9 +256,9 @@ try {
 
     if ($startTracker) {
         Write-Host "Tracker: starting; its camera picture shows in the game's wand panel ..."
-        Write-Host "         Colours: $colors (players 1-3 in that order)$(if ($jump -eq '0') { '; jump is off with several players in view' } else { "; jump: $Jump" })"
+        Write-Host "         Colours: $colors (players 1-3 in that order)$(if ($jumpOn -eq '0') { '; jump is off with several players in view' } else { "; jump: $Jump" })"
         $savedColors = $env:YT_COLORS; $savedJump = $env:YT_JUMP; $savedMode = $env:YT_JUMP_MODE
-        $env:YT_COLORS = $colors; $env:YT_JUMP = $jump; $env:YT_JUMP_MODE = $Jump
+        $env:YT_COLORS = $colors; $env:YT_JUMP = $jumpOn; $env:YT_JUMP_MODE = $Jump
         $started['tracker'] = Start-Process -FilePath $trackerPy -ArgumentList @('-m', 'tools.publish', '--api', $api, '--room', $Room) `
             -WorkingDirectory (Join-Path $repoRoot 'cv_2') -NoNewWindow -PassThru
         $env:YT_COLORS = $savedColors; $env:YT_JUMP = $savedJump; $env:YT_JUMP_MODE = $savedMode
