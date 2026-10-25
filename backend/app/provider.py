@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from . import gemini
 
-OUTCOME_KIND = Literal["story", "freeze", "pose", "vote", "encounter", "boss"]
+OUTCOME_KIND = Literal["story", "freeze", "pose", "vote", "encounter", "boss", "show"]
 EnvId = Literal["forest", "castle", "cave"]
 
 
@@ -119,6 +119,18 @@ def _ending(h: HistoryIn, victory: bool) -> Dict[str, Any]:
     }
 
 
+SHOW_OBJECT = {"castle": "a book", "cave": "a bottle or a cup"}
+
+
+def _show(env: str) -> Dict[str, Any]:
+    obj = SHOW_OBJECT.get(env, "a book")
+    return {
+        "id": "show-me", "chapter": "Chapter III · The Riddle Door", "environment": env, "speaker": "The Riddle Door",
+        "_intent": f"The opened seal reveals a second door with carved eyes that blinks awake: it has never seen the heroes' world and asks them to show it {obj} before it lets them pass.",
+        "challenge": {"type": "show", "prompt": f"Show the door {obj}!", "object": obj},
+    }
+
+
 def _lantern(env: str) -> Dict[str, Any]:
     return {
         "id": "lantern-fairy", "chapter": "Chapter IV · The Lantern", "environment": env,
@@ -198,7 +210,11 @@ def plan(h: HistoryIn, last: OutcomeIn) -> Dict[str, Any]:
             return {"id": "thorn-guard", "chapter": "Chapter III · Guardians", "environment": env,
                     "_intent": "The magic rejects them with a crack and thorny imps tumble out of the walls to chase the intruders away; they must fight them off.",
                     "encounter": {"enemy": "thorn-imp", "count": 4, "speed": 1.2}}
-        return _lantern(env) | {"_open": "The seal glows gold and swings open. Beyond it, something small is crying for help."}
+        return _show(env)
+    if b == "show-me":
+        return _lantern(env) | {"_open": ("The door hums, pleased with what they showed it, and swings open." if last.success
+                                          else "The door sighs and creaks open anyway.")
+                                         + " Beyond it, something small is crying for help."}
     if b == "thorn-guard":
         return _lantern(env) | {"_open": "The imps are dealt with and the path is clear; something small is crying for help nearby."}
     if b == "lantern-fairy":

@@ -58,6 +58,13 @@ export type ChallengeSpec =
       prompt: string;
       options: [VoteOption, VoteOption];
       timeLimitSec: number;
+    }
+  | {
+      /** Reality Rift: the player shows a real object to the webcam and Gemini vision checks it. */
+      type: 'show';
+      prompt: string;
+      /** What to show, e.g. "a book". */
+      object: string;
     };
 
 export interface EncounterSpec {
@@ -102,7 +109,7 @@ export interface StoryBeat {
   isEnding?: boolean;
 }
 
-export type OutcomeKind = 'story' | 'freeze' | 'pose' | 'vote' | 'encounter' | 'boss';
+export type OutcomeKind = 'story' | 'freeze' | 'pose' | 'vote' | 'encounter' | 'boss' | 'show';
 
 export interface PlayerResult {
   success: boolean;

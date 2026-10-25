@@ -40,6 +40,24 @@ class ArtifactRequest(BaseModel):
     mimeType: Literal["image/jpeg", "image/png", "image/webp"] = "image/jpeg"
 
 
+class VerifyRequest(BaseModel):
+    imageBase64: str = Field(min_length=8, max_length=3_000_000)
+    mimeType: Literal["image/jpeg", "image/png", "image/webp"] = "image/jpeg"
+    object: str = Field(min_length=1, max_length=60, description="What the storyteller asked the player to show")
+
+
+class VerifyResult(BaseModel):
+    """What Gemini returns for a 'show me X' check."""
+    match: bool = Field(description="True only if the requested object is clearly visible in the photo")
+    seen: str = Field(max_length=80, description="Short name of the main object actually visible")
+
+
+class VerifyResponse(BaseModel):
+    match: bool
+    seen: str
+    source: Literal["gemini", "fallback"]
+
+
 class GameEvent(BaseModel):
     session: str = Field(min_length=1, max_length=64)
     type: str = Field(min_length=1, max_length=40, pattern=r"^[a-z_]+$",

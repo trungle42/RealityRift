@@ -92,8 +92,39 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       for (const [one, two] of [['Digit2', 'KeyO'], ['Digit1', 'KeyI'], ['Digit3', 'KeyP']]) {
         key(one); key(two); for (let i = 0; i < 14; i++) inner.update(0.1); key(one, false); key(two, false);
       }
-      await work; await until(() => inner.beat.id === 'lantern-fairy', 'pose sequence did not open gate');
+      await work; await until(() => inner.beat.id === 'show-me', 'pose sequence did not open the riddle door');
       assert(inner.state.outcomes.at(-1)?.success, 'pose success missing');
+    });
+    await check('Show-me door: a wrong photo is refused with what Gemini saw, a right one opens it, and Skip fails without losing a heart', async () => {
+      const scanner = (game as unknown as { scanner: { open: boolean; captureFromFile(f: File): Promise<void> } }).scanner;
+      const phase = () => document.querySelector<HTMLElement>('.rift-scan')!.dataset.phase, panel = () => document.querySelector('.rift-panel')!.textContent ?? '';
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
+      const photo = new File([await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))], 'object.png', { type: 'image/png' });
+      const answers = [{ match: false, seen: 'a coffee mug', source: 'gemini' }, { match: true, seen: 'a book', source: 'gemini' }]; const asked: string[] = [];
+      const realFetch = window.fetch;
+      window.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(url).endsWith('/api/verify')) return realFetch(url, init);
+        asked.push(JSON.parse(String(init?.body)).object);
+        return new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }) as typeof fetch;
+      try {
+        const door = { ...inner.beat }; assert(door.challenge?.type === 'show' && door.challenge.object === 'a bottle or a cup', 'scripted story did not ask the cave door for a bottle or a cup');
+        const hearts = inner.state.hearts, work = beginBeat(door); await until(() => scanner.open, 'scanner did not open for the quest');
+        await scanner.captureFromFile(photo); await until(() => phase() === 'nomatch', 'wrong photo was not refused');
+        assert(panel().includes('a coffee mug') && panel().includes('a bottle or a cup'), 'miss did not say what Gemini saw');
+        key('Enter'); key('Enter', false); await until(() => phase() === 'live', 'Try again did not return to the camera');
+        await scanner.captureFromFile(photo); await until(() => phase() === 'matched', 'right photo was not accepted');
+        key('Enter'); key('Enter', false); await work;
+        assert(!scanner.open && inner.state.outcomes.at(-1)?.kind === 'show' && inner.state.outcomes.at(-1)?.success, 'matched quest did not record a success');
+        await until(() => inner.beat.id === 'lantern-fairy', 'story did not continue after the door opened');
+        assert(asked.length === 2 && asked.every((o) => o === 'a bottle or a cup'), 'verify did not receive the requested object');
+        // Skip: Escape closes the scanner, the quest fails, no heart is lost, and the story still moves on.
+        const again = beginBeat({ ...door, id: 'show-me' }); await until(() => scanner.open, 'scanner did not reopen');
+        key('Escape'); key('Escape', false); await again;
+        const last = inner.state.outcomes.at(-1);
+        assert(!scanner.open && last?.kind === 'show' && !last.success && last.heartsLost === 0 && inner.state.hearts === hearts, 'skip must fail the quest without costing a heart');
+        await until(() => inner.beat.id === 'lantern-fairy', 'story did not continue after skipping');
+      } finally { window.fetch = realFetch; }
     });
     await check('Spells hit real enemies and history stays isolated', async () => {
       inner.trial = undefined; inner.busy = false;

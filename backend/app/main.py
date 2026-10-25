@@ -11,13 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from fastapi import HTTPException  # noqa: E402
 
-from . import gemini, provider, store  # noqa: E402
+from . import gemini, joystick, provider, store  # noqa: E402
 from .schemas import (  # noqa: E402
     ArtifactRequest, ArtifactResponse, BeatRequest, EndingRequest, EndingResponse,
-    GameEvent, ScoreSubmission, StoryEventResponse, StoryState,
+    GameEvent, ScoreSubmission, StoryEventResponse, StoryState, VerifyRequest, VerifyResponse,
 )
 
 app = FastAPI(title="Storybound API")
+app.include_router(joystick.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
@@ -38,6 +39,13 @@ def health():
 def artifact(req: ArtifactRequest):
     art, source = gemini.make_artifact(req.imageBase64, req.mimeType)
     return ArtifactResponse(artifact=art, source=source)
+
+
+@app.post("/api/verify", response_model=VerifyResponse)
+def verify(req: VerifyRequest):
+    """'Show me X' quest: does the webcam photo contain the object the storyteller asked for?"""
+    match, seen, source = gemini.verify_object(req.imageBase64, req.object, req.mimeType)
+    return VerifyResponse(match=match, seen=seen, source=source)
 
 
 @app.post("/api/story/next", response_model=StoryEventResponse)

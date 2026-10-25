@@ -175,3 +175,11 @@ def test_event_payload_is_bounded():
     assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": big}).status_code == 422
     assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": {"a": {"nested": 1}}}).status_code == 422
     assert client.post("/api/event", json={"session": "s", "type": "scan", "payload": {"a": "x" * 201}}).status_code == 422
+
+
+def test_verify_accepts_offline_and_rejects_bad_input():
+    r = client.post("/api/verify", json={"imageBase64": "AAAAAAAA", "object": "a book"})
+    assert r.status_code == 200 and r.json() == {"match": True, "seen": "", "source": "fallback"}
+    assert client.post("/api/verify", json={"imageBase64": "AAAAAAAA"}).status_code == 422
+    assert client.post("/api/verify", json={"imageBase64": "AAAAAAAA", "object": "x" * 61}).status_code == 422
+    assert client.post("/api/verify", json={"imageBase64": "A" * 3_000_001, "object": "a book"}).status_code == 422

@@ -82,6 +82,8 @@ export class Actor {
   private yawRate = 0;
   private clock = 0;
   private detailedRig = false;
+  private grip?: T.Group;
+  private readonly glowing = new Set<T.Material>();
 
   constructor(companion = false) {
     this.color = companion ? 0xdca967 : 0x4f9174;
@@ -390,8 +392,24 @@ export class Actor {
     // The fist closes just below the guard, toward the pommel.
     weapon.position.copy(blade.guard).addScaledVector(blade.axis, -0.055 / scale).negate();
     mount.add(weapon); mount.quaternion.setFromRotationMatrix(to.multiply(from.transpose())); mount.scale.setScalar(scale / handScale);
-    grip.add(mount); grip.position.copy(palm); hand.add(grip);
+    grip.add(mount); grip.position.copy(palm); hand.add(grip); this.grip = grip;
     weapon.traverse((part) => { if (part instanceof T.Mesh) part.castShadow = true; });
+  }
+
+  /** Tint the sword with the equipped weapon's element so a scanned weapon is visible in the hand. */
+  glowWeapon(color: number | undefined): void {
+    if (!this.grip) return;
+    this.grip.traverse((part) => {
+      if (!(part instanceof T.Mesh)) return;
+      const mats = Array.isArray(part.material) ? part.material : [part.material];
+      const next = mats.map((mat: T.Material) => {
+        const copy = this.glowing.has(mat) ? mat : mat.clone(); this.glowing.add(copy);
+        const standard = copy as T.MeshStandardMaterial;
+        if (standard.emissive) { standard.emissive.set(color ?? 0x000000); standard.emissiveIntensity = color === undefined ? 0 : 1.1; }
+        return copy;
+      });
+      part.material = Array.isArray(part.material) ? next : next[0];
+    });
   }
 
   /** Where a closed fist would hold a handle, in hand-bone space: across the palm, toward the fingers. */
