@@ -258,7 +258,7 @@ Second player (`?players=2` only): **arrow keys** move, **/** casts, **Right Shi
 | Frontend unit tests | `cd frontend && npm test` | 67 pass |
 | Type-check and build | `cd frontend && npm run build` | passes |
 | In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 13 checks, listed as PASS / FAIL |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 221 pass (about 12 s on a Mac; no camera needed) |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 225 pass (about 12 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
