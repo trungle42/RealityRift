@@ -124,6 +124,20 @@ def test_the_game_can_send_control_messages_to_the_tracker(client):
             assert json.loads(tracker.receive_text()) == {"type": "gate", "on": True, "target": "square"}
 
 
+def test_the_tracker_hears_left_only_when_the_last_game_leaves(client):
+    with client.websocket_connect("/ws/cv/c9?role=tracker") as tracker:
+        with client.websocket_connect("/ws/cv/c9?role=game") as second:
+            assert json.loads(tracker.receive_text())["state"] == "joined"
+            with client.websocket_connect("/ws/cv/c9?role=game") as first:
+                assert json.loads(tracker.receive_text())["state"] == "joined"
+                first.close()
+            # Closing one tab is not "the game left": the next thing the tracker hears is the other tab's control message.
+            second.send_text(json.dumps({"type": "gate", "on": True}))
+            assert json.loads(tracker.receive_text()) == {"type": "gate", "on": True, "target": None}
+            second.close()
+        assert json.loads(tracker.receive_text()) == {"type": "peer", "role": "game", "state": "left"}
+
+
 def test_camera_pictures_and_snapshots_travel_through_the_relay(client):
     with client.websocket_connect("/ws/cv/c3?role=game") as game:
         with client.websocket_connect("/ws/cv/c3?role=tracker") as tracker:
