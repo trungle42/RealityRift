@@ -17,9 +17,16 @@ import { Actor, material, mesh } from './Actor';
 import { Interface } from './Interface';
 import { World, type WorldObject } from './World';
 import { Scanner } from './Scanner';
-import { BOSS_ELEMENTS, defaultSpell, elementMultiplier, scaledDamage, type Element, type SpellSpec, type Weapon } from './weapon';
+import { colourOf, heroFor, KeyboardShapes, SHAPE_ABILITY, SHAPE_COOLDOWN, ShapeCooldowns, shapeFromWand, type ShapeSource, type WandColour, type WandShape } from './forge';
+import { WandModel } from './WandModel';
+import { WeaponsHud } from './WeaponsHud';
+import { BOSS_ELEMENTS, ELEMENT_COLOR, elementMultiplier, scaledDamage, wandSpell, type Element, type SpellSpec, type Weapon } from './weapon';
 import { Physics } from './Physics';
 import { PhoneInput } from './PhoneInput';
+import { CvInput } from './CvInput';
+import { POSE_SHAPE } from './cvMath';
+import { WandHud } from './WandHud';
+import { Cinematics } from './Cinematics';
 import { encounterSpawn, heightAt, moveOnGround, objectiveFor, pathDistance, regionAt, type Position } from './terrain';
 import './adventure.css';
 
@@ -52,6 +59,14 @@ const COMBO = [
 /** Roll: ~4.5 m tumble, 1 s of invincibility from the start, 4 s cooldown. */
 const ROLL = { length: 0.55, speed: 8.2, iframes: 1, cooldown: 4 };
 const FLASH_COOLDOWN = 6;
+/**
+ * The demo run's single wave: three shadows close in first and three more arrive a few seconds later, so the fight
+ * lasts long enough to show off (about 15-20 s) without dragging.
+ */
+const WAVE = [{ radius: 8, angle: -0.5 }, { radius: 8.8, angle: 0 }, { radius: 9.6, angle: 0.5 }, { radius: 15, angle: -0.8 }, { radius: 16.5, angle: 0.15 }, { radius: 18, angle: 0.9 }];
+const WAVE_HP = 5;
+/** `?story=full` (or window.RIFT_FULL_STORY, for the in-browser checks) plays the whole storyteller-driven tale instead of the short demo run. */
+const fullStory = () => (window as unknown as { RIFT_FULL_STORY?: boolean }).RIFT_FULL_STORY === true || new URLSearchParams(location.search).get('story') === 'full';
 interface Bolt { mesh: T.Mesh; velocity: T.Vector3; life: number; player: PlayerIndex; color: number; element?: Element; damage: number; pierce: number; chain: number; chainRadius: number; hit: Set<Enemy> }
 /** A delayed area strike (meteor): telegraphed on the ground, lands after `delay`. */
 interface Strike { at: number; delay: number; pos: T.Vector3; radius: number; damage: number; color: number; element?: Element; player: PlayerIndex }
@@ -93,12 +108,20 @@ export class Adventure {
   private readonly camps: Camp[] = [];
   private readonly pickups: Pickup[] = [];
   private readonly wheel = document.createElement('div');
-  /** Reality Rift: the scanned weapon (if any) that shapes hero 0's spell. */
-  private weapon?: Weapon;
+  /** Reality Rift: each hero's relic (a scanned object), infusing their wand and sword with its element. */
+  private readonly weapons: (Weapon | undefined)[] = [];
+  /** Each hero's two weapons: the sword in the right hand, this wand in the left. Drawn shapes cast with per-shape cooldowns. */
+  private readonly wands: (WandModel | undefined)[] = [];
+  private readonly wandCooldowns = new ShapeCooldowns();
+  private readonly hud = new WeaponsHud();
+  /** Wand shapes from the keyboard stand-in (4-7 yellow, 8/9/0/- blue); the CV tracker's completed shapes arrive through `cv`. */
+  private readonly shapes: ShapeSource = new KeyboardShapes();
   private readonly strikes: Strike[] = [];
-  private readonly scanner = new Scanner((weapon) => this.equip(weapon));
+  private readonly scanner = new Scanner((weapon, hero) => this.equip(weapon, hero));
   /** Phone joystick (optional): analog movement for hero 0, with keyboard always winning. */
   private phone?: PhoneInput;
+  private cv?: CvInput;
+  private wandHud?: WandHud;
   private sound = true;
   private readonly keys = new Set<string>();
   private readonly events = new AbortController();
@@ -143,6 +166,9 @@ export class Adventure {
   private encounterBefore = 3;
   private encounterKind?: 'encounter' | 'boss';
   private bossWon = false;
+  private readonly cinema = new Cinematics();
+  /** The short demo run: brief with Willow, hold the glade against one wave, then face the boss. */
+  private demo?: { stage: 'briefing' | 'wave' | 'boss' | 'done'; started: number; foes: number; willow: Position };
   private time = 0;
   private previous = 0;
   private disposed = false;
@@ -202,18 +228,136 @@ export class Adventure {
     const physics = await Physics.create(this.world.collisionSurfaces(), this.world.treeSolids);
     if (this.disposed) { physics.dispose(); return; }
     this.physics = physics;
+    // The run opens a few strides in front of Willow on the forest path, facing her.
+    const willow = this.world.objects.find((o) => o.id === 'forest:lore') ?? { x: 0.5, z: -2 };
+    const spot = { x: willow.x, z: willow.z + 5.5 };
+    this.heroes.forEach((hero, i) => { const x = spot.x + (i ? 1.6 : 0), z = spot.z + (i ? 1 : 0); hero.root.position.set(x, heightAt(x, z) + 0.2, z); hero.heading = Math.PI; hero.root.rotation.y = Math.PI; });
+    if (!fullStory()) this.demo = { stage: 'briefing', started: 0, foes: 0, willow: { x: willow.x, z: willow.z } };
     if (this.solo) { this.heroes[1].root.position.set(500, 0, 500); this.heroes[1].root.visible = false; }
     this.heroes.forEach((hero) => physics.addCharacter(hero.root.position));
     // Scenery between the camera and the hero dissolves instead of blocking the view.
     fadeOccluders(this.world.root, (o) => o.name === 'ground' || o.name === 'lake' || o.userData.noFade === true);
     document.getElementById('loading')?.remove();
     const party = await this.ui.start(this.solo);
-    this.state = new GameState(party); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
+    this.state = new GameState(party); this.scanner.setHeroes(this.solo ? [] : party.map((p) => p.name)); this.hud.setHeroes(this.solo ? [party[0].name] : party.map((p) => p.name)); this.shapes.subscribe((colour, shape) => this.onShape(colour, shape)); this.sfx.unlock(); this.sfx.setMuted(!this.sound); this.ui.discover('Whispering Wood');
     this.rig.snap(this.heroes[0].root.position);
     this.ui.toast('Click the world to look with the mouse · WASD move · click / J strike · F spell · Q roll · R flash step · Z lock on · Esc frees the mouse');
     this.phone = new PhoneInput((connected) => this.ui.toast(connected ? 'Phone joystick connected: drag your thumb to move' : 'Phone joystick disconnected'));
-    this.buildCamps();
-    await this.loadBeat(this.story.begin(party));
+    // Body tracker (cv_2): a phone slash strikes, a real jump leaps; ignored while the scanner is open, like the keyboard.
+    this.cv = new CvInput({ status: (connected) => this.ui.toast(connected ? 'Body tracker connected: slash with the phone to strike, jump to leap' : 'Body tracker disconnected'), slash: () => { if (!this.scanner.open) this.strike(0); }, jump: () => { if (!this.scanner.open) this.leap(0); }, complete: (name, wand) => { const colour = colourOf(name), shape = colour && shapeFromWand(colour, wand); if (colour && shape) this.onShape(colour, shape); } });
+    this.wandHud = new WandHud(this.cv, this.ui.root);
+    this.scanner.setFrameSource(this.cv);   // while the tracker runs, scans use its camera pictures: one program owns the webcam
+    // The default is the short run (about a minute): talk to Willow, hold the glade against one wave, then the boss
+    // comes for you. `?story=full` plays the whole storyteller-driven tale with camps, trials and Gemini beats.
+    if (!this.demo) { this.buildCamps(); await this.loadBeat(this.story.begin(party)); return; }
+    // Wall-clock time: the game clock pauses during dialogue, but the run's time should include the briefing.
+    this.demo.started = performance.now();
+    this.yaw = 0; this.rig.snap(this.heroes[0].root.position);
+    // No golden beacon here: it would stand right on top of Willow. The quest line and the E prompt lead the way.
+    this.target = { ...this.demo.willow, name: 'Speak with Willow' }; this.world.marker.visible = false;
+    this.ui.quest('Speak with Willow', 'She waits just ahead on the path · walk up and press E');
+    this.ui.discover('The Whispering Wood');
+  }
+
+  /** Willow explains the quest: what was stolen, who took it, and why the heroes must fight. */
+  private async briefing(): Promise<void> {
+    if (!this.demo || this.demo.stage !== 'briefing' || !this.state) return;
+    this.busy = true; this.keys.clear(); this.ui.context(); this.world.marker.visible = false; this.target = undefined;
+    if (document.pointerLockElement) document.exitPointerLock();
+    const hero = this.state.party[0].name;
+    await this.cinema.briefing({ name: 'Willow', title: 'Waykeeper of the Whispering Wood', portrait: '/art/prop-lore.webp' }, [
+      `${hero}! Thank the old roots you came. Listen closely — we have very little time.`,
+      'Morwen the Frost Witch has stolen the last warm spring of Evermere. Without it, the rivers freeze, the fields die, and winter never ends.',
+      'Her shadow horde is marching on this glade to break the waystone. Hold them back, and Morwen will have to face you herself.',
+      'When she comes, roll away from her frost and strike while her ward is down. Break her spell, and the spring flows home.',
+    ], {
+      title: 'The Last Warm Spring',
+      summary: 'Defend the Whispering Wood and win back the stolen spring.',
+      objectives: ['Defeat the shadow horde', 'Face Morwen the Frost Witch', 'Restore the last warm spring'],
+    });
+    this.busy = false;
+    if (!this.ended) this.startWave();
+  }
+
+  /** One wave: the horde pours out of the treeline in front of the hero. */
+  private startWave(): void {
+    const demo = this.demo!, p = this.heroes[0].root.position;
+    demo.stage = 'wave'; demo.foes = 0;
+    this.encounterBefore = this.state!.hearts; this.encounterKind = 'encounter';
+    this.ui.quest('Defeat the shadow horde', `Shadows defeated 0 / ${WAVE.length} · J strike · F spell · Q roll`);
+    this.ui.toast('They are coming! J to strike · F to cast · Q to roll · Z to lock on');
+    this.sfx.warn(); this.rig.addTrauma(0.25);
+    // Fan the horde across the view (the camera looks down -Z here). All spawn now, so the wave can't be "cleared"
+    // early; the far group simply takes a few seconds longer to arrive.
+    for (const { radius, angle } of WAVE) {
+      this.spawnEnemy(p.x + Math.sin(Math.PI + angle) * radius, p.z + Math.cos(Math.PI + angle) * radius, undefined, true);
+      const foe = this.enemies[this.enemies.length - 1]; if (foe) foe.hp = foe.maxHp = WAVE_HP;
+    }
+  }
+
+  /** The wave is broken: Morwen arrives and strides in along the path. */
+  private async startBoss(): Promise<void> {
+    const demo = this.demo!; demo.stage = 'boss';
+    // Willow's blessing: the horde is broken, so the heroes face the witch at full strength.
+    const healed = this.state!.hearts < 3;
+    while (this.state!.hearts < 3 && this.state!.gainHeart()) { /* refill */ }
+    const at = this.heroes[0].root.position.clone().add(new T.Vector3(0, 1, 0));
+    this.fx.motes(at, 0xc9ffe0, 40, 0.8, 2.6, 0.3, 1.6); this.fx.shockwave(this.heroes[0].root.position, 0x9ff0d0, 4, 0.8);
+    this.ui.quest('Face Morwen the Frost Witch', 'Roll from her frost · strike while her ward is down');
+    this.ui.toast(healed ? 'Willow’s blessing restores your hearts · the air turns to ice…' : 'The air turns to ice…'); this.sfx.freeze();
+    await new Promise((resolve) => window.setTimeout(resolve, 1400));
+    if (this.ended || this.disposed) return;
+    const p = this.heroes[0].root.position;
+    // Tuned so the fight takes three or four dodge-then-strike cycles (about 25 s), not one lucky window.
+    const boss: BossSpec = { kind: 'frost-witch', name: 'Morwen the Frost Witch', maxHp: 28, attacks: ['frost-gaze', 'shadow-wave'], telegraphSec: 1.8, vulnerableSec: 3.2 };
+    this.encounterBefore = this.state!.hearts; this.encounterKind = 'boss';
+    // She appears on open ground with nothing between her and the hero, preferring the direction the camera already
+    // faces, so she visibly strides into view instead of getting stuck behind a signpost or tree.
+    const facing = Math.atan2(-Math.sin(this.rig.viewYaw), -Math.cos(this.rig.viewYaw)), eye = new T.Vector3(p.x, p.y + 1.2, p.z);
+    let spot = { x: p.x, z: p.z - 13 }, best = -Infinity;
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, x = p.x + Math.sin(a) * 13, z = p.z + Math.cos(a) * 13;
+      const open = encounterSpawn({ x, z }, p, this.world.solids);
+      if (Math.hypot(open.x - x, open.z - z) > 0.5 || heightAt(x, z) < -0.3) continue;
+      if (this.physics?.wallDistance(eye, new T.Vector3(x, heightAt(x, z) + 1.2, z)) !== undefined) continue;
+      const score = Math.cos(a - facing); if (score > best) { best = score; spot = { x, z }; }
+    }
+    this.spawnEnemy(spot.x, spot.z, boss, true); this.sfx.roar(); this.rig.addTrauma(0.6);
+    const spawned = this.enemies[this.enemies.length - 1];
+    if (spawned) {
+      this.fx.shockwave(spawned.root.position, 0x9fc6ff, 10, 1.2, 0.1); this.fx.sparks(spawned.root.position.clone().add(new T.Vector3(0, 1.5, 0)), 0x9fc6ff, 60, 9, 0.3, 1.2, 2);
+      spawned.cooldown = 3; this.lock = spawned; this.sfx.lockOn();
+    }
+    this.cinema.bossIntro('Morwen', 'The Frost Witch');
+  }
+
+  /** Quest complete (or the hero fell): celebrate, then show the run's result. */
+  private async endDemo(victory: boolean): Promise<void> {
+    const demo = this.demo!; if (demo.stage === 'done') return;
+    demo.stage = 'done'; this.ended = true; this.busy = true; this.keys.clear(); this.ui.boss(); this.ui.context();
+    const seconds = (performance.now() - demo.started) / 1000;
+    if (victory) {
+      this.ui.quest('The spring flows again', 'Evermere is warm once more');
+      const p = this.heroes[0].root.position.clone().add(new T.Vector3(0, 1, 0));
+      this.fx.motes(p, 0xffe7a6, 90, 2, 4, 0.35, 2.4); this.fx.shockwave(this.heroes[0].root.position, 0xffe2a0, 12, 1.4); this.fx.flash(p, 0xffd88a, 30, 1.2);
+      this.sfx.success();
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, victory ? 2600 : 1400));
+    if (document.pointerLockElement) document.exitPointerLock();
+    await this.cinema.result({
+      victory, seconds, foes: demo.foes + (victory ? 1 : 0), hearts: this.state!.hearts, stars: this.state!.stars[0] + this.state!.stars[1], hero: this.state!.party[0].name,
+      closing: this.closingLine(victory),
+    });
+  }
+
+  /** Willow's last words. A relic scanned on the way gets its moment: the real object, what it became, and its element. */
+  private closingLine(victory: boolean): string {
+    const relic = this.state?.relics.at(-1);
+    if (!relic) return victory ? '“You did more than win a battle. You gave Evermere its spring back.” — Willow' : '“Rise, hero. The frost has not won — not yet.” — Willow';
+    if (!victory) return `“Rise, hero. Keep that ${relic.object} close: ${relic.name} will shine brighter next time.” — Willow`;
+    // Only the element Morwen fears "broke her frost"; ice (which she resists) or anything else simply carried the hero.
+    const article = /^[aeiou]/i.test(relic.object) ? 'An' : 'A', feared = BOSS_ELEMENTS['frost-witch']?.weak === relic.element;
+    return `“${article} ${relic.object} from your own world became ${relic.name}, and ${feared ? `its ${relic.element} broke her frost` : 'it carried you through'}. You gave Evermere its spring back.” — Willow`;
   }
 
   private async loadModels(): Promise<void> {
@@ -231,7 +375,7 @@ export class Adventure {
       Promise.all([loader.loadAsync('/models/polyhaven/fern_02/fern_02.gltf'), loader.loadAsync('/models/polyhaven/rock_moss_set_01/rock_moss_set_01.gltf')]).then(([fern, rocks]) => { if (!this.disposed) this.world.useForestDressing(fern.scene, rocks.scene); }),
       loader.loadAsync('/models/evermere-waystone.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/assetyard/wayfarer-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
-      Promise.all([ranger, companion, loader.loadAsync('/models/assetyard/arming-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero) => hero.holdWeapon(asset.scene)); }),
+      Promise.all([ranger, companion, loader.loadAsync('/models/assetyard/arming-sword.glb')]).then(([, , asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); }); }),
       loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => textures.loadAsync(`/models/polyhaven/${name}.jpg`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
@@ -306,6 +450,7 @@ export class Adventure {
     this.ui.onInteract = () => { void this.interact(); }; this.ui.onAttack = () => this.strike(0); this.ui.onSpell = () => this.cast(0); this.ui.onDodge = () => this.roll(0); this.ui.onScan = () => void this.openScan(); this.ui.onFlash = () => this.flashStep(0); this.ui.onMap = () => this.openJournal();
     this.ui.onSound = () => { this.sound = !this.sound; this.sfx.setMuted(!this.sound); this.narrator.enabled = this.sound; if (!this.sound) this.narrator.stop(); this.ui.sound(this.sound); };
     this.ui.onNarrate = (text) => this.narrator.speak(text); this.ui.onSilence = () => this.narrator.stop();
+    this.cinema.onNarrate = (text) => this.narrator.speak(text); this.cinema.onSilence = () => this.narrator.stop();
     this.ui.root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((button) => {
       const key = button.dataset.key!;
       button.onpointerdown = (event) => { event.preventDefault(); button.setPointerCapture(event.pointerId); this.keys.add(key); };
@@ -331,6 +476,7 @@ export class Adventure {
   private async interact(): Promise<void> {
     if (!this.state || this.busy || this.ui.blocked || this.ended || this.trial || this.encounterKind) return;
     const p = this.heroes[0].root.position;
+    if (this.demo?.stage === 'briefing') { if (distance(p, this.demo.willow) < 3.6) await this.briefing(); return; }
     if (this.target && distance(p, this.target) < 3.2) { await this.runBeat(); return; }
     const object = this.nearest;
     if (!object) return;
@@ -404,8 +550,14 @@ export class Adventure {
   }
 
   private async complete(kind: OutcomeKind, success: boolean, before: number, summary: string, choiceId?: string): Promise<void> {
+    if (this.demo && this.state && !this.ended) {
+      this.encounterKind = undefined;
+      if (kind === 'encounter') await this.startBoss(); else if (kind === 'boss') { this.bossWon = success; await this.endDemo(success); }
+      return;
+    }
     if (!this.state || !this.beat || this.ended) return;
     this.ui.challenge(); this.ui.boss(); this.trial = undefined; this.encounterKind = undefined;
+    this.cv?.gate(true);   // the wand is free again: any shape
     this.heroes.forEach((hero) => { hero.pose = ''; });
     if (success && kind !== 'story' && kind !== 'vote') { this.state.stars[0]++; this.state.stars[1]++; if (this.sound) this.sfx.success(); }
     if (kind === 'boss') this.bossWon = success;
@@ -578,7 +730,8 @@ export class Adventure {
     if (player === 0 && !rapid) this.movementVelocity[0].add(new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading)).multiplyScalar(step === 2 ? 5 : 2.5));
     this.pending.push({ at: this.time + (rapid ? 0.04 : move.hit), player, damage: rapid ? 1 : move.damage, reach: move.reach, arc: move.arc, heavy: step === 2, step });
     const origin = hero.root.position.clone(); origin.y += step === 1 ? 1.35 : 1.05;
-    this.fx.slash(origin, hero.heading, rapid ? 0xbfe8ff : move.color, rapid ? Math.random() * 2 : move.tilt, step === 2 ? 2.1 : 1.75, rapid ? 0.12 : move.length * 0.55, step === 1);
+    const relic = this.weapons[player];
+    this.fx.slash(origin, hero.heading, rapid ? 0xbfe8ff : relic ? ELEMENT_COLOR[relic.element] : move.color, rapid ? Math.random() * 2 : move.tilt, step === 2 ? 2.1 : 1.75, rapid ? 0.12 : move.length * 0.55, step === 1);
     this.sfx.swing(step);
   }
 
@@ -594,7 +747,7 @@ export class Adventure {
         const to = enemy.root.position.clone().sub(p); to.y = 0; const d = to.length(), reach = hit.reach + (enemy.boss ? 1.2 : 0);
         if (d > reach) continue;
         if (d > 0.6 && Math.acos(clamp(to.normalize().dot(forward), -1, 1)) > hit.arc / 2 + 0.25) continue;
-        this.hit(enemy, hit.damage, hit.player, hit.heavy); landed = true;
+        this.hit(enemy, hit.damage, hit.player, hit.heavy, this.weapons[hit.player]?.element); landed = true;
       }
       if (!landed && hit.player === 0) { const tip = p.clone().addScaledVector(forward, 1.6); tip.y += 0.2; this.fx.puff(tip, 0xb9a986, 3, 0.6, 0.25, 0.4); }
     }
@@ -610,13 +763,14 @@ export class Adventure {
     if (pick) { this.lock = pick; this.sfx.lockOn(); } else this.ui.toast('No foe nearby to focus on');
   }
 
-  /** The spell hero `player` casts: a scanned weapon's for hero 0, otherwise the plain bolt. */
-  private spellOf(player: PlayerIndex): SpellSpec { return player === 0 && this.weapon ? this.weapon.spell : defaultSpell(player ? 0xf4d391 : 0xb2f6d5); }
+  /** F's plain bolt, infused by the hero's relic if they hold one. */
+  private spellOf(player: PlayerIndex): SpellSpec { return wandSpell('bolt', this.weapons[player], player ? 0xf4d391 : 0xb2f6d5); }
 
-  private cast(player: PlayerIndex): void {
-    if (!this.canAct() || this.spellCooldown[player] > 0 || this.trial) return;
-    const spell = this.spellOf(player);
-    this.spellCooldown[player] = spell.cooldown * (this.state!.has('quick-cast') ? 0.4375 : 1);
+  /** Cast F's bolt, or a `drawn` wand spell (which runs on its shape's own cooldown instead). True if it went off. */
+  private cast(player: PlayerIndex, drawn?: SpellSpec): boolean {
+    if (!this.canAct() || (!drawn && this.spellCooldown[player] > 0) || this.trial) return false;
+    const spell = drawn ?? this.spellOf(player);
+    if (!drawn) this.spellCooldown[player] = spell.cooldown * (this.state!.has('quick-cast') ? 0.4375 : 1);
     const hero = this.heroes[player], p = hero.root.position;
     const locked = player === 0 && this.lock && this.lock.hp > 0 ? this.lock : undefined;
     const target = locked ?? this.closestEnemy(p, 19), direction = new T.Vector3(Math.sin(hero.heading), 0, Math.cos(hero.heading));
@@ -636,8 +790,9 @@ export class Adventure {
       }
     }
     hero.attack = 0.35; hero.attackClip = 'strike'; hero.attackLength = 0.35; hero.attackContact = 0.12; hero.attackSerial++;
-    this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2);
+    this.fx.motes(start, color, 14, 0.35, 1.2, 0.26, 0.5); this.fx.flash(start, color, 9, 0.2); this.wands[player]?.flash();
     if (player === 0) this.sfx.cast();
+    return true;
   }
 
   private launchBolt(start: T.Vector3, direction: T.Vector3, player: PlayerIndex, spell: SpellSpec): void {
@@ -694,12 +849,24 @@ export class Adventure {
     await this.scanner.show();
   }
 
-  private equip(weapon: Weapon): void {
-    this.weapon = weapon; this.heroes[0].glowWeapon(weapon.spell.color);
-    const hero = this.heroes[0].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0)), color = weapon.spell.color;
+  private equip(weapon: Weapon, player: PlayerIndex = 0): void {
+    const color = ELEMENT_COLOR[weapon.element];
+    this.weapons[player] = weapon; this.heroes[player].glowWeapon(color); this.wands[player]?.setColor(color); this.hud.setRelic(player, weapon);
+    this.state?.forge({ hero: player, object: weapon.object, name: weapon.artifactName, element: weapon.element, ability: weapon.ability });
+    const hero = this.heroes[player].root.position, at = hero.clone().add(new T.Vector3(0, 1, 0));
     this.fx.shockwave(hero, color, 6, 1.0, 0.3); this.fx.shockwave(hero, 0xffffff, 3, 0.6, 0.15); this.fx.motes(at, color, 90, 1.2, 3.2, 0.3, 1.8); this.fx.sparks(at, color, 40, 7, 0.22, 0.8, 2);
     this.fx.flash(at, color, 26, 0.9); this.rig.addTrauma(0.3); this.sfx.chest();
-    this.ui.toast(`${weapon.artifactName} — ${weapon.element} ${weapon.ability}. ${weapon.description}`);
+    this.ui.toast(`Relic: ${weapon.artifactName} infuses your wand and sword with ${weapon.element}. ${weapon.description}`);
+  }
+
+  /**
+   * A wand completed a shape (CV tracker or keys 4-7 / 8-0,-): cast that shape's spell now, infused by the hero's relic if
+   * any. During a trial the shape belongs to the pose seal, so it never also casts.
+   */
+  private onShape(colour: WandColour, shape: WandShape): void {
+    const player = heroFor(colour, this.solo); if (player === undefined || !this.state || this.ended || this.scanner.open || this.trial) return;
+    if (!this.wandCooldowns.ready(player, shape, this.time) || !this.cast(player, wandSpell(SHAPE_ABILITY[shape], this.weapons[player]))) return;
+    this.wandCooldowns.use(player, shape, this.time); this.hud.cast(player, shape, SHAPE_COOLDOWN[shape]);
   }
 
   /** Toward the held direction, else away from a locked foe, else forward. */
@@ -767,7 +934,7 @@ export class Adventure {
     this.fx.flash(at, 0xffd59a, crit ? 16 : 10, 0.14);
     this.fx.number(at.clone().add(new T.Vector3(0, 0.7, 0)), String(damage), crit ? '#ffe27a' : '#fff4df', crit);
     if (multiplier > 1) {
-      const color = this.weapon?.spell.color ?? 0xffd36b;
+      const color = this.weapons[player]?.spell.color ?? 0xffd36b;
       this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Weak point!', '#ffd36b', true); this.fx.shockwave(enemy.root.position, color, 5, 0.6, 0.25);
       this.fx.sparks(at, color, 34, 9, 0.24, 0.7, 3); this.fx.flash(at, color, 22, 0.3); this.hitstop = Math.max(this.hitstop, 0.11); this.rig.addTrauma(0.35);
     } else if (multiplier < 1) this.fx.number(at.clone().add(new T.Vector3(0, 1.5, 0)), 'Resisted', '#9fb0b8');
@@ -788,6 +955,10 @@ export class Adventure {
       if (!enemy.encounter && !enemy.boss) { this.drop(enemy.root.position); if (enemy.elite) this.drop(enemy.root.position.clone().add(new T.Vector3(0.6, 0, 0.4))); }
       if (enemy.pawn !== undefined) { this.physics?.removeCharacter(enemy.pawn); enemy.pawn = undefined; }
       this.ui.toast(enemy.boss ? 'The frost breaks. Spring remembers your name.' : 'Shadow dispelled · +2 starlight');
+      if (this.demo?.stage === 'wave' && !enemy.boss) {
+        this.demo.foes++;
+        this.ui.quest('Defeat the shadow horde', `Shadows defeated ${this.demo.foes} / ${WAVE.length}${this.demo.foes < WAVE.length ? '' : ' · the horde is broken!'}`);
+      }
       if (enemy.encounter && this.encounterKind && !this.enemies.some((e) => e.encounter && e.hp > 0)) {
         const kind = this.encounterKind; this.encounterKind = undefined;
         void this.complete(kind, true, this.encounterBefore, kind === 'boss' ? 'The heroes defeated the guardian and restored the spring.' : 'The heroes drove back the gathering shadows.');
@@ -805,6 +976,7 @@ export class Adventure {
 
   private async finish(victory: boolean): Promise<void> {
     if (this.ended || !this.state) return;
+    if (this.demo) { await this.endDemo(victory); return; }
     this.ended = true; this.busy = true; this.keys.clear(); this.ui.challenge(); this.ui.boss(); this.ui.context();
     if (this.encounterKind && this.beat) {
       this.state.outcomes.push({ beatId: this.beat.id, kind: this.encounterKind, success: false, heartsLost: Math.max(0, this.encounterBefore - this.state.hearts), summary: 'The shadows overcame the heroes, but their story can begin again.', perPlayer: [{ success: false, stars: 0 }, { success: false, stars: 0 }] });
@@ -847,7 +1019,7 @@ export class Adventure {
       this.camera.position.x = 12 + Math.sin(this.time * 0.06) * (this.reducedMotion ? 0 : 2); this.camera.lookAt(0, 2.4, 17);
     }
     this.fx.lockOn(this.lock && this.lock.hp > 0 ? this.lock.root.position.clone().add(new T.Vector3(0, this.lock.boss ? 4.2 : 2.3, 0)) : undefined, this.time);
-    this.fx.update(paused ? real * 0.25 : dt, this.time);
+    this.fx.update(paused ? real * 0.25 : dt, this.time); this.wands.forEach((wand) => wand?.update(real));
     this.sfx.update(real);
     occlusion.uCamPos.value.copy(this.camera.position); occlusion.uFocus.value.copy(this.heroes[0].root.position).add(new T.Vector3(0, 1.1, 0));
     this.post.render(real, this.time);
@@ -1001,7 +1173,7 @@ export class Adventure {
     const trial = this.trial; if (!trial) return;
     trial.elapsed += dt;
     if (trial.type === 'freeze') {
-      if (this.active.some((hero) => hero.moving > 0.1)) trial.moved += dt;
+      if (this.active.some((hero) => hero.moving > 0.1) || this.cv?.moving()) trial.moved += dt;
       this.ui.challenge('Let the frost pass', `Stay still · ${Math.max(0, trial.duration - trial.elapsed).toFixed(1)} seconds`, trial.elapsed / trial.duration);
       if (trial.elapsed >= trial.duration) {
         const success = trial.moved < 0.25; this.trial = undefined;
@@ -1012,10 +1184,14 @@ export class Adventure {
       const pose = trial.poses[trial.poseIndex];
       const name = { 'arms-up': 'Raise your arms', 't-pose': 'Spread your arms', crouch: 'Crouch low' }[pose];
       const key = { 'arms-up': '1', 't-pose': '2', crouch: '3' }[pose];
+      // The seal also opens to its rune drawn with a wand (cv_2 tracker): the tracker is asked for that shape.
+      const rune = POSE_SHAPE[pose], wand = this.cv?.trackerConnected ? ` or draw a ${rune}` : '';
+      this.cv?.gate(true, rune);
       const matching = this.active.every((hero) => hero.pose === pose);
-      if (matching) trial.held += dt;
+      if (this.cv?.takeShape(rune)) trial.held = 1.2;
+      else if (matching) trial.held += dt;
       else trial.held = Math.max(0, trial.held - dt * 0.5);
-      this.ui.challenge(name, `Hold ${key} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
+      this.ui.challenge(name, `Hold ${key}${wand} · seal ${trial.poseIndex + 1} of ${trial.poses.length} · ${Math.max(0, trial.secondsPerPose - trial.elapsed).toFixed(1)}s`, trial.held / 1.2);
       if (trial.held >= 1.2) {
         trial.poseIndex++; trial.held = 0; trial.elapsed = 0; this.burst(this.heroes[0].root.position.clone().add(new T.Vector3(0, 1.5, 0)), 0x9fe7d0, 14); if (this.sound) this.sfx.chime();
         if (trial.poseIndex >= trial.poses.length) { this.trial = undefined; this.ui.toast('The ancient seal opens for you.'); void this.complete('pose', true, trial.before, 'The heroes mirrored every ancient shape and opened the gate.'); }
@@ -1054,7 +1230,8 @@ export class Adventure {
         enemy.windup -= dt; enemy.ring.visible = true; enemy.ring.scale.setScalar(1 + Math.sin(this.time * 11) * 0.04);
         if (enemy.boss) this.ui.boss(enemy.boss.name, enemy.hp / enemy.maxHp, enemy.attack === 'frost-gaze' ? 'Frost gaze · stand perfectly still' : 'Shadow wave · hold 3 to crouch, or dodge away' + this.fearsLine(enemy.boss.kind));
         if (enemy.windup <= 0) {
-          enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : 2;
+          // In the demo run the horde swings a little less often, so a six-strong wave is fierce but survivable.
+          enemy.ring.visible = false; enemy.cooldown = enemy.boss ? enemy.boss.vulnerableSec : enemy.elite ? 1.5 : this.demo ? 2.6 : 2;
           // Regular foes lunge into the strike.
           if (!enemy.boss) { const lunge = target.root.position.clone().sub(p).setY(0); if (lunge.lengthSq() > 0.01) enemy.knock.add(lunge.normalize().multiplyScalar(7)); }
           this.burst(p.clone().add(new T.Vector3(0, 0.2, 0)), enemy.boss ? 0xa4d8df : 0xf7b69a, 17);
@@ -1078,14 +1255,17 @@ export class Adventure {
         }
         const engaged = enemy.encounter || !!enemy.boss || enemy.ai === 'chase';
         const walk = (to: Position, speed: number) => { const dx = to.x - p.x, dz = to.z - p.z, len = Math.hypot(dx, dz); if (len > 0.4) { motion.x += dx / len * speed * dt; motion.z += dz / len * speed * dt; face = Math.atan2(dx, dz); } };
-        if (engaged && d < (enemy.boss ? 11 : 2.6) && enemy.cooldown <= 0) {
-          enemy.windup = enemy.boss ? enemy.boss.telegraphSec : 0.9;
+        // In the demo run at most two of the horde wind up at once, with a longer, readable telegraph.
+        const crowded = !!this.demo && !enemy.boss && this.enemies.filter((e) => !e.boss && e.hp > 0 && e.windup > 0).length >= 2;
+        if (engaged && d < (enemy.boss ? 11 : 2.6) && enemy.cooldown <= 0 && !crowded) {
+          enemy.windup = enemy.boss ? enemy.boss.telegraphSec : this.demo ? 1.15 : 0.9;
           enemy.attack = enemy.boss ? enemy.boss.attacks[Math.floor(this.time) % enemy.boss.attacks.length] : 'strike';
           // The punch winds up through the telegraph and lands as the strike resolves.
           if (enemy.actor && !enemy.boss) { const a = enemy.actor; a.attackClip = 'punch_right'; a.attack = a.attackLength = enemy.windup + 0.35; a.attackContact = enemy.windup; a.attackSerial++; }
           this.fx.warn(p.clone().add(new T.Vector3(0, enemy.boss ? 3.6 : enemy.elite ? 2.3 : 1.7, 0))); this.sfx.warn();
         } else if (engaged && d < (enemy.encounter ? 35 : enemy.boss ? 12 : 30) && d > (enemy.boss ? 5 : 1.7)) {
-          walk(target.root.position, enemy.boss ? 1.4 : enemy.encounter ? 2.3 : enemy.elite ? 2.6 : 3.0);
+          // A boss strides in from afar, then closes the last few steps slowly and deliberately.
+          walk(target.root.position, enemy.boss ? (d > 9 ? 3.2 : 1.4) : enemy.encounter ? 2.3 : enemy.elite ? 2.6 : 3.0);
           face = Math.atan2(target.root.position.x - p.x, target.root.position.z - p.z);
         } else if (enemy.ai === 'return') walk(enemy.home, 3.2);
         else if (enemy.ai === 'idle' && enemy.wander) walk(enemy.wander, 1.1);
@@ -1159,7 +1339,7 @@ export class Adventure {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.narrator.stop();
-    this.events.abort(); this.scanner.dispose(); this.phone?.dispose(); this.renderer.setAnimationLoop(null);
+    this.events.abort(); this.scanner.dispose(); this.shapes.dispose(); this.hud.dispose(); this.wands.forEach((wand) => wand?.dispose()); this.phone?.dispose(); this.cv?.dispose(); this.wandHud?.dispose(); this.renderer.setAnimationLoop(null);
     this.physics?.dispose();
     this.scene.traverse((object) => { if (object instanceof T.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((mat) => mat.dispose()); } });
     this.sparkGeometry.dispose(); this.wheel.remove(); this.post.composer.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.ui.root.remove(); this.ui.modal.remove(); document.querySelector('.adventure-start')?.remove();

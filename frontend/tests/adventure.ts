@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { Adventure } from '../src/adventure/Adventure';
+import { WAND_RECOVERY } from '../src/adventure/forge';
 import { objectiveFor } from '../src/adventure/terrain';
 import type { BeatOutcome, StoryBeat } from '../src/contracts';
 import type { GameState } from '../src/game/GameState';
@@ -8,6 +9,8 @@ import type { GameState } from '../src/game/GameState';
 // no test globals or control hooks are added to the production application.
 // These checks cover both heroes (companion, player two), so run the two-player mode.
 (window as unknown as { RIFT_PLAYERS: number }).RIFT_PLAYERS = 2;
+// They walk the full storyteller-driven tale, not the short demo run the game opens with by default.
+(window as unknown as { RIFT_FULL_STORY: boolean }).RIFT_FULL_STORY = true;
 
 interface Internals {
   state: GameState; beat: StoryBeat; busy: boolean; ended: boolean; yaw: number; stamina: number; time: number;
@@ -40,6 +43,8 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
   };
   const near = (x: number, z: number) => { game.heroes.forEach((hero, i) => hero.root.position.set(x + i * 1.2, 0, z + i)); };
   const clearDialogue = async () => { while (game.ui.speaking) { game.ui.advance(); await wait(10); } };
+  // Hold for game time, not wall time, so a throttled background page still gets enough frames.
+  const holdFor = async (seconds: number) => { const from = inner.time; await until(() => inner.time - from > seconds, 'game clock stalled'); };
   const beginBeat = async (beat: StoryBeat) => {
     await inner.loadBeat(Promise.resolve(beat)); const at = objectiveFor(beat); near(at.x, at.z);
     const work = inner.interact(); await until(() => game.ui.speaking, 'dialogue missing'); await clearDialogue(); return work;
@@ -50,15 +55,14 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
     document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await start;
     inner.narrator.enabled = false; inner.sound = false;
     await check('Keyboard movement changes world position; camera follows', async () => {
-      // Hold for game time, not wall time, so a throttled background page still gets enough frames.
-      const before = game.heroes[0].root.position.clone(), from = inner.time; key('KeyW'); await until(() => inner.time - from > 0.22, 'game clock stalled'); key('KeyW', false);
+      const before = game.heroes[0].root.position.clone(); key('KeyW'); await holdFor(0.22); key('KeyW', false);
       assert(game.heroes[0].root.position.distanceTo(before) > 0.4, 'hero did not walk');
       assert(game.camera.position.distanceTo(game.heroes[0].root.position) < 20, 'camera lost the hero');
     });
     await check('Sprint spends stamina, camera can orbit, player two moves independently', async () => {
-      key('ShiftLeft'); key('KeyW'); await wait(160); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
-      const yaw = inner.yaw; key('KeyC'); await wait(120); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
-      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await wait(150); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
+      key('ShiftLeft'); key('KeyW'); await holdFor(0.16); key('KeyW', false); key('ShiftLeft', false); assert(inner.stamina < 1, 'sprint did not use stamina');
+      const yaw = inner.yaw; key('KeyC'); await holdFor(0.12); key('KeyC', false); assert(inner.yaw !== yaw, 'camera did not orbit');
+      const p = game.heroes[1].root.position.clone(); key('ArrowRight'); await holdFor(0.15); key('ArrowRight', false); assert(game.heroes[1].root.position.distanceTo(p) > 0.3, 'second hero did not move');
     });
     await check('Treasure can be claimed once and full health preserves healing springs', async () => {
       const chest = game.world.objects.find((o) => o.kind === 'chest')!; near(chest.x, chest.z); inner.update(0.02);
@@ -94,6 +98,55 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       }
       await work; await until(() => inner.beat.id === 'show-me', 'pose sequence did not open the riddle door');
       assert(inner.state.outcomes.at(-1)?.success, 'pose success missing');
+    });
+    await check('Scanner shows the Scan button once the camera starts, and closing always releases the camera', async () => {
+      const scanner = (game as unknown as { scanner: { open: boolean; show(): Promise<void>; close(): void } }).scanner;
+      const media = navigator.mediaDevices, real = media.getUserMedia;
+      const feed = document.createElement('canvas'); feed.width = 64; feed.height = 48; feed.getContext('2d')!.fillRect(0, 0, 64, 48);
+      const streams: MediaStream[] = [], opened = () => streams.length, ended = (s: MediaStream) => s.getTracks().every((t) => t.readyState === 'ended');
+      const labels = () => [...document.querySelectorAll('.rift-panel button')].map((b) => b.textContent ?? '');
+      media.getUserMedia = async () => { const s = feed.captureStream(5); streams.push(s); return s; };
+      try {
+        void scanner.show();
+        await until(() => labels().some((l) => l.startsWith('Scan the object')), `camera started but there was no Scan button (saw: ${labels().join(', ')})`);
+        scanner.close(); assert(opened() === 1 && ended(streams[0]), 'closing left the camera on');
+        // Closed while the browser is still asking for the camera: the late stream must be stopped, not kept.
+        let grant!: () => void; const asking = new Promise<void>((resolve) => { grant = resolve; });
+        media.getUserMedia = async () => { await asking; const s = feed.captureStream(5); streams.push(s); return s; };
+        const pending = scanner.show(); scanner.close(); grant(); await pending;
+        assert(opened() === 2 && ended(streams[1]), 'a camera granted after closing stayed on');
+      } finally { media.getUserMedia = real; scanner.close(); }
+    });
+    await check('Tracker camera: its picture fills the wand panel, and the scanner scans from it without opening the webcam', async () => {
+      // A fake tracker speaks to CvInput as the relay would (no backend needed): one program owns the webcam.
+      const cv = (game as unknown as { cv: { handle(m: unknown): void; snapshot(): Promise<unknown> } }).cv;
+      const hud = (game as unknown as { wandHud: { draw(now: number): void; canvas: HTMLCanvasElement } }).wandHud;
+      const scanner = (game as unknown as { scanner: { show(): Promise<void>; close(): void } }).scanner;
+      const paint = document.createElement('canvas'); paint.width = 64; paint.height = 48;
+      const pen = paint.getContext('2d')!; pen.fillStyle = '#e02020'; pen.fillRect(0, 0, 64, 48);
+      const jpeg = paint.toDataURL('image/jpeg', 0.9).split(',')[1];
+      const wand = { active: true, secondsLeft: 0, target: null, next: null, shapes: { yellow: null }, complete: { yellow: false }, traces: { yellow: [[[0.2, 0.2], [0.4, 0.3]]] } };
+      const media = navigator.mediaDevices, realCamera = media.getUserMedia, realFetch = window.fetch, realSnapshot = cv.snapshot;
+      const labels = () => [...document.querySelectorAll('.rift-panel button')].map((b) => b.textContent ?? '');
+      let cameraAsks = 0, sent = '';
+      media.getUserMedia = async () => { cameraAsks++; throw new Error('the scanner opened the webcam while the tracker owns it'); };
+      window.fetch = async (_url, init) => { sent = String(init?.body ?? ''); return new Response('{}', { status: 503 }); };
+      cv.snapshot = async () => ({ jpeg, w: 64, h: 48 });
+      const feed = () => { cv.handle({ type: 'cv', slash: 0, jump: 0, motion: 0, phone: { x: 0.7, y: 0.5, radius: 0.05 }, wand }); cv.handle({ type: 'frame', w: 64, h: 48, jpeg }); };
+      try {
+        cv.handle({ type: 'peer', role: 'tracker', state: 'joined' }); feed();
+        // Drawn directly (not on an animation frame) so this also passes with the pane hidden.
+        await until(() => { feed(); hud.draw(performance.now() / 1000); const [r, g] = hud.canvas.getContext('2d')!.getImageData(hud.canvas.width / 2, hud.canvas.height * 0.8, 1, 1).data; return r > 120 && g < 90; }, 'the tracker picture never appeared in the wand panel');
+        void scanner.show(); feed();
+        await until(() => labels().some((l) => l.startsWith('Scan the object')), `no Scan button with the tracker's picture (saw: ${labels().join(', ')})`);
+        assert(document.querySelector<HTMLImageElement>('.rift-scan img.rift-video')!.src.startsWith('data:image/jpeg'), 'the scan screen does not show the tracker picture');
+        [...document.querySelectorAll<HTMLButtonElement>('.rift-panel button')].find((b) => (b.textContent ?? '').startsWith('Scan the object'))!.click();
+        await until(() => sent.includes('"imageBase64":"/9j/'), 'the scan did not send the tracker snapshot');
+        assert(cameraAsks === 0, 'the scanner asked for the webcam while the tracker owns it');
+      } finally {
+        media.getUserMedia = realCamera; window.fetch = realFetch; cv.snapshot = realSnapshot; scanner.close();
+        cv.handle({ type: 'peer', role: 'tracker', state: 'left' });
+      }
     });
     await check('Show-me door: a wrong photo is refused with what Gemini saw, a right one opens it, and Skip fails without losing a heart', async () => {
       const scanner = (game as unknown as { scanner: { open: boolean; captureFromFile(f: File): Promise<void> } }).scanner;
@@ -138,6 +191,54 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       assert(enemy.hp <= 0, 'spell projectiles did not defeat enemy');
       const snapshot: BeatOutcome[] = inner.state.history().outcomes; if (snapshot[0]) snapshot[0].summary = 'mutated';
       assert(inner.state.outcomes[0]?.summary !== 'mutated', 'history leaked live state');
+    });
+    await check('Two weapons: drawing a shape casts its spell before any scan, per-shape cooldown and trials hold it, a relic infuses wand and sword', async () => {
+      inner.trial = undefined; inner.busy = false; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; });
+      type Spellish = { element?: string; color: number; damage: number };
+      const rift = game as unknown as { scanner: { open: boolean; show(): Promise<void>; captureFromFile(f: File): Promise<void> }; weapons: unknown[]; strikes: Spellish[]; bolts: Spellish[]; hit: (...a: unknown[]) => void; strike(p: 0 | 1): void; resolveHits(): void };
+      const draw = (code: string) => { key(code); key(code, false); };
+      const hud = () => document.querySelector('.weapons-hud')?.textContent ?? '';
+      assert(hud().includes('Sword') && hud().includes('Wand') && hud().includes('No relic'), 'weapons HUD does not show sword, wand and no relic');
+      // Before any scan: a triangle drops an arcane meteor at once.
+      const before = rift.strikes.length; draw('Digit5');
+      const meteor = rift.strikes.at(-1);
+      assert(rift.strikes.length === before + 1 && meteor?.element === undefined && meteor?.damage === 2, 'a drawn triangle did not cast an arcane meteor without a relic');
+      assert(hud().includes('meteor'), 'HUD does not show the last shape');
+      draw('Digit5'); assert(rift.strikes.length === before + 1, 'the same shape cast again inside its cooldown');
+      // The wand recovers for WAND_RECOVERY after any spell: a different shape inside it is held, then goes off once it passes.
+      const bolts = rift.bolts.length; draw('Digit6'); assert(rift.bolts.length === bolts, 'a different shape cast inside the wand recovery');
+      inner.time += WAND_RECOVERY + 0.05;
+      draw('Digit6'); assert(rift.bolts.length === bolts + 3, 'a different shape (square: wave) was blocked by the triangle cooldown');
+      inner.time += WAND_RECOVERY + 0.05;
+      inner.trial = { elapsed: 0 }; const during = rift.bolts.length; draw('Digit7'); inner.trial = undefined;
+      assert(rift.bolts.length === during, 'a shape drawn during a trial also cast');
+      // Relic: a fire scan infuses both weapons.
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8;
+      const photo = new File([await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'))], 'mug.png', { type: 'image/png' });
+      const realFetch = window.fetch;
+      window.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith('/api/artifact')
+        ? new Response(JSON.stringify({ artifact: { object: 'coffee mug', artifactName: 'Ember Chalice', artifactType: 'chalice', element: 'fire', ability: 'bolt', damage: 70, rarity: 'epic', description: 'Still warm.' }, source: 'gemini' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : realFetch(url, init)) as typeof fetch;
+      const realHit = rift.hit; const elements: unknown[] = [];
+      try {
+        localStorage.removeItem('storybound.armory.v1');
+        void rift.scanner.show(); await until(() => rift.scanner.open, 'scanner did not open');
+        await rift.scanner.captureFromFile(photo); await until(() => !!document.querySelector('.relic-card'), 'relic card missing');
+        assert((document.querySelector('.rift-panel')!.textContent ?? '').includes('infuses your wand and sword with fire'), 'card does not say the relic infuses both weapons');
+        key('Enter'); key('Enter', false); await until(() => !rift.scanner.open, 'scanner did not close');
+        assert(hud().includes('Relic: Ember Chalice') && hud().includes('Sword · fire') && hud().includes('Wand · fire'), 'HUD does not show the relic infusing both weapons');
+        inner.time += WAND_RECOVERY + 0.05;
+        const chain = rift.bolts.length; draw('Digit7');
+        assert(rift.bolts.length === chain + 1 && rift.bolts.at(-1)?.element === 'fire', 'a drawn star did not cast a fire chain');
+        assert(inner.state.history().relics?.[0]?.object === 'coffee mug', 'storyteller history is missing the relic');
+        // The sword carries the element too, so boss weakness and resistance apply to slashes.
+        rift.hit = (...a: unknown[]) => { elements.push(a[4]); return realHit.apply(game, a); };
+        const p = game.heroes[0].root.position; (game as unknown as { spawnEnemy(x: number, z: number): void }).spawnEnemy(p.x, p.z + 1.3);
+        (inner as unknown as { attackCooldown: number[] }).attackCooldown[0] = 0;
+        // Swings land at their contact time, and only frame() advances the clock, so step it here as a frame would.
+        rift.strike(0); for (let i = 0; i < 10; i++) { inner.time += 0.05; inner.update(0.05); }
+        assert(elements.includes('fire'), 'a sword hit did not carry the relic element');
+      } finally { window.fetch = realFetch; rift.hit = realHit; localStorage.removeItem('storybound.armory.v1'); rift.weapons.length = 0; inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); }
     });
     await check('Boss wards block damage during the warning and admit spells during recovery', async () => {
       inner.enemies.forEach((enemy) => { enemy.hp = 0; enemy.root.visible = false; }); inner.state.hearts = 3;

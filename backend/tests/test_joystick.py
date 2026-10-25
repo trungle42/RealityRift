@@ -4,12 +4,19 @@ os.environ["OFFLINE"] = "1"
 
 import json  # noqa: E402
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.joystick import clean_move  # noqa: E402
 from app.main import app  # noqa: E402
 
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    # One TestClient context runs every socket on one event loop; a bare TestClient gives each websocket_connect its own,
+    # and a relayed message could then fail to wake the other session's pending receive (an occasional hang).
+    with TestClient(app) as c:
+        yield c
 
 
 def test_clean_move_clamps_to_unit_disc():
@@ -25,13 +32,13 @@ def test_clean_move_rejects_garbage():
     assert clean_move({"type": "move", "x": 0, "y": 0, "sprint": "yes"})["sprint"] is False
 
 
-def test_joystick_page_is_served():
+def test_joystick_page_is_served(client):
     res = client.get("/joystick")
     assert res.status_code == 200 and "Storybound" in res.text and "/ws/joystick/" in res.text
     assert "lan_ip" in client.get("/joystick/info").json()
 
 
-def test_phone_move_reaches_the_game_only_sanitized():
+def test_phone_move_reaches_the_game_only_sanitized(client):
     with client.websocket_connect("/ws/joystick/t1?role=game") as game:
         with client.websocket_connect("/ws/joystick/t1?role=phone") as phone:
             assert json.loads(game.receive_text()) == {"type": "peer", "role": "phone", "state": "joined"}
@@ -44,7 +51,7 @@ def test_phone_move_reaches_the_game_only_sanitized():
             assert json.loads(game.receive_text()) == {"type": "move", "x": 0.0, "y": 1.0, "sprint": True}
 
 
-def test_rooms_are_isolated():
+def test_rooms_are_isolated(client):
     with client.websocket_connect("/ws/joystick/roomB?role=game") as game_b:
         with client.websocket_connect("/ws/joystick/roomA?role=phone") as phone_a:
             phone_a.send_text(json.dumps({"type": "move", "x": 1, "y": 0}))
@@ -54,16 +61,17 @@ def test_rooms_are_isolated():
             assert json.loads(game_b.receive_text())["y"] == 1.0
 
 
-def test_a_game_socket_cannot_send_moves_to_phones():
+def test_a_game_socket_cannot_send_moves_to_phones(client):
     with client.websocket_connect("/ws/joystick/roomC?role=phone") as phone:
         with client.websocket_connect("/ws/joystick/roomC?role=game") as game:
             assert json.loads(phone.receive_text())["role"] == "game"
             game.send_text(json.dumps({"type": "move", "x": 1, "y": 0}))
             game.send_text(json.dumps({"type": "move", "x": 0, "y": 0, "sprint": False}))
-        assert json.loads(phone.receive_text())["state"] == "left"  # nothing but the peer notice came through
+            game.close()  # inside the block: leaving it cancels the server handler before it can say "left"
+            assert json.loads(phone.receive_text())["state"] == "left"  # nothing but the peer notice came through
 
 
-def test_bad_room_or_role_is_refused():
+def test_bad_room_or_role_is_refused(client):
     for url in ("/ws/joystick/bad room!?role=phone", "/ws/joystick/ok?role=admin"):
         try:
             with client.websocket_connect(url):

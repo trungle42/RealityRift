@@ -94,7 +94,7 @@
     <li>Python 3.12</li><li>Yellow · blue · red</li><li>OpenCV colour detection (no ML model)</li><li>~27 fps on a laptop webcam</li><li>Shape recognition: circle · triangle · square · star</li><li>Phone slash gesture</li><li>Jump detection</li><li>211 tests, no camera needed</li>
   </ul>
   <nav aria-label="Sections">
-    <a href="#what">What it does</a><a href="#start">Quick start</a><a href="#screen">The screen</a><a href="#cycle">On/off cycle</a><a href="#how">How it works</a><a href="#tuning">Tuning</a><a href="#trouble">Troubleshooting</a><a href="#data">Output data</a><a href="#files">Files &amp; tests</a>
+    <a href="#what">What it does</a><a href="#start">Quick start</a><a href="#screen">The screen</a><a href="#cycle">On/off cycle</a><a href="#how">How it works</a><a href="#tuning">Tuning</a><a href="#trouble">Troubleshooting</a><a href="#game">In the game</a><a href="#data">Output data</a><a href="#files">Files &amp; tests</a>
   </nav>
 </header>
 
@@ -124,6 +124,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td><code>python -m tools.tune</code></td><td>Measure your own objects and get thresholds that fit your camera and lighting.</td></tr>
   <tr><td><code>$env:YT_COLORS="blue,red"</code> before the demo</td><td>Track only some colours (PowerShell; any of <code>yellow</code>, <code>blue</code>, <code>red</code>).</td></tr>
   <tr><td><code>python -m tools.demo --no-window --frames 90</code></td><td>Headless check: runs 90 frames, prints fps and the last detection.</td></tr>
+  <tr><td><code>python -m tools.publish</code></td><td>Send the tracker to the game through the backend; its camera picture shows inside the game, <code>--window</code> adds its own debug view (see <a href="#game">In the game</a>).</td></tr>
   <tr><td><code>python -m pytest</code></td><td>Run the tests (no camera needed).</td></tr>
 </table></div>
 
@@ -250,7 +251,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <li>Run <code>python -m tools.tune</code>.</li>
   <li>Press <kbd>1</kbd>, <kbd>2</kbd> or <kbd>3</kbd> to choose yellow, blue or red.</li>
   <li><strong>Click your object in several places</strong>: the edge where it disappears, the opposite edge, and the middle (move it between clicks). Each click samples a small patch.</li>
-  <li>Press <kbd>p</kbd>. It prints PowerShell lines such as <code>$env:YT_BLUE_HUE="108-119"</code> that cover every spot you clicked, with a little slack. Paste them into your terminal and start the demo.</li>
+  <li>Press <kbd>p</kbd>. It prints lines such as <code>export YT_BLUE_HUE="108-119"</code> (macOS/Linux) or <code>$env:YT_BLUE_HUE="108-119"</code> (PowerShell on Windows) that cover every spot you clicked, with a little slack. Paste them into the same terminal and start the demo there.</li>
 </ol>
 <p><kbd>c</kbd> forgets the chosen colour's samples, <kbd>m</kbd> toggles the panel showing what the strict detector counts as that colour.</p>
 <h3>Stays on once found</h3>
@@ -296,8 +297,13 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td>The picture looks flipped</td><td>That is the default selfie view. Set <code>YT_MIRROR=0</code> for the raw orientation.</td></tr>
 </table></div>
 
+<h2 id="game">In the game</h2>
+<p>Start the backend and the game, then run <code>python -m tools.publish</code> in <code>cv_2/</code> (add <code>--window</code> to see the tracker&rsquo;s view). It runs the same tracker and sends a small message for every frame through the backend to the game: a <strong>slash swings the hero&rsquo;s sword</strong>, a <strong>jump makes the hero jump</strong>, and <strong>moving during the freeze spell</strong> breaks it. Slashes count again after half a second here instead of two, so the sword can be swung repeatedly. The terminal prints when the backend connects, when the game joins and each slash or jump.</p>
+<p><strong>In the game, the game takes the wand.</strong> The 5-second on/off cycle stops while the game is open: the wand is always on and any of the four shapes counts, so you choose the spell. <strong>Hold the wand still for a moment, then draw</strong> the shape back to the point where you rested: it counts the moment the loop closes, and the wand is ready for the next shape under a second later. The game&rsquo;s wand panel (bottom left) shows the camera picture, you holding the wand and phone, with your trail, the phone marker, what to draw and the shape you made. The tracker has no window of its own any more and is the only program that opens the webcam: the scanner shows the same picture and scans from a full-size snapshot it asks the tracker for. Each completed shape goes to the game&rsquo;s spells, and a pose seal also opens to its rune: triangle for arms up, square for the T-pose, circle for the crouch. When the game closes, the tracker goes back to its own on/off demo. If the game runs on another room (<code>?room=demo</code> in its address), pass <code>--room demo</code>; <code>--api</code> points at a backend other than <code>http://localhost:8000</code>. The message format is in <code>docs/api-contract.md</code>.</p>
+<div class="note"><strong>Freeze counts the whole picture.</strong> The game treats the player as moving when at least 6% of the picture moves, so people walking behind the player during the freeze spell count too. Film against a quiet background.</div>
+
 <h2 id="data">Output data</h2>
-<p>Each frame produces a plain dictionary (<code>Pipeline.process(frame)</code>). It is JSON-safe and uses 0-1 coordinates, so it can be sent to a web frontend unchanged. Nothing serves it over the network yet.</p>
+<p>Each frame produces a plain dictionary (<code>Pipeline.process(frame)</code>). It is JSON-safe and uses 0-1 coordinates. <code>tools.publish</code> sends the game a smaller message built from it (see <a href="#game">In the game</a>).</p>
 <pre><code>{
   "active": true,             // false during the OFF phase
   "secondsLeft": 3.2,         // until the next switch
@@ -335,7 +341,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   "jump":  { "active": false, "secondsLeft": 0.0, "count": 1 },  // the user jumped; same shape as slash
   "motion": { "vy": -0.82, "vx": 0.03, "area": 0.44 }   // raw whole-picture motion behind "jump" (null on the first frame); vy &lt; 0 is up, in picture heights per second
 }</code></pre>
-<p>Everything is plain JSON with coordinates from 0 to 1 and <code>x</code> already mirrored when <code>"mirrored"</code> is true. There is no server yet: this is what <code>Pipeline.process(frame)</code> returns, and what a WebSocket would send.</p>
+<p>Everything is plain JSON with coordinates from 0 to 1 and <code>x</code> already mirrored when <code>"mirrored"</code> is true. This is what <code>Pipeline.process(frame)</code> returns; the game receives the slash and jump counts, <code>motion.area</code> and the wand round from it.</p>
 
 <h2 id="files">Files &amp; tests</h2>
 <div class="tablewrap"><table>
@@ -353,11 +359,15 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt</code></pre
   <tr><td><code>tracker/overlay.py</code></td><td>Draws each colour's trail and marker, the banner, and the mask view.</td></tr>
   <tr><td><code>tracker/calibrate.py</code></td><td>Turns HSV samples of your object into suggested thresholds.</td></tr>
   <tr><td><code>tools/demo.py</code></td><td>The demo window.</td></tr>
+  <tr><td><code>tracker/game.py</code></td><td>Builds the small message the game receives from each frame&rsquo;s data.</td></tr>
   <tr><td><code>tools/tune.py</code></td><td>Click-to-calibrate window (see <a href="#tuning">Tuning</a>).</td></tr>
-  <tr><td><code>tests/test_tracker.py</code></td><td>86 tests on synthetic frames with a fake clock: colour detection, tracking, traces, config.</td></tr>
+  <tr><td><code>tools/publish.py</code></td><td>Sends the tracker to the game through the backend (see <a href="#game">In the game</a>).</td></tr>
+  <tr><td><code>tests/test_tracker.py</code></td><td>90 tests on synthetic frames with a fake clock: colour detection, tracking, traces, config, calibration output.</td></tr>
   <tr><td><code>tests/test_shapes.py</code></td><td>44 tests: shape recognition on ideal and simulated hand-drawn paths, the shape cycle, the latched "complete" state, and end to end through the pipeline.</td></tr>
-  <tr><td><code>tests/test_slash.py</code></td><td>38 tests: the slash detector on slash-shaped and ordinary motion, and through the pipeline.</td></tr>
+  <tr><td><code>tests/test_slash.py</code></td><td>40 tests: the slash detector on slash-shaped and ordinary motion, a short hold not counting one swing twice, and through the pipeline.</td></tr>
   <tr><td><code>tests/test_jump.py</code></td><td>43 tests: the motion sensor on synthetic frames, the jump detector, and the jump/slash interaction.</td></tr>
+  <tr><td><code>tests/test_publish.py</code></td><td>12 tests: the game message, the camera pictures (mirrored preview, full-size snapshot), trace thinning, and the sender against a stand-in relay (newest message wins, reconnects when the backend starts later).</td></tr>
+  <tr><td><code>tests/test_wand.py</code></td><td>18 tests: the game driving the wand (any shape or a named one, rest then draw, ready again after a shape, switching off and on, back to the timer) and <code>tools.publish</code> applying the game&rsquo;s messages.</td></tr>
 </table></div>
 <p>The tests draw yellow, blue and red balls on sticks (plus skin-, green-, cyan- and magenta-coloured decoys) and drive the clock by hand. They check, among other things, that each colour's path follows its own object without picking up the others, that every path is erased on <em>every</em> OFF switch over several cycles, that no detector runs while OFF, that red is found in both of its hue ranges, that a ball fading toward one side is still followed but not found from scratch, and that a lost object breaks the line. The tests use synthetic images, so they say nothing about your lighting. The default colour bands were hand-tuned on one laptop camera; run <code>python -m tools.tune</code> to fit them to yours.</p>
 <p>Developer notes and design decisions: <code>cv_2/CLAUDE.md</code>. Setup summary: <code>cv_2/README.md</code>.</p>

@@ -71,6 +71,24 @@ export function scaledDamage(base: number, multiplier: number): number { return 
 /** The spell every hero has before scanning anything. */
 export function defaultSpell(color: number): SpellSpec { return { ability: 'bolt', color, damage: 1, ...BASE.bolt }; }
 
+/** Wand spells with no relic held: a neutral arcane violet, no element. */
+export const ARCANE_COLOR = 0xc4a8ff;
+
+/**
+ * A relic's power: 1, or 2 for a legendary or a very strong (90+) one. Kept low on purpose: a relic's real weight is its
+ * element, which doubles every hit on the boss that fears it ("Weak point!"); a high tier on top made Morwen fall in seconds.
+ */
+export function relicTier(relic: Pick<Artifact, 'damage' | 'rarity'>): number { return relic.rarity === 'legendary' || relic.damage >= 90 ? 2 : 1; }
+
+/**
+ * A wand spell of `ability`. A held relic infuses it with its element, colour and power tier; without one it is
+ * tier 1 in `color`. A meteor strikes one tier harder either way.
+ */
+export function wandSpell(ability: Ability, relic?: Artifact, color = ARCANE_COLOR): SpellSpec {
+  const tier = relic ? relicTier(relic) : 1;
+  return { ability, element: relic?.element, color: relic ? ELEMENT_COLOR[relic.element] : color, damage: tier + (ability === 'meteor' ? 1 : 0), ...BASE[ability] };
+}
+
 export interface Weapon extends Artifact { spell: SpellSpec; source: 'gemini' | 'fallback' }
 
 export function makeWeapon(response: ArtifactResponse): Weapon { return { ...response.artifact, spell: spellFor(response.artifact), source: response.source }; }

@@ -20,8 +20,10 @@ tracker/
   pipeline.py  Pipeline.process(frame, now) -> payload; one gate for all colours; clears every trace on the on->off edge;
                advances the shape to draw (circle, triangle, square, star, ...) on every off->on edge and names each colour's drawing
   overlay.py   draw(...): per-colour fading trail + marker, ON/OFF banner + countdown bar, the shape to draw + detected shape; mask_view(...)
+  game.py      game_message(payload): the small per-frame message the game receives
 tools/demo.py  OpenCV window
 tools/tune.py  click-to-calibrate window: sample your objects, get thresholds to paste
+tools/publish.py  sends the tracker to the game through the backend relay
 tests/         Synthetic frames and an injectable clock: no camera needed
 ```
 
@@ -60,6 +62,34 @@ python -m tools.demo --no-window --frames 90   # headless smoke test
 python -m pytest
 ```
 
+## Send it to the game
+
+With the backend running (`backend/`, port 8000) and the game open:
+
+```
+python -m tools.publish                                   # ws://localhost:8000/ws/cv/storybound
+python -m tools.publish --window                          # debug: also open the tracker's own OpenCV view (q quits)
+python -m tools.publish --api http://localhost:8020 --room demo
+```
+
+It runs the same tracker and sends a small message per frame through the backend relay (`/ws/cv/{room}`, see
+[../docs/api-contract.md](../docs/api-contract.md)). In the game a **slash swings the sword**, a **jump makes the hero jump**,
+**moving during the freeze spell** breaks it, and **wand shapes** go to the game's shape handler (Reality Rift's spells) and open
+pose seals drawn as their rune (triangle = arms up, square = T-pose, circle = crouch). The game must use the same room
+(`?room=demo` in its URL; both default to `storybound`).
+
+**The game takes the wand.** While the game is in the room the 5 s timer is off: the wand is always on, any preset counts (a seal
+asks for its own), and the game's wand panel shows your trail. **Hold the wand still for a moment, then draw** the shape back to
+that point; it counts when the loop closes, and the wand is ready again 0.8 s later. When the game leaves, the timer demo comes back.
+The terminal prints when the backend connects, when the game joins and what it asks for, and each slash/jump. Slashes count again
+after 0.5 s here (`--slash-hold`), not the demo's 2 s.
+
+**Everything shows inside the game; only the tracker opens the webcam.** It has no window by default and sends the game a small
+mirrored camera picture (`--preview-fps` 9, `--preview-width` 224, ~2-10 KB each): the wand panel shows it with the trails and the
+phone marker on top, and a setup hint when something has been wrong for ~1 s ("Yellow wand not seen", "Phone tape not seen", "Step
+back a little": thresholds `NEAR_WAND` / `NEAR_PHONE` in `frontend/src/adventure/cvMath.ts`, first guesses for 1.5-2 m). The game's scanner (X) shows the same picture and, on "Scan the object", asks for one full-size (512 px,
+unmirrored) snapshot instead of opening the camera, so there is no webcam conflict (Windows only lets one program have it).
+
 ## Tuning
 
 **Best way: measure your own objects.** Webcam lighting is rarely even (on the dev laptop the brightness differs 2x from one
@@ -71,8 +101,8 @@ python -m tools.tune
 ```
 
 Press `1` / `2` / `3` to pick yellow / blue / red, then **click the object in several places**: the side where it
-disappears, the other side, and the middle. Press `p` to print PowerShell lines covering all the samples
-(`$env:YT_BLUE_HUE=...`, `..._S_MIN`, `..._V_MIN`), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
+disappears, the other side, and the middle. Press `p` to print lines covering all the samples (`export YT_BLUE_HUE=...`,
+`..._S_MIN`, `..._V_MIN` on macOS/Linux; `$env:YT_BLUE_HUE=...` in PowerShell on Windows), paste them, and start the demo. `c` clears a colour's samples, `m` toggles
 the mask panel.
 
 Detection is also forgiving once it has found an object: it is acquired with the strict thresholds and then followed with

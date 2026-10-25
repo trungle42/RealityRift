@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 
 import numpy as np
 
@@ -20,7 +21,12 @@ class Pipeline:
     turns on, the shape the user is asked to draw advances through cfg.shapes.
 
     The phone marker is separate: it is tracked on every frame whatever the gate says (the gate is about the wand game),
-    has no trace or shape, and only feeds the slash detector."""
+    has no trace or shape, and only feeds the slash detector.
+
+    control() hands the wand to the game (game mode) until release(): the game switches it on and off and names the shape
+    to draw, or none, so any preset counts and the player picks. In game mode a stroke starts where the wand was last held
+    still, a completed shape stays complete for cfg.wand_rearm_s and then that colour starts over, so the wand can be used
+    again and again within one "on"."""
 
     def __init__(self, cfg: Config, detectors: dict[str, ColorDetector] | None = None):
         self.cfg = cfg
@@ -41,6 +47,10 @@ class Pipeline:
         self._done: dict[str, ShapeResult | None] = dict.fromkeys(self.detectors)
         # The finished round, kept through the OFF phase (the traces are erased but the result is still readable).
         self._previous: dict | None = None
+        # Game mode: (on, target) set by the game, or None while the 5 s timer runs the round.
+        self._game: tuple[bool, str | None] | None = None
+        self._done_at: dict[str, float] = {}
+        self._still: dict[str, deque[tuple[float, float, float]]] = {n: deque() for n in self.detectors}
         self.phone_detector = (ColorDetector(cfg.phone, cfg.min_area_frac, cfg.track_hue_margin, cfg.track_relax,
                                              cfg.track_max_growth, cfg.track_min_shrink) if cfg.phone else None)
         self.phone_track = ColorTrack(cfg, self.phone_detector) if self.phone_detector else None
@@ -62,8 +72,66 @@ class Pipeline:
     def _shape_json(r: ShapeResult | None) -> dict | None:
         return None if r is None else {"shape": r.shape, "score": float(r.score)}
 
-    def _target(self, offset: int = 0) -> str:
+    def _target(self, offset: int = 0) -> str | None:
+        if self._game is not None:
+            return None if offset else self._game[1]
         return self.cfg.shapes[(self._round + offset) % len(self.cfg.shapes)]
+
+    def control(self, on: bool, target: str | None = None) -> None:
+        """The game takes the wand: on/off, and the shape it wants (None, or one this tracker does not know, means any
+        preset). Switching on or changing the target starts afresh: every trace and completed shape is cleared."""
+        game = (on, target if target in self.cfg.shapes else None)
+        if game != self._game:
+            self._clear_round()
+            for t in self.traces.values():
+                t.max_points = self.cfg.wand_trace_points
+        self._game = game
+
+    def release(self) -> None:
+        """Back to the 5 s timer (the game has gone)."""
+        if self._game is not None:
+            self._game = None
+            self._clear_round()
+            for t in self.traces.values():
+                t.max_points = self.cfg.max_trace_points
+
+    def _clear_round(self) -> None:
+        self._shapes = dict.fromkeys(self.detectors)
+        self._done = dict.fromkeys(self.detectors)
+        self._done_at = {}
+        for name, t in self.traces.items():
+            t.clear()
+            self._still[name].clear()
+
+    def _paused(self, name: str, now: float, point: tuple[float, float], aspect: float) -> bool:
+        """The wand has been held (nearly) still for cfg.wand_pause_s: where it rests is where the next stroke starts."""
+        recent = self._still[name]
+        recent.append((now, *point))
+        while recent and now - recent[0][0] > self.cfg.wand_pause_s:
+            recent.popleft()
+        if not recent or now - recent[0][0] < self.cfg.wand_pause_s * 0.9:
+            return False
+        _, x, y = recent[-1]
+        return all(((px - x) * aspect) ** 2 + (py - y) ** 2 <= self.cfg.wand_still_dist ** 2 for _, px, py in recent)
+
+    def _recognise_game(self, aspect: float, now: float) -> None:
+        """Game mode: name each colour's current stroke (its newest segment, which starts where the wand last rested).
+        A preset, or the game's target if it named one, latches as complete; wand_rearm_s later the colour starts over."""
+        target = self._game[1] if self._game else None
+        for name, trace in self.traces.items():
+            if self._done[name] is not None:
+                if now - self._done_at[name] < self.cfg.wand_rearm_s:
+                    self._shapes[name] = self._done[name]
+                    continue
+                self._done[name] = self._shapes[name] = None
+                trace.clear()
+                self._still[name].clear()
+                continue
+            stroke = trace.segments[-1] if trace.segments else None
+            result = self.recognizer.classify(stroke, aspect) if stroke else None
+            self._shapes[name] = result
+            if result is not None and result.shape is not None and (target is None or result.shape == target):
+                self._done[name], self._done_at[name] = result, now
 
     def _recognise(self, aspect: float) -> None:
         """Name each colour's drawing from its longest unbroken stroke (a lost track would otherwise be a jump).
@@ -85,9 +153,11 @@ class Pipeline:
     def process(self, frame: np.ndarray, now: float | None = None) -> dict:
         now = time.monotonic() if now is None else now
         h, w = frame.shape[:2]
-        active, remaining = self.gate.state(now)
+        active, remaining = self.gate.state(now) if self._game is None else (self._game[0], 0.0)
 
-        if self._was_active and not active:
+        if self._game is not None:
+            pass    # the game starts and ends rounds (control()); the timer's edges and round counter do not apply
+        elif self._was_active and not active:
             self._previous = {"target": self._target(),
                               "shapes": {n: self._shape_json(r) for n, r in self._shapes.items()}}
             self._shapes = dict.fromkeys(self.detectors)
@@ -106,9 +176,15 @@ class Pipeline:
                 if det is None:
                     continue
                 sx, sy = track.smoothed
-                self.traces[name].add(now, (self._nx(sx, w), float(round(sy / h, 4))))
+                point = (self._nx(sx, w), float(round(sy / h, 4)))
+                if self._game is not None and self._done[name] is None and self._paused(name, now, point, w / h):
+                    self.traces[name].clear()   # resting: the next stroke starts here
+                self.traces[name].add(now, point)
                 objects[name] = self._obj(det, w, h)
-            self._recognise(w / h)
+            if self._game is None:
+                self._recognise(w / h)
+            else:
+                self._recognise_game(w / h, now)
         else:
             for track in self.tracks.values():
                 track.reset()
@@ -129,6 +205,7 @@ class Pipeline:
         jump = self.jump.update(now, motion)
 
         return {
+            "mode": "timer" if self._game is None else "game",
             "active": active,
             "secondsLeft": float(round(remaining, 2)),
             "mirrored": self.cfg.mirror,

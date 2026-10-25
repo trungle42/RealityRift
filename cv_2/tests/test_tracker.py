@@ -373,7 +373,18 @@ def test_suggest_needs_samples():
 
 def test_env_lines_are_powershell_assignments():
     sug = suggest([(177, 200, 200), (3, 180, 150)])
-    assert env_lines("red", sug) == ['$env:YT_RED_HUE="172-179,0-8"', '$env:YT_RED_S_MIN="165"', '$env:YT_RED_V_MIN="135"']
+    assert env_lines("red", sug, powershell=True) == ['$env:YT_RED_HUE="172-179,0-8"', '$env:YT_RED_S_MIN="165"', '$env:YT_RED_V_MIN="135"']
+
+
+def test_env_lines_are_exports_for_zsh_and_bash():
+    sug = suggest([(177, 200, 200), (3, 180, 150)])
+    assert env_lines("red", sug, powershell=False) == ['export YT_RED_HUE="172-179,0-8"', 'export YT_RED_S_MIN="165"', 'export YT_RED_V_MIN="135"']
+
+
+@pytest.mark.parametrize("platform, prefix", [("win32", "$env:"), ("darwin", "export "), ("linux", "export ")])
+def test_env_lines_follow_the_platform(monkeypatch, platform, prefix):
+    monkeypatch.setattr("tracker.calibrate.sys.platform", platform)
+    assert all(line.startswith(prefix) for line in env_lines("blue", suggest([(110, 120, 120)])))
 
 
 # --- roundness filter (red vs lips) ---------------------------------------------

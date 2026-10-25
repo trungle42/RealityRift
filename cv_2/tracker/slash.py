@@ -26,8 +26,9 @@ class SlashDetector:
     0.5 s window with only an average speed saw the middle of a slash, which looks exactly like a quick lowering, and fired on
     normal movement too. Marker smear can leave just the two ends of a fast swing visible (min_points=2, up to gap_s of blur).
 
-    After firing it is "active" for hold_s and ignores further slashes until then. Time is an argument, never read from a clock,
-    so it is testable without sleeping."""
+    After firing it is "active" for hold_s and ignores further slashes until then, then re-arms with a cleared buffer: what the
+    marker did during the hold is the rest of the swing that fired, and with a hold shorter than window_s it would otherwise
+    count as a second slash. Time is an argument, never read from a clock, so it is testable without sleeping."""
 
     def __init__(self, window_s: float = 1.5, min_drop: float = 0.30, min_speed: float = 0.3, max_sideways: float = 0.6,
                  down_frac: float = 0.8, gap_s: float = 0.25, hold_s: float = 2.0, min_points: int = 2,
@@ -37,6 +38,7 @@ class SlashDetector:
         self.min_points, self.min_peak_speed = min_points, min_peak_speed
         self._pts: deque[tuple[float, float, float]] = deque()  # (t, x, y)
         self._until = 0.0
+        self._rearm = False     # a hold is running; clear the buffer when it ends
         self._count = 0
 
     def _state(self, now: float) -> SlashState:
@@ -46,6 +48,9 @@ class SlashDetector:
     def update(self, now: float, point: tuple[float, float] | None, aspect: float = 1.0,
                suppress: bool = False) -> SlashState:
         """suppress=True (the whole body is moving: a jump) forgets the motion and cannot fire."""
+        if self._rearm and now >= self._until:
+            self._rearm = False
+            self._pts.clear()
         if suppress:
             self._pts.clear()
             return self._state(now)
@@ -62,6 +67,7 @@ class SlashDetector:
             self._pts.popleft()
         if now >= self._until and self._swung_down():
             self._until = now + self.hold_s
+            self._rearm = True
             self._count += 1
             self._pts.clear()       # the next slash needs fresh motion
         return self._state(now)

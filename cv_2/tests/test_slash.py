@@ -84,6 +84,22 @@ def test_a_second_slash_while_showing_is_ignored_then_it_rearms():
     assert states[-1].count == 2 and states[-1].active
 
 
+def test_a_short_hold_does_not_count_the_rest_of_the_same_swing():
+    # A fast swing fires once a third of the way down; what it moves after that must not be a second slash once a short
+    # hold (the game's) is over. With the 2 s default the window had long forgotten it, so this only showed with short holds.
+    for hold in (0.2, 0.5, 1.0, 2.0):
+        states = track(SlashDetector(hold_s=hold), still(6) + linear(0.05, 0.97, 7) + still(60, y=0.97))
+        assert states[-1].count == 1, hold
+
+
+def test_a_short_hold_rearms_for_the_next_swing():
+    det = SlashDetector(hold_s=0.5)
+    track(det, still(6) + slash())
+    track(det, linear(0.95, 0.15, 12) + still(4), t0=0.8)   # raise again
+    states = track(det, slash(), t0=1.4)
+    assert states[-1].count == 2
+
+
 def test_raise_then_swing_down_is_a_slash():
     path = linear(0.9, 0.12, 25) + still(4, y=0.12) + slash(0.12, 0.95)
     assert fired(track(SlashDetector(), path))
