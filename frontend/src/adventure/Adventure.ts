@@ -967,9 +967,11 @@ export class Adventure {
    */
   private updateRunes(): void {
     if (this.trial) return;
-    if (!this.encounterKind || this.ended) { this.endRunes(); return; }
-    if (this.freeRunes) {
-      // No requests: any shape casts. The tracker still stops tracing while every playing wand is recovering.
+    // A wand that cannot cast right now (dialogue, a cinematic, the scanner, the end) does not trace either: no trail is the cue.
+    if (!this.canAct() || this.scanner.open) { this.endRunes(); this.cv?.gate(false); return; }
+    if (!this.encounterKind || this.freeRunes) {
+      // No request (out of combat, or ?runes=free): any shape casts. After a spell the tracker still stops tracing
+      // while every playing wand is recovering, so a shape drawn during the cooldown neither shows nor counts.
       this.endRunes();
       const recovering = (hero: PlayerIndex) => WAND_SHAPES.every((shape) => !this.wandCooldowns.ready(hero, shape, this.time));
       this.cv?.gate(!(recovering(0) && (!this.twoAsks || recovering(1))));
@@ -1137,7 +1139,8 @@ export class Adventure {
     this.world.update(paused ? 0 : dt, this.time, this.heroes[0].root.position);
     this.heroes.forEach((hero) => hero.update(paused ? 0 : dt, this.time));
     if (this.state) {
-      if (!paused) this.update(dt);
+      // Paused (dialogue, a cinematic, the scanner, the end) means no spell can be cast, so the wand does not trace either.
+      if (!paused) this.update(dt); else if (!this.trial) this.cv?.gate(false);
       this.updateCamera(real);
       this.ui.update(this.state, this.stamina);
       this.updateWheel(); this.ui.cooldowns(this.rollCooldown[0] / ROLL.cooldown, this.flashCooldown[0] / FLASH_COOLDOWN);
