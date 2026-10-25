@@ -971,7 +971,7 @@ export class Adventure {
   private updateRunes(): void {
     if (this.trial) return;
     // A wand that cannot cast right now (dialogue, a cinematic, the scanner, the end) does not trace either: no trail is the cue.
-    if (!this.canAct() || this.scanner.open) { this.endRunes(); this.cv?.gate(false); return; }
+    if (!this.canAct()) { this.endRunes(); this.cv?.gate(false); return; }   // the docked scanner does not stop the wand
     if (!this.encounterKind || this.freeRunes) {
       // No request (out of combat, or ?runes=free): any shape casts. After a spell the tracker still stops tracing
       // while every playing wand is recovering, so a shape drawn during the cooldown neither shows nor counts.
