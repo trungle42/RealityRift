@@ -70,13 +70,13 @@ Shapes come from the camera tracker (hold the wand still, then draw; see the [cv
 
 **In a fight the game asks for the shape.** During an encounter or a boss (the demo run's wave and Morwen, and the full story's fights) a prompt near the top of the screen asks for one shape at a time, such as "▲ Draw a triangle · Meteor", with "the wand is ready" or "wand ready in 1.2 s". Only that shape casts. Any other shape gives a short shake and "Not that rune · draw ▲", and nothing happens. A cast, or 10 seconds without one, moves the request to a different shape. Two players each get their own request (hero two's sits under hero one's, tagged P2). The keyboard stand-in obeys the same request. Outside fights the wand is free: any shape casts.
 
-**The wand needs 2 seconds between spells,** whatever the shape, on top of each shape's own cooldown. While it recovers the tracker stops tracing, so a shape drawn during the pause cannot half-complete. `?runes=free` turns the requests off (any shape casts in a fight; the cooldowns and the 2 s recovery still apply), which helps when live tracking is weak.
+**The wand needs 2 seconds between spells,** whatever the shape, on top of each shape's own cooldown. While it recovers the tracker stops tracing, so a shape drawn during the pause cannot half-complete; it does not trace either whenever a spell could not be cast anyway (dialogue, a cinematic, the end of the run). When a star is the requested shape, a sloppy star is forgiven: it is read as a star when it is close enough to one (in the tracker's simulated hand drawing, 96% of requested stars are recognised instead of 89%), and no other shape gets that leniency. `?runes=free` turns the requests off (any shape casts in a fight; the cooldowns and the 2 s recovery still apply), which helps when live tracking is weak.
 
 The sword and wand models in the hero's hands come with the private art pack. Without it the weapons still work and the HUD still shows them, but nothing is drawn in the hand.
 
 ### Reality Rift: scan an object, get a relic (working)
 
-Press **X**, click the **Scan** button, or tap **Scan** on the phone. Hold a real object up to the webcam and press Enter (or "Scan the object"). The photo is shrunk to at most 512 px and sent to `/api/artifact`. Gemini returns a name, a type, an element, an ability, a damage rating (1-100) and a rarity, and the game shows a **relic card** framed around your own photo of the object.
+Press **X**, click the **Scan** button, or tap **Scan** on the phone. A small panel docks at the right of the screen; **the game keeps running underneath** (only Enter and Escape belong to the panel, so you can keep moving and casting, but scan between fights). Hold a real object up to the webcam and press Enter (or "Scan the object"). The photo is shrunk to at most 512 px and sent to `/api/artifact`. Gemini returns a name, a type, an element, an ability, a damage rating (1-100) and a rarity, and the game shows a **relic card** framed around your own photo of the object. The card leads with the element and what you get ("your spells and slashes now deal fire") and says which boss it matters against, such as "Morwen is weak to fire · x2 damage" or "Morwen resists ice · x0.5 damage". In the demo run only Morwen is listed, since she is the only boss.
 
 **A relic is a power-up for both weapons.** Its element colours and infuses the hero's wand spells, the F bolt and the sword, and its power (1-3, from the damage rating, one higher for a legendary) sets how hard the wand spells hit. The shape of the spell still comes from the shape you draw; Gemini's ability name is flavour and goes into the story.
 
@@ -374,12 +374,12 @@ Second player on the keyboard (`?players=2` only): **arrow keys** move, **/** ca
 | What | Command | Result on `main` |
 |---|---|---|
 | Backend | `cd backend && OFFLINE=1 .venv/bin/python -m pytest` | 78 pass |
-| Frontend unit tests | `cd frontend && npm test` | 101 pass |
+| Frontend unit tests | `cd frontend && npm test` | 102 pass |
 | Phone-only run | `npm run dev`, open `http://localhost:5173/tests/phonerun.html`, click **Run phone-only checks** | 5 checks: start, Willow and the wave, a scan and a roll with phone messages only, three players. The scan check can stall in a browser tab that is hidden (an image decode waits for it to be shown); keep the tab in view |
 | Type-check and build | `cd frontend && npm run build` | passes |
 | In-browser gameplay checks | `npm run dev`, open `http://localhost:5173/tests/adventure.html?story=scripted`, click **Run 3D gameplay checks** | 17 checks, listed as PASS / FAIL. They play the full story, not the demo run |
 | Demo-run junction checks | `npm run dev`, open `http://localhost:5173/tests/demorun.html`, click **Run demo-run junction checks** | 12 checks of the default demo run with every input at once (phone, camera messages, keys, a stubbed scan): rune requests, wand recovery, `?runes=free`, a relic mid-fight, Morwen's fight timing, a second phone, jump i-frames |
-| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 273 pass (about 15-90 s on a Mac; no camera needed) |
+| cv_2 | `cd cv_2 && .venv/bin/python -m pytest` | 283 pass (about 15-90 s on a Mac; no camera needed) |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` | needs a key; plays full runs |
 | Photos through `/api/artifact` | `cd backend && .venv/bin/python tools/test_photos.py <folder>` | needs a key |
 
@@ -406,14 +406,14 @@ The browser checks drive the real renderer with real key events, so they need a 
 - cv_2 tracker as a standalone program: coloured wands, shape naming, phone slash, jump, and a no-keys colour autotune (`tools.autotune`, `demo.sh --tune`).
 - cv_2 connected to the game through the backend relay: phone slash to strike, jump to jump, body motion to the freeze trial, wand shapes to the game (any shape, the wand panel, and pose seals opened by their rune) (tested with synthetic tracker frames; not yet with a live webcam).
 - Two weapons per hero (sword and wand), drawn shapes casting spells, and relics infusing both weapons with their element. In a fight the game asks for one shape at a time, and the wand needs 2 s between spells. Keys 4-7 and 8-0- stand in for the camera wand. A jump gives 1 s of invulnerability (at most once every 2.5 s).
-- The camera picture inside the game (the wand panel), also used by the scanner, so the tracker is the only program that opens the webcam.
+- The camera picture inside the game (the wand panel), also used by the scanner (a docked panel that leaves the game running), so the tracker is the only program that opens the webcam.
+- The backend presence relay and the launcher's `--name` / `--join` for three laptops (the game side that shows the other heroes is in progress, above).
 - The first of our own 3D models in the game: the waystone shrine, sculpted in Blender and baked to a light mesh with KTX2 textures. The characters and most props still come from the private art pack.
 - Classic 2.5D campaign at `?mode=classic`.
 
 **In progress (not on `main` yet)**
 
-- **Networked multiplayer.** Each laptop runs its own game, and the players' avatars sync through the host's tunnel (a presence socket, `/ws/presence`, and a `demo.sh --join` option to join a host). Nothing of it is on `main` yet, so none of those names exist in the code. `TODO(after merge)`: describe the setup, and flip this to working.
-- **Lenient star recognition** when a star is the requested shape, and **tracing that stops whenever you cannot cast**. `TODO(after merge)`
+- **Networked multiplayer, the game side.** Each laptop runs its own game and meets the others through the host's tunnel. The backend's presence relay (`/ws/presence/{room}`, `backend/app/presence.py`) and the launcher options (`--name`, `--join`; see "Join from your laptop") are on `main`, but the part of the game that connects to the relay and draws the other players' heroes is still on a branch (`feature/presence`). Until it merges, a second laptop's hero does not appear in your world. `TODO(after merge)`: flip this to working.
 - Rebuilding the rest of our 3D models in Blender (the characters and props) so the team owns every model and the private art pack is optional. The waystone is done; see above.
 
 **Not done**
