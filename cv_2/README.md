@@ -85,7 +85,7 @@ The terminal prints when the backend connects, when the game joins and what it a
 after 0.5 s here (`--slash-hold`), not the demo's 2 s.
 
 **Everything shows inside the game; only the tracker opens the webcam.** It has no window by default and sends the game a small
-mirrored camera picture (`--preview-fps` 9, `--preview-width` 224, ~2-10 KB each): the wand panel shows it with the trails and the
+mirrored camera picture (`--preview-fps` 15, `--preview-width` 224, ~2-10 KB each): the wand panel shows it with the trails and the
 phone marker on top, and a setup hint when something has been wrong for ~1 s ("Yellow wand not seen", "Phone tape not seen", "Step
 back a little": thresholds `NEAR_WAND` / `NEAR_PHONE` in `frontend/src/adventure/cvMath.ts`, first guesses for 1.5-2 m). The game's scanner (X) shows the same picture and, on "Scan the object", asks for one full-size (512 px,
 unmirrored) snapshot instead of opening the camera, so there is no webcam conflict (Windows only lets one program have it).

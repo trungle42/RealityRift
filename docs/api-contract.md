@@ -218,7 +218,7 @@ Tracker -> game, one per camera frame (~25-30 a second; the tracker skips frames
   `wands` is the same per wand colour (`{"yellow": {...} | null, ...}`), for the game's setup hints.
 
 Tracker -> game, the camera picture (the tracker is the only program that opens the webcam; the game shows this in the wand panel
-and on the scan screen), about 9 a second, newest wins:
+and on the scan screen), about 15 a second, newest wins:
 ```json
 { "type": "frame", "w": 224, "h": 168, "jpeg": "/9j/4AAQ..." }
 ```

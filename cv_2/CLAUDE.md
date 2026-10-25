@@ -68,7 +68,7 @@ tracker/
                traces thinned to 200 points per colour). Pure.
 tools/demo.py  Window + --no-window smoke test + mask view.
 tools/tune.py  Click-to-calibrate window: sample HSV of the object at several places, print suggested YT_* lines.
-tools/publish.py  Camera -> Pipeline -> game_message (+ a jpeg_message preview ~9/s) -> Publisher (one newest-wins slot per kind,
+tools/publish.py  Camera -> Pipeline -> game_message (+ a jpeg_message preview ~15/s) -> Publisher (one newest-wins slot per kind,
                sender thread, reconnects) -> backend relay; the relay's gate messages and snapshot requests are queued by listener()
                and handled before each frame (apply -> Pipeline.control/release; a snapshot -> one 512 px jpeg_message).
 tests/         Synthetic frames (grey room, coloured balls on sticks, skin/green/orange distractors); injectable clock.
@@ -238,11 +238,14 @@ a single `object` / `trace`; nothing consumed it, so it was changed without a co
 - **One camera owner, everything inside the game** (`tracker/game.jpeg_message`, `tools/publish.py`). The user saw "a bunch of random
   stuff" (an OpenCV window beside the game, and the scanner fighting the tracker for the webcam, which Windows does not allow). So the
   tracker is headless by default (`--window` is a debug flag) and the only program that opens the camera: it sends a small mirrored
-  JPEG preview (`frame`, 224 px, quality 55, ~9 a second, its own newest-wins slot in `Publisher`) that the game's wand panel and
+  JPEG preview (`frame`, 224 px, quality 55, ~15 a second, its own newest-wins slot in `Publisher`) that the game's wand panel and
   scan screen show, and answers the game's `{type: "snapshot", id}` with one 512 px unmirrored JPEG for the scan. Pictures go
   base64 through the relay (capped at 24,000 / 200,000 characters, only tracker -> game, never stored) rather than over a separate
   MJPEG endpoint, so the game keeps one connection and the relay keeps its validation. The scanner falls back to `getUserMedia` when
-  no tracker is connected.
+  no tracker is connected. **15 pictures a second, not 9:** measured end to end, the relay and sender add ~±10 ms of jitter, but a picture
+  can only go out on a camera frame, so 1/9 s meant every 4th frame of a 30 fps camera (~7.5/s) while the trail and phone ring move
+  ~30 times a second: the ball in the picture visibly lagged the trail tip. 15/s is every 2nd frame (the pacing allows 10 % early, or
+  timing noise would push it to every 3rd). No permessage-deflate on the tracker's socket: base64 JPEG barely compresses.
 - **Each colour re-arms on its own** (`wand_rearm_s`=0.8): a completed shape stays `complete` long enough for the game to see it
   (about 20 frames even with skipped frames), then only that colour's trace is erased, so two wands never interrupt each other. Every
   false -> true edge of `complete[colour]` is one cast. A stroke is capped at `wand_trace_points` (~5 s) in game mode.
