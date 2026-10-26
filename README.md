@@ -184,7 +184,7 @@ What crosses the internet: each hero's position, animation and health, and cosme
 | Browser checks | `npm run dev`, open the page, click its run button. Needs WebGL | `tests/adventure.html?story=scripted`: 18 checks, full story. `tests/demorun.html`: 12, the demo run with every input. `tests/phonerun.html`: 5, phone only (keep the tab visible). `./scripts/rehearse-multiplayer.sh --harness` (opens `tests/multiplayer.html`): 11, the presence relay and three games |
 | Real Gemini | `cd backend && PYTHONPATH=. .venv/bin/python tools/live_smoke.py` (needs a key); `.venv/bin/python tools/test_photos.py <folder>` for `/api/artifact` | |
 
-Live Gemini, the phone and the webcam are not covered by the automated checks; test them by hand ([docs/demo-script.md](docs/demo-script.md) has a checklist).
+Live Gemini, the phone and the webcam are not covered by the automated checks; test them by hand.
 
 ## Architecture and folders
 
@@ -201,7 +201,7 @@ Live Gemini, the phone and the webcam are not covered by the automated checks; t
 | `backend/static/joystick.html` | The page the phone opens | Trung |
 | `cv_2/` | The webcam tracker (`tools.publish`, `tools.autotune`, `tools.demo`), its own venv and tests | haicil |
 | `scripts/` | `demo.sh` / `demo.ps1` (the launcher), `install-art-pack.sh` / `.ps1`, `rehearse-multiplayer.sh` | Trung |
-| `docs/` | [3d-adventure.md](docs/3d-adventure.md), [api-contract.md](docs/api-contract.md), [art-direction.md](docs/art-direction.md), [devpost.md](docs/devpost.md), [demo-script.md](docs/demo-script.md); also [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md) | everyone |
+| `docs/` | `yellow-tracker.html` (the webcam tracker reference) and README images | everyone |
 
 The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, Gemini, integration, Reality Rift), **haicil / Allen Ai** (computer vision, on Windows ARM64).
 
