@@ -6,7 +6,7 @@ backend/.env
 backend/.public_url
 # Present while scripts/demo.sh runs, so a second launcher refuses instead of splitting the room
 backend/.demo_running
-# Colour thresholds for one camera and room, written by `python -m tools.autotune` (see cv_2/README.md)
+# Colour thresholds for one camera and room, written by `python -m tools.autotune`
 cv_2/tuned.env
 cv_2/tuned.env.bak
 __pycache__/
@@ -18,7 +18,7 @@ dist/
 *.db
 *.tsbuildinfo
 # Asset Yard characters and the raw Poly Haven downloads stay local; the KTX2-packed Poly Haven files
-# (scripts/pack-polyhaven.py) are committed. See frontend/public/models/README.md.
+# (scripts/pack-polyhaven.py) are committed.
 frontend/public/models/assetyard/
 frontend/public/models/polyhaven/*/*.jpg
 frontend/public/models/polyhaven/*/*.png

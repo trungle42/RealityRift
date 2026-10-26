@@ -1,6 +1,6 @@
 """Shared contracts. Gemini may only choose values from these catalogs.
 
-Frontend (Dev 1/3) types should mirror these; see docs/api-contract.md.
+Frontend types (frontend/src/contracts.ts) should mirror these.
 """
 from __future__ import annotations
 
