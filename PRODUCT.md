@@ -6,7 +6,7 @@ product
 
 ## Users
 
-HackTX 2026 players exploring a fairy-tale adventure in a desktop browser, alone with a following companion or with a second keyboard player.
+Players exploring a fairy-tale adventure in a desktop browser, alone with a following companion or with a second keyboard player.
 
 ## Product Purpose
 

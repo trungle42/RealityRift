@@ -2,7 +2,7 @@
 
 **Don't just read the fairy tale. Become part of it.**
 
-Storybound is a third-person 3D fairy-tale adventure in the browser, built for HackTX 2026 (theme: Fairy Tale). A Gemini-powered storyteller writes the tale from what you do, and your real world plays along: your phone is the controller, a stick with a coloured ball is the wand, and a mug held up to the webcam becomes a weapon.
+Storybound is a third-person 3D fairy-tale adventure in the browser. A Gemini-powered storyteller writes the tale from what you do, and your real world plays along: your phone is the controller, a stick with a coloured ball is the wand, and a mug held up to the webcam becomes a weapon.
 
 ## How you play
 
@@ -207,4 +207,4 @@ The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, G
 
 ## Status
 
-Finished. Built at HackTX 2026 (Oct 24–25, 2026) and no longer maintained. If you run it yourself, never commit `backend/.env` (the Gemini key) or `frontend/public/models/assetyard/` (the private art pack); both are git-ignored.
+Finished and no longer maintained. If you run it yourself, never commit `backend/.env` (the Gemini key) or `frontend/public/models/assetyard/` (the private art pack); both are git-ignored.
