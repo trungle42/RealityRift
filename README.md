@@ -205,15 +205,6 @@ Live Gemini, the phone and the webcam are not covered by the automated checks; t
 
 The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, Gemini, integration, Reality Rift), **haicil / Allen Ai** (computer vision, on Windows ARM64).
 
-## Team rules
-
-- **Work on a branch and open a PR against `main`.** Never push to `main` directly.
-- **Never commit `backend/.env`** (the Gemini key) **or `frontend/public/models/assetyard/`** (the private art pack). Both are git-ignored.
-- **Keep `Adventure.ts` edits small.** Everyone touches it. Put new logic in its own file and call it from `Adventure.ts` in a few lines.
-- Touching someone else's folder (`backend/app`, `cv_2/`)? Tell the owner first.
-
 ## Status
 
-**Working on `main`:** the 3D adventure (demo run and full story), the Gemini storyteller with scripted fallbacks and the storybook, Reality Rift relics and boss weaknesses, the riddle door, two weapons with rune requests, phone control through the tunnel, up to three players including Pip, the camera tracker connected to the game (with autotune), presence for three laptops with a distinct look per player (crimson ranger, royal-blue shieldmaiden, ochre-gold ranger), the one-command launcher, and our own waystone, lantern and sword models.
-
-**Not done:** aiming spells by pointing the wand; a hosted version (phones can join through a tunnel, but the game runs on a laptop); validating the tracker across lighting, cameras and people (slash recall needs the whole swing in view); the 3D game does not use the telemetry and leaderboard endpoints (`/api/event`, `/api/score`, `/api/leaderboard`, `/api/stats`); and the character models still come from the private pack.
+Finished. Built at HackTX 2026 (Oct 24–25, 2026) and no longer maintained. If you run it yourself, never commit `backend/.env` (the Gemini key) or `frontend/public/models/assetyard/` (the private art pack); both are git-ignored.
