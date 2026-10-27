@@ -382,7 +382,7 @@ document.querySelector<HTMLButtonElement>('#run')!.onclick = async () => {
       try {
         const started = blue.start(); await until(() => !!document.querySelector('.adventure-start form'), 'fresh setup missing');
         document.querySelector<HTMLFormElement>('.adventure-start form')!.requestSubmit(); await started; core.narrator.enabled = false; core.sound = false;
-        const art = (await fetch('/models/assetyard/ashfen-ranger.glb', { method: 'HEAD' })).ok;
+        const art = (await fetch('/models/characters/ashfen-ranger.glb', { method: 'HEAD' })).ok;
         if (art) {
           assert(avatarOf(blue.heroes[0].root) === 'royal', `?wand=blue gave hero one the ${avatarOf(blue.heroes[0].root)}, not the royal shieldmaiden`);
           assert(avatarOf(blue.heroes[1].root) === 'ranger', 'the companion should be the ranger when hero one is the shieldmaiden');

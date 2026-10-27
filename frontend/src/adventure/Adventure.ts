@@ -431,9 +431,11 @@ export class Adventure {
     // The companion / hero two takes the other model, so the two heroes never look alike.
     const colour = localColour(location.search), look = avatarFor(colour);
     if (colour) tintStandIn(this.heroes[0], peerColor(colour));
-    const shieldmaiden = loader.loadAsync('/models/assetyard/vale-shieldmaiden.glb').then((asset) => (this.queen = asset));   // also the frost witch
-    const heroes = Promise.all([loader.loadAsync('/models/assetyard/ashfen-ranger.glb'), loader.loadAsync('/models/assetyard/hollow-warden.glb'), shieldmaiden]).then(([ranger, combat, maiden]) => {
+    const shieldmaiden = loader.loadAsync('/models/characters/vale-shieldmaiden.glb').then((asset) => (this.queen = asset));   // also the frost witch
+    // Our ranger carries the sword clips itself, so it is also the combat set the ranger look borrows from.
+    const heroes = Promise.all([loader.loadAsync('/models/characters/ashfen-ranger.glb'), shieldmaiden]).then(([ranger, maiden]) => {
       if (this.disposed) return;
+      const combat = ranger;
       dressAvatar(this.heroes[0], look, { ranger, combat, maiden }); dressAvatar(this.heroes[1], modelOf(look) === 'maiden' ? 'ranger' : 'maiden', { ranger, combat, maiden });
     });
     const jobs = [
@@ -446,15 +448,14 @@ export class Adventure {
       loader.loadAsync('/models/evermere-waystone.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/evermere-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
       Promise.all([heroes, loader.loadAsync('/models/evermere-sword.glb')]).then(([, asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); if (i === 0 && look === 'gold') hero.glowWeapon(GOLD); }); }),
-      loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
-      loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
+      loader.loadAsync('/models/characters/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
+      loader.loadAsync('/models/characters/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => ktx2.loadAsync(`/models/polyhaven/${name}.ktx2`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
     ];
     let completed = 0;
     const outcomes = await Promise.allSettled(jobs.map((job) => job.finally(() => { completed++; const progress = document.querySelector<HTMLProgressElement>('#loading-progress'); if (progress) progress.value = completed / jobs.length; })));
     ktx2.dispose();
-    // The optional Asset Yard character pack is not in the repo: missing models fall back to the built-in
-    // stand-in characters, so a fresh clone still plays.
+    // A model that fails to load falls back to the built-in stand-in characters, so the game still plays.
     const missing = outcomes.filter((outcome) => outcome.status === 'rejected').length;
     if (missing) console.warn(`${missing} optional art file(s) not found; using built-in stand-ins.`);
   }

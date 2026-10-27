@@ -273,11 +273,12 @@ export class Presence {
   private async loadModels(): Promise<void> {
     try {
       const loader = new GLTFLoader().setKTX2Loader(new KTX2Loader().setTranscoderPath('/basis/').detectSupport(this.options.renderer));
-      const [ranger, combat, maiden, sword] = await Promise.all(['assetyard/ashfen-ranger', 'assetyard/hollow-warden', 'assetyard/vale-shieldmaiden', 'evermere-sword'].map((name) => loader.loadAsync(`/models/${name}.glb`)));
+      const [ranger, maiden, sword] = await Promise.all(['characters/ashfen-ranger', 'characters/vale-shieldmaiden', 'evermere-sword'].map((name) => loader.loadAsync(`/models/${name}.glb`)));
       if (this.closed) return;
-      this.models = { ranger, combat, maiden, sword }; this.peers.forEach((remote) => remote.dress(this.models!));
+      // The ranger carries its own sword clips, so it is also the combat set.
+      this.models = { ranger, combat: ranger, maiden, sword }; this.peers.forEach((remote) => remote.dress(this.models!));
       predye(this.models);   // dye the three looks now, at idle time, not when a teammate joins mid-game
-    } catch { /* no art pack: remote heroes keep the built-in stand-in body */ }
+    } catch { /* models failed to load: remote heroes keep the built-in stand-in body */ }
   }
 }
 
