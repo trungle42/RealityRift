@@ -22,7 +22,7 @@ export function localColour(search: string): string | undefined {
   return first && first in AVATAR_OF ? first : undefined;
 }
 
-/** The ranger has no sword moves of its own; the hollow warden's rig shares its bones, so it lends these. */
+/** The sword moves the ranger look takes from its combat set (our ranger model carries them itself, so it is its own combat set). */
 export const COMBAT_CLIPS = ['sword_idle', 'sword_slash_horizontal', 'sword_slash_overhead', 'sword_thrust', 'stagger_back'];
 export const GOLD = 0xffb53d;
 export interface AvatarModels { ranger: GLTF; combat: GLTF; maiden: GLTF }
@@ -152,7 +152,7 @@ export function dressAvatar(actor: Actor, avatar: Avatar, models: AvatarModels):
   actor.root.userData.avatar = avatar;
 }
 
-/** Without the art pack: the built-in stand-in keeps its shape and wears the player's colour on its cloak. */
+/** Before (or without) the character models: the built-in stand-in keeps its shape and wears the player's colour on its cloak. */
 export function tintStandIn(actor: Actor, color: number): void {
   const cloak = actor.cloak.material as T.MeshStandardMaterial;
   actor.cloak.material = cloak.clone(); (actor.cloak.material as T.MeshStandardMaterial).color.set(color);

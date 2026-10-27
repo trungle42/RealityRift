@@ -123,12 +123,14 @@ class Body:
     def __init__(self):
         self.ops = []
 
-    def add(self, shape, bone, tag="skin", k=0.012):
-        self.ops.append(("add", shape, k, bone, tag))
+    def add(self, shape, bone, tag="skin", k=0.012, bias=0.0):
+        """`bias` pushes the shape back when deciding which tag a surface point wears (a garment with an opening
+        reads as near to everything inside the opening)."""
+        self.ops.append(("add", shape, k, bone, tag, bias))
         return shape
 
     def cut(self, shape, k=0.004):
-        self.ops.append(("cut", shape, k, None, None))
+        self.ops.append(("cut", shape, k, None, None, 0.0))
         return shape
 
     def bounds(self, pad=0.03):
@@ -141,7 +143,7 @@ class Body:
         dims = np.ceil((hi - lo) / voxel).astype(int) + 1
         band = voxel * 4
         grid = np.full(dims, band, np.float32)
-        for mode, shape, k, _, _ in self.ops:
+        for mode, shape, k, *_ in self.ops:
             reach = k + band
             a = np.clip(np.floor((shape.lo - reach - lo) / voxel).astype(int), 0, dims)
             b = np.clip(np.ceil((shape.hi + reach - lo) / voxel).astype(int) + 1, 0, dims)
@@ -169,19 +171,57 @@ class Body:
             obj.data.flip_normals()
         return obj
 
+    def sparse_mesh(self, name, voxel, chunk=40, adaptivity=0.0):
+        """Like mesh(), but the field lives in a sparse OpenVDB grid filled chunk by chunk, so a model with a wide
+        reach (a dragon's wings) costs memory only near its surface. A chunk whose centre is far outside a shape is
+        skipped and one far inside is filled whole, which relies on the shapes being close to true distances."""
+        lo, _ = self.bounds()
+        band = voxel * 4
+        grid = openvdb.FloatGrid(float(band))
+        for mode, shape, k, *_ in self.ops:
+            reach = k + band
+            a = np.maximum(np.floor((shape.lo - reach - lo) / voxel).astype(int), 0)
+            b = np.ceil((shape.hi + reach - lo) / voxel).astype(int) + 1
+            for i in range(a[0], b[0], chunk):
+                for j in range(a[1], b[1], chunk):
+                    for kk in range(a[2], b[2], chunk):
+                        start = np.array((i, j, kk))
+                        size = np.minimum(start + chunk, b) - start
+                        centre = lo + (start + (size - 1) / 2) * voxel
+                        margin = np.linalg.norm(size) * voxel / 2 + band + k + voxel * 2
+                        d0 = shape.fn(centre[None, :])[0]
+                        if d0 > margin:
+                            continue
+                        block = np.zeros(tuple(size), np.float32)
+                        grid.copyToArray(block, tuple(int(v) for v in start))
+                        if d0 < -margin:
+                            block[:] = -band if mode == "add" else band
+                        else:
+                            idx = np.stack(np.meshgrid(*(np.arange(start[n], start[n] + size[n]) for n in range(3)), indexing="ij"), -1).reshape(-1, 3)
+                            d = shape.fn(lo + idx * voxel).reshape(tuple(size))
+                            block[:] = smin(block, d, k) if mode == "add" else -smin(-block, d, k)
+                        np.clip(block, -band, band, out=block)
+                        grid.copyFromArray(block, tuple(int(v) for v in start))
+        grid.transform = openvdb.createLinearTransform(voxelSize=voxel)
+        points, tris, quads = grid.convertToPolygons(isovalue=0.0, adaptivity=adaptivity)
+        obj = mesh_from_arrays(name, points.astype(float) + lo, tris, quads)
+        if signed_volume(obj.data) < 0:
+            obj.data.flip_normals()
+        return obj
+
     def nearest(self, points, by="bone"):
         """For each point, the distance to every bone's shapes (dict) or the tag of the nearest shape."""
         if by == "bone":
             out = {}
-            for mode, shape, _, bone, _ in self.ops:
+            for mode, shape, _, bone, *_ in self.ops:
                 if mode == "add":
                     d = _masked(shape, points)
                     out[bone] = np.minimum(out[bone], d) if bone in out else d
             return out
         best, tags = np.full(len(points), 9.0), np.full(len(points), "", object)
-        for mode, shape, _, _, tag in self.ops:
+        for mode, shape, _, _, tag, bias in self.ops:
             if mode == "add":
-                d = _masked(shape, points)
+                d = _masked(shape, points) + bias
                 closer = d < best
                 best[closer], tags[closer] = d[closer], tag
         return tags
@@ -494,23 +534,28 @@ def glossy(name, colour, rough=0.2, glow=None, strength=2.0):
     return mat
 
 
-def export(name, rig, meshes, pack=True):
-    """Write public/models/characters/<name>.glb with every NLA track as a clip, then KTX2-pack its textures."""
+def export(name, rig, meshes, pack=True, keep=(), jpeg=False):
+    """Write public/models/characters/<name>.glb with every NLA track as a clip (rig None: a static model), then
+    KTX2-pack its textures (except the roles in `keep`, see pack-ktx2.py). `jpeg` writes the textures as quality-92
+    JPEG first, which keeps the maps left uncompressed for the game's dye small."""
     out = OUT / "characters" / f"{name}.glb"
     out.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
-    for obj in [rig, *meshes]:
+    for obj in [rig, *meshes] if rig else meshes:
         obj.select_set(True)
-    bpy.context.view_layer.objects.active = rig
+    bpy.context.view_layer.objects.active = rig or meshes[0]
     bpy.context.scene.render.fps = FPS
     settings = dict(export_format="GLB", use_selection=True, export_animations=True, export_animation_mode="NLA_TRACKS",
                     export_force_sampling=True, export_skins=True, export_def_bones=False, export_image_format="AUTO",
                     export_yup=True, export_apply=False)
+    if jpeg:
+        settings.update(export_image_format="JPEG", export_image_quality=92)
     with tempfile.TemporaryDirectory() as work:
         lossless = Path(work) / f"{name}.glb"
         bpy.ops.export_scene.gltf(filepath=str(lossless), **settings)
         if pack:
-            subprocess.run([sys.executable, str(Path(__file__).with_name("pack-ktx2.py")), str(lossless), str(out)], check=True)
+            extra = ["--keep", ",".join(keep)] if keep else []
+            subprocess.run([sys.executable, str(Path(__file__).with_name("pack-ktx2.py")), str(lossless), str(out), *extra], check=True)
         else:
             out.write_bytes(lossless.read_bytes())
     print(f"SHIPPED {out} size={out.stat().st_size / 1e6:.2f} MB")

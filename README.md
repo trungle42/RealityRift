@@ -137,7 +137,6 @@ cd ..
 ```powershell
 git clone https://github.com/trungle42/Storybound.git
 cd Storybound
-powershell -ExecutionPolicy Bypass -File .\scripts\install-art-pack.ps1 C:\Users\you\Downloads\storybound-art-pack.zip   # optional: the zip from Trung or Rishaan
 cd backend;  py -3 -m venv .venv;  .venv\Scripts\pip install -r requirements.txt;  cd ..
 cd frontend; npm.cmd install;  cd ..
 cd cv_2;     uv venv --python cpython-3.12-windows-x86_64-none .venv;  uv pip install --python .venv\Scripts\python.exe -r requirements.txt;  cd ..
@@ -145,7 +144,7 @@ cd cv_2;     uv venv --python cpython-3.12-windows-x86_64-none .venv;  uv pip in
 
 A Gemini key goes in `backend/.env` (`copy backend\.env.example backend\.env`, then put it after `GEMINI_API_KEY=`); a teammate's laptop does not need one. Two Windows traps this avoids: running a `.ps1` directly is blocked by the default script policy (hence `powershell -ExecutionPolicy Bypass -File ...`, which applies to that one run and changes no setting), and so is `npm`'s own `npm.ps1` (hence `npm.cmd`). The first time, Windows asks whether Python may use the network: allow it on private networks, or the phone cannot reach your laptop.
 
-**Art pack (optional, private).** Everything except the character models is in the repo. For the full characters, ask Trung or Rishaan for `storybound-art-pack.zip`, then `./scripts/install-art-pack.sh ~/Downloads/storybound-art-pack.zip` (macOS / Linux; the Windows line is above). It unpacks into git-ignored folders; never commit it. Without it the game uses plain stand-in characters, and the sword and wand are not drawn in the hand (the weapons still work).
+**Characters.** Every model is in the repo, the characters included: the ranger, the shieldmaiden, the gloom stalker and the dragon are sculpted, rigged and animated in Blender by `frontend/scripts/build-*.py`. The old private art pack is no longer needed.
 
 **Without the launcher,** start the pieces yourself:
 
@@ -196,11 +195,11 @@ Live Gemini, the phone and the webcam are not covered by the automated checks; t
 |---|---|---|
 | `frontend/src/adventure/` | The 3D game. `Adventure.ts` is the main loop, input, combat and story flow; `Scanner.ts`, `weapon.ts`, `armory.ts` (Reality Rift); `forge.ts` (wand shapes, runes, `?wand=`), `WandModel.ts`, `WeaponsHud.ts`; `PhoneInput.ts`, `phoneActions.ts`, `players.ts`, `qr.ts` (phone); `CvInput.ts`, `cvMath.ts`, `WandHud.ts` (tracker); `Fairy.ts` (Pip); `Presence.ts` (other laptops' heroes); `Cinematics.ts`; `World.ts`, `Actor.ts`, `Willow.ts`, `Fx.ts`, `Physics.ts` | Rishaan, and everyone |
 | `frontend/src/story/`, rest of `frontend/src/` | `ScriptedStory`, `GeminiStory`; `contracts.ts` (types shared with the backend); the classic 2.5D edition | Rishaan and Trung |
-| `frontend/scripts/`, `frontend/public/models/` | Blender sources for our own models (`build-3d-kit.py`, `build-waystone.py`, `build-lantern.py`, `build-sword.py`) and their GLB output | Rishaan |
+| `frontend/scripts/`, `frontend/public/models/` | Blender sources for our own models (`build-3d-kit.py`, `build-waystone.py`, `build-lantern.py`, `build-sword.py`; the characters: `build-ashfen-ranger.py`, `build-vale-shieldmaiden.py`, `build-gloom-stalker.py`, `build-ashfen-dragon.py` on `charkit.py` and `herokit.py`) and their GLB output | Rishaan |
 | `backend/app/` | `main.py` (routes), `provider.py`, `gemini.py`, `fallbacks.py`; `joystick.py`, `cv.py`, `presence.py` (relays); `tunnel.py` (the tunnel lockdown) | Trung |
 | `backend/static/joystick.html` | The page the phone opens | Trung |
 | `cv_2/` | The webcam tracker (`tools.publish`, `tools.autotune`, `tools.demo`), its own venv and tests | haicil |
-| `scripts/` | `demo.sh` / `demo.ps1` (the launcher), `install-art-pack.sh` / `.ps1`, `rehearse-multiplayer.sh` | Trung |
+| `scripts/` | `demo.sh` / `demo.ps1` (the launcher), `install-art-pack.sh` / `.ps1` (for the old art pack, no longer needed), `rehearse-multiplayer.sh` | Trung |
 | `docs/` | `yellow-tracker.html` (the webcam tracker reference) and README images | everyone |
 
 The team: **Rishaan Malik** (game and art, on Windows), **Trung Le** (backend, Gemini, integration, Reality Rift), **haicil / Allen Ai** (computer vision, on Windows ARM64).
