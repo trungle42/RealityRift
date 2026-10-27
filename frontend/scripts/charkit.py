@@ -439,8 +439,10 @@ def window(t, a, b):
 
 # ---------------------------------------------------------------- bake, skin and ship
 
-def bake_maps(name, high, sculpt, target, cage=0.003, reach=0.010, size=TEXTURE):
-    """Decimate a game mesh from `high`, unwrap it and bake colour (with AO), roughness/metal and normal maps."""
+def bake_maps(name, high, sculpt, target, cage=0.003, reach=0.010, size=TEXTURE, ao=1.0):
+    """Decimate a game mesh from `high`, unwrap it and bake colour (with AO), roughness/metal and normal maps. `ao`
+    scales how deep the baked occlusion goes (the game applies it again from the ORM map): faces want less, or eye
+    sockets and the mouth's line go black."""
     mat, bsdf, emission, channels = sculpt
     high.data.materials.clear()
     high.data.materials.append(mat)
@@ -473,13 +475,14 @@ def bake_maps(name, high, sculpt, target, cage=0.003, reach=0.010, size=TEXTURE)
         bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=cage, max_ray_distance=reach, margin=16)
         target_mat.node_tree.nodes.remove(node)
 
+    ao_depth = ao
     colour, rough, metal, normal, ao = (_image(f"{name}-{n}", c, size) for n, c in (("colour", True), ("rough", False), ("metal", False), ("normal", False), ("ao", False)))
     for image, socket in ((colour, channels["colour"]), (rough, channels["rough"]), (metal, channels["metal"])):
         bake("EMIT", image, 8, socket)
     bake("NORMAL", normal, 8)
     bake("AO", ao, 96)
     _route(mat, bsdf, emission, None)
-    occlusion = _pixels(ao)[:, :, 0]
+    occlusion = 1 - ao_depth * (1 - _pixels(ao)[:, :, 0])
     shaded = _pixels(colour)
     shaded[:, :, :3] *= (0.55 + 0.45 * occlusion)[:, :, None]
     colour.pixels.foreach_set(shaded.ravel())

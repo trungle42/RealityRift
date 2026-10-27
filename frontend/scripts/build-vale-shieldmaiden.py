@@ -45,6 +45,14 @@ def elliptic(c, rx, ry, z0, z1, rx1, ry1):
     return hk.Shape(fn, (c[0] - r, c[1] - r, min(z0, z1)), (c[0] + r, c[1] + r, max(z0, z1)))
 
 
+def hairline(x, y):
+    """Across the brow in front, a hand's width above the brows, down past the temples to above the ears, low at the
+    nape (the head is scaled 0.84 about z 1.69)."""
+    zf = 1.69 + (1.786 - 1.69) * 0.84
+    turn = np.abs(np.arctan2(x, -(y - 0.005)))
+    return zf + 0.004 * (x / 0.05) ** 2 - 0.072 * smooth(0.55, 1.45, turn) - 0.07 * smooth(1.7, 2.8, turn)
+
+
 def ring(c, axis, r, thick, n=36):
     axis = unit(axis)
     u = unit(np.cross(axis, (0.3, 0.2, 1.0)))
@@ -139,11 +147,6 @@ def sculpt(J, hands):
     # Head: neck, face, hair swept back into a high knot with a tail, two braids forward over the shoulders, steel earrings.
     hk.neck(body, J, female=True)
     centres, P, g = hk.head(body, J, female=True)
-    zf = P(0, 0, 1.765)[2]
-    def hairline(x, y):
-        """Across the brow in front, down past the temples to above the ears, low at the nape."""
-        turn = np.abs(np.arctan2(x, -(y - 0.005)))
-        return zf + 0.004 * (x / 0.05) ** 2 - 0.072 * smooth(0.55, 1.45, turn) - 0.07 * smooth(1.7, 2.8, turn)
     # The hair lies on the skull, its thickness growing from nothing at the hairline, so the edge is soft.
     skull = hk.soft_union(0.02, ellipsoid(P(0, 0.012, 1.722), np.array((0.078, 0.098, 0.094)) * g, frame((0, 0.3, 1), (0, -1, 0.3))),
                           ellipsoid(P(0, -0.03, 1.73), np.array((0.068, 0.062, 0.07)) * g))
@@ -160,7 +163,7 @@ def sculpt(J, hands):
     for side, s in SIDES:
         braid(add, bezier(P(s * 0.06, 0.042, 1.66), np.array((s * 0.128, -0.07, 1.5)), np.array((s * 0.1, -0.178, 1.3)), 24), (0, -1, 0.2))
         lobe = P(s * 0.077, 0.004, 1.645)
-        add(ring(lobe + np.array((s * 0.004, -0.004, -0.012)), (s, 0, 0), 0.006, 0.0012), "Head", "steel", k=0.0008)
+        add(ring(lobe + np.array((s * 0.004, -0.004, -0.012)), (s, 0, 0), 0.006, 0.0012), "Head", "steel", k=0.0008, bias=0.009)   # biased so the jaw's skin stays skin
     # Loose wool trousers tucked into tall leather boots with a fur cuff and two strap rings.
     for side, s in SIDES:
         K, A, B, T = (J[side + n] for n in ("Leg", "Foot", "ToeBase", "ToeEnd"))
@@ -201,9 +204,13 @@ def surface(obj, body, J):
     cloth = is_("wool", "trousers", "panel")
     leather = is_("leather", "boot", "strap", "glove")
     skin_ = is_("skin", "lid", "lip", "ear")
-    skirt_folds, _ = hk.drape(co, (0, 0.012), 0.95, 0.58, 8, 0.008, 4)
+    # The skirt hangs in loose folds, fuller toward the hem.
+    skirt = is_("wool", "panel") & (co[:, 2] < 0.95) & (co[:, 2] > 0.5)
+    co = hk.swing(co, skirt, (0.0, 0.012), 0.97, 0.56, 15, 0.022, 4)
+    obj.data.vertices.foreach_set("co", co.ravel())
+    obj.data.update()
+    co, normal, edges = arrays(obj.data)
     offset = np.zeros(len(co))
-    offset += is_("wool") * (co[:, 2] < 0.93) * skirt_folds
     for side, s in SIDES:
         S, E, W, K, A = J[side + "Arm"], J[side + "ForeArm"], J[side + "Hand"], J[side + "Leg"], J[side + "Foot"]
         offset += is_("wool") * (hk.bunching(co, E, 0.07, 0.024, 0.003, W - E + np.array((0, 0, 0.08)), 21) + hk.bunching(co, lerp(S, E, 0.5), 0.07, 0.03, 0.002, E - S, 22))
@@ -250,22 +257,23 @@ def surface(obj, body, J):
     put(is_("boot"), (0.25, 0.155, 0.09), 0.5, wear=(0.4, 0.28, 0.18), grain_w=1.0)
     put(is_("sole"), (0.08, 0.06, 0.05), 0.75, var=0.1)
     put(is_("fur"), (0.42, 0.31, 0.2), 0.85, var=0.3)
-    put(skin_, (0.78, 0.6, 0.5), 0.5, var=0.07)
-    face = co[:, 2] > 1.5
-    flush = np.exp(-np.linalg.norm((co - np.array((0, -0.09, 1.62))) / np.array((0.05, 0.04, 0.035)), axis=1) ** 2) * face
-    albedo[skin_] = lerp(albedo[skin_], np.array((0.78, 0.48, 0.42)), (0.35 * flush[skin_] + 0.2 * is_("ear")[skin_])[:, None])
-    albedo[is_("lip")] = lerp(albedo[is_("lip")], np.array((0.66, 0.37, 0.35)), 0.75)
-    albedo[is_("lid")] *= 0.86
+    put(skin_, (0.76, 0.565, 0.46), 0.55, var=0.07)
+    albedo[skin_] = lerp(albedo[skin_], np.array((0.76, 0.45, 0.4)), (0.3 * is_("ear")[skin_] + 0.15 * ridge[skin_])[:, None])
     hair = is_("hair")
     put(hair, (0.52, 0.36, 0.22), 0.55, var=0.15)
     albedo[hair] *= (0.65 + 0.55 * strands[hair])[:, None]
+    below = hairline(co[:, 0], co[:, 1]) - 0.011 - co[:, 2]       # the hair's tag reaches about 11 mm below the line
+    fringe = skin_ & (below > -0.004) & (below < 0.012)
+    wisps = smooth(0.012, 0.0, below[fringe]) ** 1.5 * (0.45 + 0.55 * strands[fringe])
+    albedo[fringe] = lerp(albedo[fringe], np.array((0.46, 0.32, 0.2)), (0.7 * wisps)[:, None])
     albedo = hk.feather(albedo, tags, edges, ("skin", "lid", "lip", "ear", "hair"), passes=10)
     albedo[cloth] *= (1 - 0.3 * seam[cloth])[:, None]
     albedo[leather] *= (1 - 0.3 * seam[leather])[:, None]
     albedo = lerp(albedo, np.array((0.2, 0.17, 0.13)), (0.5 * grime * (cloth | leather))[:, None])
-    albedo *= (1 - 0.45 * hollow)[:, None]
+    albedo *= (1 - np.where(skin_, 0.12, 0.45) * hollow)[:, None]       # skin: the bake's occlusion is enough
     albedo = hk.face_paint(co, albedo, tags, True, (0.42, 0.28, 0.17))
     rough = np.clip(rough + 0.08 * hollow - 0.06 * ridge * leather, 0.05, 1)
+    albedo, rough, metal = hk.weathering(co, albedo, rough, metal, ridge, hollow, seam, cloth, leather, is_("steel", "mail"))
     hk.store(obj.data, albedo, rough, metal, weave=weave, leather=grain, pores=skin_.astype(float), brush=metal)
 
 
@@ -290,7 +298,7 @@ def main():
         hk.build_clips(rig, style, hands)
         bpy.ops.wm.save_as_mainfile(filepath=str(Path(PREVIEW).resolve()))
         return
-    low = bake_maps(NAME, high, mat, target=50000)
+    low = bake_maps(NAME, high, mat, target=50000, ao=0.5)
     bpy.data.objects.remove(high)
     skin(low, rig, body)
     for eye in eyes:
