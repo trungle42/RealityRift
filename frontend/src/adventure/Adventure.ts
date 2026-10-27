@@ -446,7 +446,7 @@ export class Adventure {
       loader.loadAsync('/models/evermere-waystone.glb').then((asset) => { if (!this.disposed) this.world.useWaystone(asset.scene); }),
       loader.loadAsync('/models/evermere-lantern.glb').then((asset) => { if (!this.disposed) this.world.useLanterns(asset.scene); }),
       Promise.all([heroes, loader.loadAsync('/models/evermere-sword.glb')]).then(([, asset]) => { if (!this.disposed) this.heroes.forEach((hero, i) => { hero.holdWeapon(asset.scene); hero.holdWand((this.wands[i] ??= new WandModel()).root); if (i === 0 && look === 'gold') hero.glowWeapon(GOLD); }); }),
-      loader.loadAsync('/models/assetyard/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
+      loader.loadAsync('/models/characters/gloom-stalker.glb').then((asset) => { this.monster = asset; }),
       loader.loadAsync('/models/assetyard/ashfen-dragon.glb').then((asset) => { this.dragon = asset; }),
       Promise.all(['forest_floor/Diffuse', 'mossy_cobblestone/Diffuse', 'mossy_cobblestone/nor_gl', 'forest_floor/nor_gl'].map((name) => ktx2.loadAsync(`/models/polyhaven/${name}.ktx2`))).then(([grass, stone, normal, grassNormal]) => { if (!this.disposed) this.world.useGroundTextures(grass, stone, normal, grassNormal); }),
     ];
