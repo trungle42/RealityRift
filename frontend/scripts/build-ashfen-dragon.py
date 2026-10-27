@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bpy  # noqa: E402
 import numpy as np  # noqa: E402
 
-from bakekit import cells, fbm, reset_scene, smooth  # noqa: E402
+from bakekit import cells, fbm, reset_scene, ridged, smooth  # noqa: E402
 from charkit import Body, Shape, arrays, bake_maps, ball, bezier, concavity, cone, displace, ellipsoid, export, frame, glossy, tube  # noqa: E402
 import herokit as hk  # noqa: E402
 from herokit import lerp, unit  # noqa: E402
@@ -192,6 +192,7 @@ def surface(obj, body):
     displace(obj, offset)
     # The membranes billow back between the finger bones, the whole slab moving together (not along each face's normal).
     co, normal, edges = arrays(obj.data)
+    from_bone = np.zeros(len(co))                  # how far each membrane point lies from the nearest finger bone
     for s in SIDES:
         root, elbow, wrist, tips, attach = wing(s)
         side = is_("membrane") & (co[:, 0] * s > 0.1)
@@ -202,6 +203,7 @@ def surface(obj, body):
         p = co[side]
         bones = np.min([seg_dist(p, a, b) for a, b in ((root, elbow), (elbow, wrist), *((wrist, t) for t in tips))], axis=0)
         co[side] += n * (0.09 * smooth(0.0, 0.45, bones))[:, None]
+        from_bone[side] = bones
     obj.data.vertices.foreach_set("co", co.ravel())
     obj.data.update()
     co, normal, edges = arrays(obj.data)
@@ -216,23 +218,46 @@ def surface(obj, body):
     albedo = lerp(albedo, plate * (0.8 + 0.25 * smooth(0.7, 1.0, plates))[:, None], belly_w[:, None])
     mem = is_("membrane")
     albedo[mem] = np.array((0.11, 0.075, 0.07)) * (0.8 + 0.4 * fbm(co[mem] * 9, 3, seed=23))[:, None]
+    # Age and battle: veins branching through the membranes, old claw scars raked across the hide, chipped and
+    # scratched plates on the belly, dust settled on the lower body.
+    # Thin skin between the bones lets warm light through: browner and lighter away from the bones, veined.
+    albedo[mem] = lerp(albedo[mem], np.array((0.24, 0.12, 0.09)) * (0.85 + 0.3 * fbm(co[mem] * 5, 3, seed=33))[:, None], (0.75 * smooth(0.03, 0.4, from_bone[mem]))[:, None])
+    veins = smooth(0.78, 0.95, ridged(co * 7, 4, seed=24)) * mem
+    albedo = lerp(albedo, np.array((0.08, 0.035, 0.03)), (0.65 * veins)[:, None])
+    rake = co @ unit(np.array((0.6, 0.2, 0.75)))
+    scars = smooth(0.62, 0.7, fbm(co * 2.5, 2, seed=25)) * smooth(0.75, 0.95, np.abs(np.sin(rake * 140 + 2 * fbm(co * 12, 2, seed=26))))
+    scars *= hide * (1 - belly_w)
+    albedo = lerp(albedo, np.array((0.26, 0.22, 0.2)), (0.7 * scars)[:, None])
+    seams_ = smooth(0.1, 0.0, plates) * belly_w                                                        # the gaps between plates
+    albedo = lerp(albedo, albedo * 0.6, (0.6 * seams_)[:, None])
+    chips = smooth(0.66, 0.78, fbm(co * 45, 3, seed=27)) * belly_w
+    albedo = lerp(albedo, albedo * 0.55, (chips * smooth(0.4, 0.9, plates))[:, None])
+    scratch = smooth(0.95, 0.995, ridged(co * np.array((40, 40, 5)), 2, seed=28)) * smooth(0.55, 0.7, fbm(co * 4, 2, seed=32)) * belly_w
+    albedo = lerp(albedo, np.array((0.72, 0.64, 0.46)), (0.35 * scratch)[:, None])
+    dust = smooth(1.2, 0.2, co[:, 2]) * (0.5 + 0.5 * fbm(co * 6, 3, seed=29)) * ~mem
+    albedo = lerp(albedo, np.array((0.3, 0.27, 0.23)), (0.35 * dust * (1 - hollow))[:, None])
     albedo[is_("wingbone")] = (0.09, 0.085, 0.08)
     tip = smooth(0.0, 0.25, np.linalg.norm(co - np.array((0, -0.4, 3.1)), axis=1) - 0.25)
     for name, dark, light in (("horn", (0.1, 0.09, 0.08), (0.62, 0.56, 0.46)), ("spike", (0.07, 0.065, 0.06), (0.35, 0.32, 0.28)), ("claw", (0.05, 0.045, 0.045), (0.4, 0.37, 0.32))):
         m = is_(name)
         albedo[m] = lerp(np.array(dark), np.array(light), (0.4 * ridge[m] + 0.5 * tip[m] * (name == "horn"))[:, None])
-    albedo[is_("tooth")] = (0.7, 0.64, 0.52)
+    albedo[is_("tooth")] = (0.7, 0.64, 0.52) * (0.75 + 0.35 * fbm(co[is_("tooth")] * 300, 2, seed=30))[:, None]          # stained toward the gum
+    for name in ("horn", "spike", "claw"):
+        m = is_(name)
+        albedo[m] *= (0.8 + 0.25 * np.sin(np.linalg.norm(co[m] - np.array((0, -0.4, 3.1)), axis=1) * 600 + 3 * fbm(co[m] * 40, 2, seed=31)))[:, None]   # growth rings
     mouth = (np.abs(co[:, 2] - 2.915) < 0.012) & (co[:, 1] < -0.52) & (hollow > 0.25)
     albedo[mouth] = (0.25, 0.04, 0.03)
     albedo *= (1 - 0.5 * hollow)[:, None]
     rough = np.where(belly_w > 0.5, 0.55, 0.42) - 0.12 * ridge
-    rough[mem] = 0.7
+    rough[mem] = 0.7 - 0.15 * veins[mem]
+    rough += 0.15 * scars + 0.2 * dust
     rough[is_("horn", "claw", "tooth")] = 0.3
     hk.store(obj.data, albedo, rough, np.zeros(len(co)), leather=hide * (1 - belly_w) * 0.4 + mem * 0.6)
 
 
 def eyes():
     mat = glossy(f"{NAME}-eyes", (0.9, 0.18, 0.06), rough=0.1, glow=(1.0, 0.25, 0.08), strength=4.0)
+    dark = glossy(f"{NAME}-pupils", (0.015, 0.006, 0.004), rough=0.08)
     out = []
     for s in SIDES:
         bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=0.024, location=(s * 0.142, -0.568, 3.1))
@@ -242,6 +267,14 @@ def eyes():
         eye.data.materials.append(mat)
         eye.data.shade_smooth()
         out.append(eye)
+        # A slit pupil on the eye's outer face, upright like a reptile's.
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=8, radius=1.0, location=(s * 0.1575, -0.572, 3.1))
+        pupil = bpy.context.object
+        pupil.scale = (0.0016, 0.0035, 0.0125)
+        bpy.ops.object.transform_apply(scale=True)
+        pupil.data.materials.append(dark)
+        pupil.data.shade_smooth()
+        out.append(pupil)
     return out
 
 

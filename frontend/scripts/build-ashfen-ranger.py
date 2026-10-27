@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bpy  # noqa: E402
+from mathutils.kdtree import KDTree  # noqa: E402
 import numpy as np  # noqa: E402
 
 from bakekit import fbm, reset_scene, smooth  # noqa: E402
@@ -168,12 +169,15 @@ def surface(obj, body, J):
     green, cloth, leather = is_(*GREEN), is_("coat", "hood", "linen", "wool"), is_("boot", "belt", "leather", "strap", "satchel")
     skin = is_("skin", "lid", "lip", "ear")
     # Cloth shape: hanging folds on the skirt and cowl, creases round the hood's crown, bunching at elbows, knees and ankles.
-    skirt_folds, skirt_wave = hk.drape(co, (0, 0.012), 0.95, 0.6, 7, 0.009, 3)
     hood_folds, _ = hk.drape(co, (0, 0.02), 1.82, 1.6, 9, 0.003, 5)
     cowl_folds, _ = hk.drape(co, (0, 0.02), 1.53, 1.43, 13, 0.004, 7)
+    # The coat's skirt panels hang in folds, stiffer than wool.
+    skirt = is_("coat") & (co[:, 2] < 0.95) & (co[:, 2] > 0.5)
+    co = hk.swing(co, skirt, (0.0, 0.012), 0.97, 0.6, 12, 0.017, 3)
+    obj.data.vertices.foreach_set("co", co.ravel())
+    obj.data.update()
+    co, normal, edges = arrays(obj.data)
     offset = np.zeros(len(co))
-    skirt = is_("coat") & (co[:, 2] < 0.93)
-    offset += skirt * skirt_folds
     offset += is_("hood") * np.where(co[:, 2] > 1.56, hood_folds, cowl_folds)
     for side, s in SIDES:
         E, W, K, A = J[side + "ForeArm"], J[side + "Hand"], J[side + "Leg"], J[side + "Foot"]
@@ -227,8 +231,6 @@ def surface(obj, body, J):
     flush = smooth(0.5, 1.0, np.exp(-np.linalg.norm((co - np.array((0, -0.09, 1.63))) / np.array((0.05, 0.04, 0.04)), axis=1) ** 2)) * face
     put(skin, (0.73, 0.54, 0.44), 0.55, var=0.08)
     albedo[skin] = lerp(albedo[skin], np.array((0.72, 0.42, 0.36)), (0.4 * flush[skin] + 0.25 * is_("ear")[skin] + 0.25 * ridge[skin] * ~face[skin])[:, None])
-    albedo[is_("lip")] = lerp(albedo[is_("lip")], np.array((0.6, 0.36, 0.33)), 0.7)
-    albedo[is_("lid")] *= 0.88
     put(is_("nail"), (0.82, 0.66, 0.6), 0.3, var=0.05)
     put(is_("hair"), (0.19, 0.13, 0.085), 0.6, var=0.25)
     hair = is_("hair")
@@ -240,11 +242,23 @@ def surface(obj, body, J):
     albedo[cloth] *= (1 - 0.35 * seam[cloth])[:, None]
     albedo[leather] *= (1 - 0.3 * seam[leather])[:, None]
     albedo = lerp(albedo, np.array((0.2, 0.16, 0.11)), (0.55 * grime * (cloth | leather))[:, None])
-    albedo *= (1 - 0.45 * hollow)[:, None]
+    albedo *= (1 - np.where(skin, 0.12, 0.45) * hollow)[:, None]        # skin: the bake's occlusion is enough
     albedo = hk.face_paint(co, albedo, tags, False, (0.2, 0.135, 0.085))
-    albedo = hk.feather(albedo, tags, edges, ("skin", "lid", "lip", "ear", "beard", "hair"))
+    albedo = hk.feather(albedo, tags, edges, ("skin", "lid", "lip", "ear", "beard", "hair"), passes=8)
+    # Stubble: the beard and hair thin out over the skin beside them in short dark hairs, so their edges are not cut.
+    tree = KDTree(int((beard | hair).sum()))
+    for i, p in enumerate(co[beard | hair]):
+        tree.insert(p, i)
+    tree.balance()
+    shown = np.nonzero(skin & (co[:, 2] > 1.5))[0]
+    gap = np.array([tree.find(co[i])[2] for i in shown])
+    speckle = smooth(0.4, 0.7, fbm(co[shown] * 2200, 1, seed=16))
+    stubble = smooth(0.028, 0.0, gap) ** 1.2 * (0.5 + 0.5 * speckle)
+    albedo[shown] = lerp(albedo[shown], albedo[shown] * np.array((0.5, 0.47, 0.47)), (0.85 * stubble)[:, None])
     albedo[green] = np.clip(albedo[green], 0, 1)
     rough = np.clip(rough + 0.08 * hollow - 0.06 * ridge * leather, 0.05, 1)
+    albedo, rough, metal = hk.weathering(co, albedo, rough, metal, ridge, hollow, seam, cloth | is_("scarf"), leather, is_("iron"))
+    albedo[green] = np.clip(albedo[green], 0, 1)
     hk.store(obj.data, albedo, rough, metal, weave=weave, leather=grain, pores=skin.astype(float), brush=metal)
 
 
@@ -270,7 +284,7 @@ def main():
         hk.build_clips(rig, style, hands)
         bpy.ops.wm.save_as_mainfile(filepath=str(Path(PREVIEW).resolve()))
         return
-    low = bake_maps(NAME, high, mat, target=46000)
+    low = bake_maps(NAME, high, mat, ao=0.5, target=46000)
     bpy.data.objects.remove(high)
     skin(low, rig, body)
     for eye in eyes:

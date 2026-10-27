@@ -113,6 +113,26 @@ def neck(body, J, female=False):
         body.add(ellipsoid((0, -0.04, 1.565), (0.011, 0.012, 0.016)), "Neck", k=0.016)       # Adam's apple
 
 
+def lift(z):
+    """How far the lower face's landmarks rise above where they were first laid out, so the face divides like a real
+    one: the nose ends about 5 cm below the eyes, the lips part about 2 cm below the nose and the chin ends about
+    4.5 cm below the lips (head-scaled). Nothing above the cheekbones moves."""
+    return np.interp(z, (1.54, 1.556, 1.575, 1.596, 1.62, 1.64, 1.665), (0.0155, 0.0155, 0.0115, 0.0095, 0.009, 0.0065, 0.0))
+
+
+def face_point(c, g):
+    """Face points scale about the head centre `c` by `g`, the lower face lifted as lift() says."""
+    def P(x, y, z):
+        return c + (np.array((x, y, z + lift(z)), float) - c) * g
+    return P
+
+
+def lip_curves(P, n=9):
+    """The upper and lower lip's centre lines with their radii, shared by head() and face_paint()."""
+    return ((bezier(P(-0.023, -0.097, 1.598), P(0, -0.115, 1.6055), P(0.023, -0.097, 1.598), n), 0.0033),
+            (bezier(P(-0.02, -0.096, 1.5915), P(0, -0.111, 1.5865), P(0.02, -0.096, 1.5915), n), 0.0043))
+
+
 def head(body, J, female=False):
     """Skull, face and ears, sculpted about the head centre (eyes at z 1.688). Returns the eye centres, the point
     mapping used (so hair and beard land on the same face) and the head's scale."""
@@ -122,8 +142,7 @@ def head(body, J, female=False):
     brow = 0.75 if female else 1.0
     c = np.array((0, 0.0, 1.69))
 
-    def P(x, y, z):                    # face points scale about the head centre
-        return c + (np.array((x, y, z), float) - c) * g
+    P = face_point(c, g)
 
     def R(*r):
         return np.array(r, float) * g
@@ -135,11 +154,15 @@ def head(body, J, female=False):
     for side, s in SIDES:
         add(ellipsoid(P(s * 0.053, -0.071, 1.664), R(0.021, 0.017, 0.015)), "Head", k=0.018)                                 # cheekbone
         add(ellipsoid(P(s * 0.043, -0.056, 1.638), R(0.026, 0.03, 0.033) * (0.85 if female else 1.0)), "Head", k=0.035)       # cheek
-        add(tube([P(s * 0.064 * jaw, 0.006, 1.662), P(s * 0.06 * jaw, -0.012, 1.602), P(s * 0.04 * jaw, -0.06, 1.562), P(s * 0.013, -0.082, 1.556)],
+        taper = 0.9 if female else 1.0                                                                                    # a softer, narrower chin
+        add(tube([P(s * 0.064 * jaw, 0.006, 1.662), P(s * 0.06 * jaw, -0.012, 1.602), P(s * 0.04 * jaw * taper, -0.06, 1.562), P(s * 0.013, -0.082, 1.556)],
                  R(0.012, 0.014, 0.012, 0.011)), "Head", k=0.03)                                                             # jaw line
-    add(ellipsoid(P(0, -0.052, 1.635), R(0.05, 0.03, 0.06)), "Head", k=0.03)                                                # fills between cheek and jaw
+        add(ellipsoid(P(s * 0.034, -0.086, 1.668), R(0.017, 0.008, 0.008)), "Head", k=0.012)                                # under the eye
+    add(ellipsoid(P(0, -0.052, 1.635), R(0.05 * jaw, 0.03, 0.06)), "Head", k=0.03)                                         # fills between cheek and jaw
+    add(ellipsoid(P(0, -0.068, 1.638), R(0.046, 0.026, 0.03)), "Head", k=0.03)                                                # fills the gutter between muzzle and cheeks
+    add(ellipsoid(P(0, -0.062, 1.596), R(0.05, 0.03, 0.022)), "Head", k=0.02)                                                     # round the mouth, so it sits in the face
     add(ellipsoid(P(0, -0.084, 1.562), R(0.019 * jaw, 0.014, 0.016)), "Head", k=0.022)                                       # chin
-    add(ellipsoid(P(0, -0.077, 1.616), R(0.024 * jaw, 0.015, 0.032)), "Head", k=0.016)                                       # upper jaw under the nose
+    add(ellipsoid(P(0, -0.077, 1.616), R(0.024 * jaw, 0.013, 0.032)), "Head", k=0.016)                                       # upper jaw under the nose
     # Nose: bridge, tip, wings and nostrils.
     add(cone(P(0, -0.093, 1.697), P(0, -0.112, 1.64), 0.0062 * g, 0.0088 * g), "Head", k=0.01)
     add(ball(P(0, -0.112, 1.633), 0.0102 * g), "Head", k=0.008)
@@ -150,9 +173,9 @@ def head(body, J, female=False):
     centres = []
     radius = 0.0122 / g                # eyeballs keep their real size however the head is scaled
     for side, s in SIDES:
-        e = np.array((s * 0.032, -0.077 + (radius - 0.0118), 1.688))
+        e = np.array((s * 0.032, -0.079 + (radius - 0.0118), 1.688))
         centres.append(P(*e))
-        cut(ellipsoid(P(s * 0.032, -0.094, 1.689), R(0.021, 0.017, 0.0145)), k=0.006)
+        cut(ellipsoid(P(s * 0.032, -0.095, 1.69), R(0.02, 0.015, 0.0145)), k=0.008)
 
         def lid(lift, out, r, tag="lid"):
             pts = []
@@ -161,14 +184,16 @@ def head(body, J, female=False):
                 d = np.array((s * math.sin(a) * math.cos(el), -math.cos(a) * math.cos(el), math.sin(el)))
                 pts.append(P(*(e + d * (radius + out))))
             return tube(pts, r * g)
-        add(lid(0.3, 0.0014, 0.0028), "Head", "lid", k=0.0035)
-        add(lid(-0.27, 0.0011, 0.0019), "Head", "lid", k=0.003)
-        cut(lid(0.72, 0.0035, 0.0011), k=0.002)
+        add(lid(0.38, 0.0013, 0.0026), "Head", "lid", k=0.0035)
+        add(lid(-0.34, 0.001, 0.0017), "Head", "lid", k=0.003)
+        cut(lid(0.78, 0.0035, 0.0011), k=0.002)
     # Mouth: full lips over the teeth line, the corners tucked in, a soft philtrum.
     lip = 1.05 if female else 1.0
-    add(tube(bezier(P(-0.024, -0.096, 1.598), P(0, -0.128, 1.605), P(0.024, -0.096, 1.598), 9), 0.0042 * lip * g), "Head", k=0.006)
-    add(tube(bezier(P(-0.021, -0.095, 1.592), P(0, -0.121, 1.586), P(0.021, -0.095, 1.592), 9), 0.0054 * lip * g), "Head", k=0.006)
-    cut(tube(bezier(P(-0.021, -0.1, 1.5948), P(0, -0.128, 1.5958), P(0.021, -0.1, 1.5948), 9), 0.001 * g), k=0.0015)
+    for curve, r in lip_curves(P, 13):
+        taper = 0.4 + 0.6 * np.sin(np.linspace(0, math.pi, len(curve))) ** 0.7       # full in the middle, thin at the corners
+        add(tube(curve, r * lip * g * taper), "Head", k=0.008)
+    cut(tube(bezier(P(-0.016, -0.098, 1.5795), P(0, -0.108, 1.574), P(0.016, -0.098, 1.5795), 9), 0.0028 * g), k=0.007)    # the groove above the chin
+    cut(tube(bezier(P(-0.02, -0.099, 1.5948), P(0, -0.114, 1.5958), P(0.02, -0.099, 1.5948), 9), 0.0006 * g), k=0.002)
     for side, s in SIDES:
         cut(ball(P(s * 0.0036, -0.108, 1.612), 0.002 * g), k=0.003)
         # Ears: a rim, the bowl and a lobe, flat to the skull.
@@ -197,9 +222,13 @@ def eyeballs(name, centres, iris=(0.24, 0.17, 0.09), radius=0.0118):
         look = unit(np.array((0, -1, -0.04)))
         cosang = (co / radius) @ look
         col = np.ones((len(co), 4))
-        col[:, :3] = (0.78, 0.74, 0.7)
-        ring = smooth(0.855, 0.875, cosang)
-        col[:, :3] = col[:, :3] * (1 - ring[:, None]) + np.array(iris) * (0.7 + 0.5 * fbm(co * 900, 2, seed=3))[:, None] * ring[:, None]
+        # The white is never white: greyer toward the corners and in the upper lid's shadow, so the eye sits in the
+        # face instead of staring out of it.
+        shade = (0.55 + 0.45 * smooth(0.45, 0.95, cosang)) * (1 - 0.3 * smooth(0.2, 0.7, co[:, 2] / radius))
+        col[:, :3] = np.array((0.72, 0.67, 0.63)) * shade[:, None]
+        ring = smooth(0.83, 0.85, cosang)
+        limbus = 1 - 0.55 * smooth(0.87, 0.835, cosang)                 # the iris darkens to a ring at its rim
+        col[:, :3] = col[:, :3] * (1 - ring[:, None]) + (np.array(iris) * (0.7 + 0.5 * fbm(co * 900, 2, seed=3)) [:, None] * limbus[:, None]) * ring[:, None]
         pupil = smooth(0.968, 0.975, cosang)
         col[:, :3] = col[:, :3] * (1 - pupil[:, None]) + 0.01 * pupil[:, None]
         layer = eye.data.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
@@ -306,6 +335,21 @@ def drape(co, centre, top, bottom, count, amp, seed):
     warp = 1.4 * fbm(co * np.array((6, 6, 2.5)), 3, seed=seed)
     wave = np.sin(angle * count + warp + 0.6 * np.sin(angle * count * 0.37 + seed))
     return amp * depth * (0.55 * wave + 0.45 * np.abs(wave) - 0.2), wave
+
+
+def swing(co, mask, centre, top, hem, count, amp, seed):
+    """Hanging folds for a skirt: the selected vertices swing out and in round a vertical axis through `centre`, both
+    faces of the cloth together (a push along the normal would only thicken it). The folds are irregular in spacing and
+    depth, start below `top` and are fullest toward `hem`. Returns the moved positions."""
+    co = co.copy()
+    radial = co[mask, :2] - np.asarray(centre, float)
+    angle = np.arctan2(radial[:, 0], radial[:, 1])
+    radial /= np.linalg.norm(radial, axis=1)[:, None]
+    wave = np.sin(angle * count + 1.6 * fbm(co[mask] * np.array((5, 5, 1.5)), 3, seed=seed) + 0.8 * np.sin(angle * 4 + 2.0))
+    z = co[mask, 2]
+    depth = smooth(top, top - 0.17, z) * (0.8 + 0.4 * smooth(top - 0.17, hem, z)) * (0.75 + 0.5 * fbm(co[mask] * 3, 2, seed=seed + 1))
+    co[mask, :2] += radial * (amp * depth * ((0.5 + 0.5 * wave) ** 1.4 - 0.2))[:, None]
+    return co
 
 
 def bunching(co, at, radius, spacing, amp, axis, seed):
@@ -804,31 +848,82 @@ def feather(albedo, tags, edges, soft, passes=5):
     return albedo + (blurred - albedo) * border[:, None]
 
 
-def face_paint(co, albedo, tags, female, colour, lip=(0.68, 0.34, 0.34)):
-    """Lips, brows and lash lines painted on the face. The lips are painted by distance to the curves head() built them
-    on (the smooth blend round the mouth leaves no clean border to tag); each brow is an arc of hair over the eye,
-    laid on the nearest skin; the upper lid's rim is darkened."""
+def weathering(co, albedo, rough, metal, ridge, hollow, seam, cloth, leather, steel, seed=60):
+    """Use and age over the base paint. Cloth gets rows of stitching beside its seams and blotchy stains, both only
+    darkening it (avatars.ts dyes cloth by hue or greyness, which a multiply keeps); leather gets lighter, rougher
+    scuffs and fine cracks where it creases; steel gets tarnish in its hollows and spots of rust."""
+    albedo, rough, metal = albedo.copy(), rough.copy(), metal.copy()
+    stain = smooth(0.56, 0.72, fbm(co * 16, 3, seed=seed)) * (0.6 + 0.4 * fbm(co * 80, 2, seed=seed + 1))
+    stitches = smooth(0.15, 0.3, seam) * (1 - smooth(0.5, 0.7, seam)) * (np.sin(co @ np.array((1.0, 0.8, 1.3)) * 1300) > 0.15)
+    albedo[cloth] *= (1 - 0.22 * stain[cloth] - 0.3 * stitches[cloth])[:, None]
+    rough[cloth] -= 0.08 * stain[cloth]
+    scuff = smooth(0.6, 0.74, fbm(co * 55, 3, seed=seed + 2)) * (0.4 + 0.6 * ridge)
+    crack = (1 - smooth(0.0, 0.018, np.abs(fbm(co * 32, 3, seed=seed + 3) - 0.5))) * (0.35 + 0.65 * ridge)
+    albedo[leather] = lerp(albedo[leather], albedo[leather] * 1.45 + 0.04, (0.55 * scuff[leather])[:, None])
+    albedo[leather] *= (1 - 0.4 * crack[leather])[:, None]
+    rough[leather] += 0.2 * scuff[leather]
+    rust = smooth(0.64, 0.76, fbm(co * 40, 3, seed=seed + 4)) * (0.3 + 0.7 * hollow)
+    albedo[steel] *= (1 - 0.35 * hollow[steel])[:, None]
+    albedo[steel] = lerp(albedo[steel], np.array((0.36, 0.2, 0.1)) * (0.7 + 0.5 * fbm(co[steel] * 150, 2, seed=seed + 5))[:, None], (0.85 * rust[steel])[:, None])
+    metal[steel] *= 1 - 0.85 * rust[steel]
+    rough[steel] = lerp(rough[steel], 0.85, rust[steel]) + 0.1 * hollow[steel]
+    return albedo, np.clip(rough, 0.05, 1), metal
+
+
+def face_paint(co, albedo, tags, female, colour, lip=(0.5, 0.22, 0.22)):
+    """The face's colour over the base skin: warmth in the cheeks, nose and ears, a cool shadow round the eyes, lips
+    shaded from a fuller centre to soft edges (painted by distance to the curves head() built them on, since the
+    smooth blend round the mouth leaves no clean border to tag), brows as tapering strokes of hair laid on the nearest
+    skin, and a thin lash line on the upper lid's rim."""
     g = 0.84 if female else 0.88
     lip_scale = 1.05 if female else 1.0
     c = np.array((0, 0.0, 1.69))
-    P = lambda x, y, z: c + (np.array((x, y, z)) - c) * g
+    P = face_point(c, g)
     skin = np.isin(tags, ("skin", "lid"))
-    near_face = np.nonzero(skin & (co[:, 1] < -0.04) & (co[:, 2] > P(0, 0, 1.56)[2]) & (co[:, 2] < P(0, 0, 1.76)[2]))[0]
+    near_face = np.nonzero(skin & (co[:, 1] < -0.04) & (co[:, 2] > P(0, 0, 1.54)[2]) & (co[:, 2] < P(0, 0, 1.78)[2]))[0]
     out = albedo.copy()
     pts = co[near_face]
-    for curve, r in ((bezier(P(-0.024, -0.096, 1.598), P(0, -0.128, 1.605), P(0.024, -0.096, 1.598), 24), 0.0042),
-                     (bezier(P(-0.021, -0.095, 1.592), P(0, -0.121, 1.586), P(0.021, -0.095, 1.592), 24), 0.0054)):
-        d = np.min(np.linalg.norm(pts[:, None, :] - np.array(curve)[None, :, :], axis=2), axis=1)
-        w = smooth(r * lip_scale * g + 0.0016, r * lip_scale * g + 0.0002, d)
-        out[near_face] = lerp(out[near_face], np.array(lip) * (0.9 + 0.2 * fbm(pts * 700, 2, seed=51))[:, None], w[:, None])
+    face = out[near_face]
+    blob = lambda at, r: np.exp(-np.sum(((pts - at) / np.asarray(r)) ** 2, axis=1))
+    mottle = fbm(pts * 300, 3, seed=52)
+    # Warm blood under thin skin: cheeks, nose tip, chin; a cooler, darker band round the eyes.
+    warm = sum(blob(P(s * 0.047, -0.08, 1.638), (0.024, 0.03, 0.02)) for _, s in SIDES) * (0.32 if female else 0.22)
+    warm += blob(P(0, -0.11, 1.635), (0.012, 0.02, 0.012)) * 0.3 + blob(P(0, -0.085, 1.56), (0.02, 0.03, 0.014)) * 0.12
+    face = lerp(face, np.array((0.8, 0.43, 0.38)) * (0.92 + 0.16 * mottle)[:, None], np.clip(warm, 0, 0.5)[:, None])
+    radius = 0.0122 / g
+    eyes = [P(s * 0.032, -0.079 + (radius - 0.0118), 1.688) for _, s in SIDES]
+    socket = sum(blob(e + np.array((0, 0, -0.002)), (0.024, 0.04, 0.016)) for e in eyes)
+    face = lerp(face, face * np.array((0.84, 0.76, 0.78)), np.clip(socket, 0, 1)[:, None] * 0.25)       # the bake's occlusion adds the rest
+    # Lips: fullest colour on each lip's centre line, fading over a couple of millimetres; the parting darker.
+    for curve, r in lip_curves(P, 24):
+        dist = np.linalg.norm(pts[:, None, :] - np.array(curve)[None, :, :], axis=2)
+        k = np.argmin(dist, axis=1)
+        d = dist[np.arange(len(pts)), k]
+        reach = r * lip_scale * g * (0.4 + 0.6 * np.sin(k / (len(curve) - 1) * math.pi) ** 0.7)
+        w = smooth(reach + 0.0045, reach + 0.001, d)
+        face = lerp(face, np.array(lip) * (0.92 + 0.14 * mottle)[:, None], (0.92 * w)[:, None])
+    parting = bezier(P(-0.02, -0.099, 1.5948), P(0, -0.114, 1.5958), P(0.02, -0.099, 1.5948), 24)
+    d = np.min(np.linalg.norm(pts[:, None, :] - np.array(parting)[None, :, :], axis=2), axis=1)
+    face *= (1 - 0.15 * smooth(0.0012, 0.0003, d))[:, None]
+    # Brows: thick at the inner end, tapering to the tail, made of short hair strokes slanting up and out.
     for _, s in SIDES:
-        arc = np.array([P(s * x, -0.11, 1.709 + 0.006 * math.sin((x - 0.012) / 0.042 * math.pi) - 0.003 * (x > 0.042)) for x in np.linspace(0.012, 0.054, 14)])
-        arc = np.array([pts[np.argmin(np.linalg.norm((pts - a) * np.array((1, 0.25, 1)), axis=1))] for a in arc])     # onto the brow's surface
-        d = np.min(np.linalg.norm(pts[:, None, :] - arc[None, :, :], axis=2), axis=1)
-        width = (0.0046 if not female else 0.0038) * g
-        hairs = 0.85 + 0.15 * fbm(pts * np.array((400, 400, 1500)), 2, seed=50)
-        w = smooth(width, width * 0.4, d) * hairs
-        out[near_face] = lerp(out[near_face], np.array(colour) * 0.6, w[:, None] * 0.9)
-    lid = (tags == "lid") & (co[:, 2] > P(0, 0, 1.688)[2])
-    out[lid] *= 0.55
+        xs = np.linspace(0.012, 0.054, 16)
+        arc = np.array([P(s * x, -0.11, 1.708 + 0.0065 * math.sin((x - 0.008) / 0.05 * math.pi) - 0.002 * (x > 0.046)) for x in xs])
+        arc = np.array([pts[np.argmin(np.linalg.norm((pts - a) * np.array((1, 0.25, 1)), axis=1))] for a in arc])
+        dist = np.linalg.norm(pts[:, None, :] - arc[None, :, :], axis=2)
+        k = np.argmin(dist, axis=1)
+        d = dist[np.arange(len(pts)), k]
+        t = k / (len(xs) - 1)                                   # 0 at the inner end, 1 at the tail
+        width = (0.0078 - 0.0045 * t) * g * (0.85 if female else 1.0)
+        strokes = 0.5 + 0.5 * np.sin((pts[:, 0] * s * 1.6 + pts[:, 2] * 1.0) * 2600 + 2.5 * fbm(pts * 500, 2, seed=50))
+        w = smooth(width, width * 0.3, d) * (0.7 + 0.3 * strokes) * (0.92 - 0.3 * t)
+        face = lerp(face, np.array(colour) * 0.75, w[:, None])
+    out[near_face] = face
+    # Lash line: the upper lid's rim, where it meets the eyeball, dark; the rest of the lid only shadowed.
+    lid = np.nonzero((tags == "lid") & (co[:, 1] < -0.04))[0]
+    for e in eyes:
+        rel = co[lid] - e
+        rim = smooth(radius + 0.0034, radius + 0.0016, np.linalg.norm(rel, axis=1)) * smooth(0.0, 0.004, rel[:, 2])
+        out[lid] = out[lid] * (1 - 0.55 * rim)[:, None]
+    out[lid] *= 0.92
     return out

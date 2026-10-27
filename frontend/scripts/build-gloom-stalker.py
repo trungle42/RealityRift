@@ -319,6 +319,13 @@ def surface(obj, body, J, spans):
     albedo = lerp(albedo, np.array([0.15, 0.12, 0.16]) * (0.8 + 0.5 * ridge)[:, None], (gloom * skin)[:, None])
     albedo = lerp(albedo, np.array([0.17, 0.14, 0.11]), (0.45 * smooth(0.14, 0.02, co[:, 2]))[:, None])
     rough = 0.62 - 0.22 * hollow + 0.1 * ridge - 0.12 * gloom
+    # Old wounds: pale scars raked across the torso and limbs in a few places, and dried grime caked in the folds.
+    rake = co @ (np.array((0.55, 0.25, 0.8)) / np.linalg.norm((0.55, 0.25, 0.8)))
+    scars = smooth(0.64, 0.72, fbm(co * 3, 2, seed=44)) * smooth(0.8, 0.96, np.abs(np.sin(rake * 260 + 2 * fbm(co * 18, 2, seed=45)))) * skin * ~head
+    albedo = lerp(albedo, np.array([0.52, 0.4, 0.42]), (0.55 * scars)[:, None])
+    caked = hollow * smooth(0.45, 0.7, fbm(co * 30, 3, seed=46)) * skin
+    albedo = lerp(albedo, np.array([0.12, 0.1, 0.08]), (0.5 * caked)[:, None])
+    rough = rough + 0.12 * scars + 0.2 * caked
     claw, horn, tooth = tags == "claw", tags == "horn", tags == "tooth"
     gloss = fbm(co * 400, 2, seed=5)
     albedo[claw] = lerp(np.array([0.045, 0.035, 0.035]), np.array([0.2, 0.17, 0.14]), np.clip(0.3 + 0.3 * gloss[claw], 0, 1)[:, None])
@@ -337,6 +344,7 @@ def surface(obj, body, J, spans):
 
 def eyes(J):
     mat = glossy("gloom-stalker-eyes", (0.9, 0.42, 0.12), rough=0.12, glow=(1.0, 0.55, 0.18), strength=3.0)
+    dark = glossy("gloom-stalker-pupils", (0.02, 0.008, 0.006), rough=0.08)
     out = []
     for side, s in SIDES:
         bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=0.0112, location=(s * 0.029, -0.085, 1.765))
@@ -347,6 +355,15 @@ def eyes(J):
         eye.data.materials.append(mat)
         eye.data.shade_smooth()
         out.append(eye)
+        # A narrow dark pupil set into the glow, so the eye has a gaze rather than being a lamp.
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=8, radius=1.0, location=(s * 0.029, -0.0932, 1.765))
+        pupil = bpy.context.object
+        pupil.name = f"{side} pupil"
+        pupil.scale = (0.0021, 0.0011, 0.0068)
+        bpy.ops.object.transform_apply(scale=True)
+        pupil.data.materials.append(dark)
+        pupil.data.shade_smooth()
+        out.append(pupil)
     return out
 
 
